@@ -1123,11 +1123,15 @@ export class UnifiedUIRenderer extends EventEmitter {
       return;
     }
 
-    // Don't add secrets to history or display them in scrollback
-    if (!this.secretMode) {
+    // Don't add secrets or slash commands to history/scrollback
+    if (!this.secretMode && !normalized.startsWith('/')) {
       this.history.push(normalized);
       this.historyIndex = -1;
       this.displayUserPrompt(normalized);
+    } else if (!this.secretMode) {
+      // Still track slash commands in history for convenience
+      this.history.push(normalized);
+      this.historyIndex = -1;
     }
     if (this.mode === 'streaming') {
       this.emit('queue', normalized);
@@ -2658,40 +2662,13 @@ export class UnifiedUIRenderer extends EventEmitter {
       const activityText = `${displayActivity.trim()}${needsEllipsis ? '…' : ''}`;
       const suffix = ` ${theme.ui.muted('(')}${parts.join(theme.ui.muted(' · '))}${theme.ui.muted(')')}`;
 
-      // Build the full activity line content (without prefix for scrolling calculation)
-      const fullContent = activityText + suffix;
-      const prefixLen = this.visibleLength(prefix);
-      const availableWidth = maxWidth - prefixLen;
+      // Build the full activity line with animated color for elapsed time
+      const activityLine = `${prefix}${activityText}${suffix}`;
 
-      // Apply horizontal scrolling if content is too long
-      let displayContent = fullContent;
-      const contentLen = this.visibleLength(fullContent);
-      if (contentLen > availableWidth) {
-        // Calculate scroll bounds
-        const maxScroll = contentLen - availableWidth + 3; // +3 for padding
-
-        // Bounce the scroll direction at boundaries
-        if (this.activityScrollOffset >= maxScroll) {
-          this.activityScrollDirection = -1;
-        } else if (this.activityScrollOffset <= 0) {
-          this.activityScrollDirection = 1;
-        }
-
-        // Create scrolled view with visual indicators
-        const offset = Math.max(0, Math.min(this.activityScrollOffset, maxScroll));
-        const startIndicator = offset > 0 ? '‹' : '';
-        const endIndicator = offset < maxScroll ? '›' : '';
-
-        // Extract visible portion (handle ANSI codes properly)
-        const plainContent = this.stripAnsi(fullContent);
-        const visiblePlain = plainContent.slice(offset, offset + availableWidth - 2);
-
-        // Re-apply styling to the visible portion
-        displayContent = startIndicator + visiblePlain + endIndicator;
-      }
-
-      const activityLine = `${prefix}${displayContent}`;
-      lines.push(activityLine);
+      // Always show full text - wrap to multiple lines if needed
+      const indent = ' '.repeat(this.visibleLength(prefix));
+      const wrapped = this.wrapOverlayLine(activityLine, maxWidth, indent);
+      lines.push(...wrapped);
     }
 
     // Top divider
