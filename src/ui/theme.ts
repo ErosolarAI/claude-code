@@ -375,7 +375,7 @@ export function formatToolCall(name: string, status: 'running' | 'success' | 'er
   const statusColor = status === 'running' ? theme.info :
                       status === 'success' ? theme.success : theme.error;
 
-  return `${statusColor(statusIcon)} ${theme.tool(name)}`;
+  return `${statusColor(statusIcon)} ${theme.tool(`[${name}]`)}`;
 }
 
 export function formatMessage(role: 'user' | 'assistant' | 'system', content: string): string {

@@ -38,8 +38,8 @@ export interface DiffLine {
  * Format tool call display (Erosolar-CLI style)
  *
  * Example output:
- * ⏺ Read(src/core/agent.ts)
- * ⏺ Search(pattern: "TODO|FIXME", output_mode: "content", head_limit: 15)
+ * ⏺ [Read] src/core/agent.ts
+ * ⏺ [Search] pattern: "TODO|FIXME", output_mode: "content", head_limit: 15
  */
 export function formatToolCall(
   call: ToolCallDisplay,
@@ -47,12 +47,12 @@ export function formatToolCall(
 ): string {
   const includePrefix = options.includePrefix ?? true;
   const symbol = includePrefix ? `${theme.info('⏺')} ` : '';
-  const toolName = theme.tool(call.name);
+  const toolName = theme.tool(`[${call.name}]`);
 
   // Format args inline (only show relevant ones)
   const argsDisplay = formatInlineArgs(call.args);
 
-  return `${symbol}${toolName}${argsDisplay}`;
+  return `${symbol}${toolName}${argsDisplay ? ` ${argsDisplay}` : ''}`;
 }
 
 /**

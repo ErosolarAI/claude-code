@@ -231,6 +231,10 @@ export class AgentSession {
   get contextManager(): ContextManager {
     return this.state.contextManager;
   }
+
+  get toolSuites(): ToolSuite[] {
+    return this.state.toolSuites;
+  }
 }
 
 /**

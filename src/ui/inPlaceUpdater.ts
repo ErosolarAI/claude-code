@@ -499,7 +499,7 @@ export class InPlaceUpdater {
     }
 
     // Tool name
-    parts.push(theme.tool(toolName));
+    parts.push(theme.tool(`[${toolName}]`));
 
     // Message
     parts.push(message);

@@ -139,6 +139,7 @@ class InteractiveShell {
     queue: [],
   };
   private currentResponseBuffer = '';
+  private preferredUpgradeMode: RepoUpgradeMode = 'single-continuous';
 
   constructor(controller: AgentController, profile: ProfileName, profileConfig: ResolvedProfileConfig, workingDir: string) {
     this.controller = controller;
@@ -171,6 +172,7 @@ class InteractiveShell {
         onInterrupt: () => this.handleInterrupt(),
         onExit: () => this.handleExit(),
         onCtrlC: (info) => this.handleCtrlC(info),
+        onToggleDualRl: () => this.handleDualRlToggle(),
       }
     );
 
@@ -352,9 +354,7 @@ class InteractiveShell {
       return;
     }
 
-    const mode: RepoUpgradeMode = args.some(arg => arg.toLowerCase() === 'dual')
-      ? 'dual-rl-continuous'
-      : 'single-continuous';
+    const mode = this.resolveUpgradeMode(args);
     const continueOnFailure = !args.some(arg => arg === '--stop-on-fail');
     const validationMode = this.parseValidationMode(args);
     const additionalScopes = args
@@ -415,6 +415,13 @@ class InteractiveShell {
     const status = report.success ? chalk.green('✓') : chalk.yellow('⚠');
     lines.push(chalk.bold(`${status} Repo upgrade (${report.mode})`));
     lines.push(chalk.dim(`Continue on failure: ${report.continueOnFailure ? 'yes' : 'no'}`));
+    if (report.mode === 'dual-rl-continuous') {
+      const stats = this.getVariantStats(report);
+      const tieText = stats.ties > 0 ? chalk.dim(` · ties ${stats.ties}`) : '';
+      lines.push(
+        chalk.dim(`RL competition: primary ${stats.primaryWins} · refiner ${stats.refinerWins}${tieText}`)
+      );
+    }
     lines.push('');
 
     for (const module of report.modules) {
@@ -449,10 +456,69 @@ class InteractiveShell {
     this.scheduleInlinePanelDismiss();
   }
 
+  private getVariantStats(report: RepoUpgradeReport): { primaryWins: number; refinerWins: number; ties: number } {
+    if (report.variantStats) {
+      const { primaryWins, refinerWins, ties } = report.variantStats;
+      return { primaryWins, refinerWins, ties };
+    }
+
+    const stats = { primaryWins: 0, refinerWins: 0, ties: 0 };
+    for (const module of report.modules) {
+      for (const step of module.steps) {
+        if (step.winnerVariant === 'refiner') {
+          stats.refinerWins += 1;
+        } else {
+          stats.primaryWins += 1;
+        }
+        if (step.refiner && step.primary.success && step.refiner.success) {
+          const primaryScore = typeof step.primary.score === 'number' ? step.primary.score : 0;
+          const refinerScore = typeof step.refiner.score === 'number' ? step.refiner.score : 0;
+          if (Math.abs(primaryScore - refinerScore) < 1e-6) {
+            stats.ties += 1;
+          }
+        }
+      }
+    }
+
+    return stats;
+  }
+
   private truncateInline(text: string, limit: number): string {
     if (!text) return '';
     if (text.length <= limit) return text;
     return `${text.slice(0, limit - 1)}…`;
+  }
+
+  private resolveUpgradeMode(args: string[]): RepoUpgradeMode {
+    const normalized = args.map(arg => arg.toLowerCase());
+    const explicitDual = normalized.some(arg => arg === 'dual' || arg === 'multi');
+    const explicitSingle = normalized.some(arg => arg === 'single' || arg === 'solo');
+    const mode: RepoUpgradeMode = explicitDual
+      ? 'dual-rl-continuous'
+      : explicitSingle
+        ? 'single-continuous'
+        : this.preferredUpgradeMode;
+
+    this.preferredUpgradeMode = mode;
+
+    const toggles = this.promptController?.getModeToggleState();
+    const currentlyDual = toggles?.dualRlEnabled ?? false;
+    if (toggles && currentlyDual !== (mode === 'dual-rl-continuous')) {
+      this.promptController?.setModeToggles({
+        verificationEnabled: toggles.verificationEnabled,
+        verificationHotkey: toggles.verificationHotkey,
+        autoContinueEnabled: toggles.autoContinueEnabled,
+        autoContinueHotkey: toggles.autoContinueHotkey,
+        thinkingModeLabel: toggles.thinkingModeLabel,
+        thinkingHotkey: toggles.thinkingHotkey,
+        criticalApprovalMode: toggles.criticalApprovalMode,
+        criticalApprovalHotkey: toggles.criticalApprovalHotkey,
+        dualRlEnabled: mode === 'dual-rl-continuous',
+        dualRlHotkey: toggles.dualRlHotkey,
+      });
+    }
+
+    return mode;
   }
 
   private parseValidationMode(args: string[]): 'auto' | 'ask' | 'skip' {
@@ -549,6 +615,7 @@ class InteractiveShell {
     // Toggle dual-agent RL mode
     if (lower === '/dual' || lower === '/mode') {
       this.promptController?.toggleDualMode();
+      this.syncPreferredModeFromToggles();
       const state = this.promptController?.getModeToggleState();
       this.promptController?.setStatusMessage(state?.dualRlEnabled ? 'Dual RL on' : 'Dual RL off');
       setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
@@ -563,6 +630,7 @@ class InteractiveShell {
           verificationEnabled: state?.verificationEnabled ?? false,
           autoContinueEnabled: state?.autoContinueEnabled ?? false,
         });
+        this.syncPreferredModeFromToggles();
         this.promptController?.setStatusMessage('Dual RL on');
       } else if (arg === 'single' || arg === 'solo') {
         this.promptController?.setModeToggles({
@@ -570,6 +638,7 @@ class InteractiveShell {
           verificationEnabled: state?.verificationEnabled ?? false,
           autoContinueEnabled: state?.autoContinueEnabled ?? false,
         });
+        this.syncPreferredModeFromToggles();
         this.promptController?.setStatusMessage('Dual RL off');
       } else {
         this.promptController?.setStatusMessage('Use /mode dual|single');
@@ -1217,6 +1286,18 @@ class InteractiveShell {
         renderer.addEvent('banner', chalk.yellow('Interrupted'));
       }
     }
+  }
+
+  private handleDualRlToggle(): void {
+    this.syncPreferredModeFromToggles();
+    const dual = this.preferredUpgradeMode === 'dual-rl-continuous';
+    this.promptController?.setStatusMessage(dual ? 'Dual RL on' : 'Single mode');
+    setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
+  }
+
+  private syncPreferredModeFromToggles(): void {
+    const dual = this.promptController?.getModeToggleState().dualRlEnabled ?? false;
+    this.preferredUpgradeMode = dual ? 'dual-rl-continuous' : 'single-continuous';
   }
 
   private handleCtrlC(info: { hadBuffer: boolean }): void {

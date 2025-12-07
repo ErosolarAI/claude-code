@@ -591,4 +591,8 @@ export class AgentController implements IAgentController {
 
     return true;
   }
+
+  getToolSuites(): ToolSuite[] {
+    return this.session.toolSuites;
+  }
 }

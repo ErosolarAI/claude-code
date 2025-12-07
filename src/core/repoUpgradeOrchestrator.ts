@@ -116,6 +116,7 @@ export interface RepoUpgradeReport extends OperationReport {
   validationArtifacts?: ValidationRunResult[];
   /** True when validation commands were executed instead of just suggested */
   validationsExecuted?: boolean;
+  variantStats: VariantWinStats;
 }
 
 export interface RepoUpgradeRunOptions {
@@ -134,6 +135,14 @@ export interface ValidationRunResult {
   durationMs: number;
   skipped?: boolean;
   reason?: string;
+}
+
+export interface VariantWinStats {
+  primaryWins: number;
+  refinerWins: number;
+  /** Number of steps where scores were effectively tied and bias picked the winner */
+  ties: number;
+  totalSteps: number;
 }
 
 /**
@@ -361,12 +370,14 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     const mode = options.mode;
     const continueOnFailure = options.continueOnFailure ?? true;
     const objective = options.objective ?? 'Repository-wide source code upgrade';
+    const modeDefinition = getModeDefinition(mode);
 
     // Reset state per run to keep reports clean
     this.results = [];
     this.findings = [];
 
     const moduleReports: UpgradeModuleReport[] = [];
+    const variantStats: VariantWinStats = { primaryWins: 0, refinerWins: 0, ties: 0, totalSteps: 0 };
     let halted = false;
 
     for (const module of plan.modules) {
@@ -400,6 +411,7 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
       for (const step of module.steps) {
         const outcome = await this.runStep(module, step, mode);
         moduleReport.steps.push(outcome);
+        this.updateVariantStats(variantStats, outcome, modeDefinition);
 
         if (!outcome.winner.success) {
           moduleReport.status = 'failed';
@@ -420,7 +432,7 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     }
 
     const baseReport = this.generateReport(objective);
-    return { ...baseReport, mode, continueOnFailure, modules: moduleReports };
+    return { ...baseReport, mode, continueOnFailure, modules: moduleReports, variantStats };
   }
 
   private async runStep(
@@ -540,6 +552,32 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
 
     // Ensure we only track a single winner record per step to keep reports clean
     this.results.push(execution);
+  }
+
+  private updateVariantStats(
+    stats: VariantWinStats,
+    outcome: UpgradeStepOutcome,
+    modeDefinition: RepoUpgradeModeDefinition
+  ): void {
+    stats.totalSteps += 1;
+    if (outcome.winnerVariant === 'refiner') {
+      stats.refinerWins += 1;
+    } else {
+      stats.primaryWins += 1;
+    }
+
+    if (!outcome.refiner) {
+      return;
+    }
+
+    const primaryScore = typeof outcome.primary.score === 'number' ? outcome.primary.score : 0;
+    const refinerScoreRaw = typeof outcome.refiner.score === 'number' ? outcome.refiner.score : 0;
+    const refinerScore = refinerScoreRaw + (modeDefinition.refinerBias ?? 0);
+    const scoresClose = Math.abs(primaryScore - refinerScore) < 1e-6;
+    const bothSucceeded = outcome.primary.success && outcome.refiner.success;
+    if (bothSucceeded && scoresClose) {
+      stats.ties += 1;
+    }
   }
 }
 

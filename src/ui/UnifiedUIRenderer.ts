@@ -141,9 +141,6 @@ export class UnifiedUIRenderer extends EventEmitter {
   private readonly activityStarFrames = ['✳', '✴', '✵', '✶', '✷', '✸'];
   // Token count during streaming
   private streamingTokens = 0;
-  // Horizontal scroll animation for long activity lines
-  private activityScrollOffset = 0;
-  private activityScrollDirection = 1; // 1 = right, -1 = left
   // Elapsed time color animation
   private elapsedColorFrame = 0;
   private readonly elapsedColorFrames = ['#F59E0B', '#FBBF24', '#FCD34D', '#FDE68A', '#FCD34D', '#FBBF24'];
@@ -1786,8 +1783,8 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   /**
    * Format a tool call in Claude Code style:
-   *   ⏺ Search(pattern: "foo", path: "src",
-   *           output_mode: "content", head_limit: 30)
+   *   ⏺ [Search] pattern: "foo", path: "src",
+   *              output_mode: "content", head_limit: 30
    */
   private formatToolCall(content: string): string {
     const bullet = '⏺';
@@ -1797,7 +1794,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       // Simple format without args
       const nameMatch = content.match(/^(\w+)/);
       if (nameMatch) {
-        return `${bullet} ${theme.tool(nameMatch[1])}\n`;
+        return `${bullet} ${theme.tool(`[${nameMatch[1]}]`)}\n`;
       }
       return `${bullet} ${content}\n`;
     }
@@ -1806,15 +1803,15 @@ export class UnifiedUIRenderer extends EventEmitter {
     const argsStr = match[2]!;
     const maxWidth = Math.min(this.cols - 4, 56);
 
-    // Format: ⏺ ToolName(args...)
-    const prefix = `${bullet} ${theme.tool(toolName)}(`;
-    const prefixLen = toolName!.length + 3; // "⏺ ToolName(" visible length
+    // Format: ⏺ [ToolName] args...
+    const prefix = `${bullet} ${theme.tool(`[${toolName}]`)} `;
+    const prefixLen = toolName!.length + 5; // "⏺ [ToolName] " visible length
     const indent = ' '.repeat(prefixLen + 4); // Extra indent for wrapped args
 
     // Parse and format arguments
     const args = this.parseToolArgs(argsStr);
     if (args.length === 0) {
-      return `${prefix})\n`;
+      return `${prefix.trimEnd()}\n`;
     }
 
     const lines: string[] = [];
@@ -1823,7 +1820,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
       const argText = `${theme.ui.muted(arg.key + ':')} ${this.formatArgValue(arg.key, arg.value)}`;
-      const separator = i < args.length - 1 ? ', ' : ')';
+      const separator = i < args.length - 1 ? ', ' : '';
 
       // Check if this arg fits on current line
       const testLine = currentLine + argText + separator;
@@ -1902,7 +1899,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   /**
-   * Format a compact tool call: ⏺ Read → file.ts
+   * Format a compact tool call: ⏺ [Read] file.ts
    */
   private formatCompactToolCall(content: string): string {
     const bullet = '⏺';
@@ -1917,19 +1914,15 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     // If no args, just show tool name
     if (!argsStr) {
-      return `${bullet} ${theme.tool(toolName)}\n`;
+      return `${bullet} ${theme.tool(`[${toolName}]`)}\n`;
     }
 
-    // Format full params in Claude Code style with line wrapping
-    // For long args, wrap them nicely with continuation indent
-    const prefix = `${bullet} ${theme.tool(toolName)}(`;
-    const suffix = ')';
     const maxWidth = this.cols - 8; // Leave room for margins
 
     // Parse individual params
     const params = this.parseToolParams(argsStr);
     if (params.length === 0) {
-      return `${prefix}${argsStr}${suffix}\n`;
+      return `${bullet} ${theme.tool(`[${toolName}]`)} ${argsStr}\n`;
     }
 
     // Format params with proper wrapping
@@ -1962,7 +1955,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     const lines: string[] = [];
     const indent = '        '; // 8 spaces for continuation
 
-    let currentLine = `${bullet} ${theme.tool(toolName)}(`;
+    let currentLine = `${bullet} ${theme.tool(`[${toolName}]`)} `;
     let firstParam = true;
 
     for (const param of params) {
@@ -1984,7 +1977,6 @@ export class UnifiedUIRenderer extends EventEmitter {
       firstParam = false;
     }
 
-    currentLine += ')';
     lines.push(currentLine);
 
     return lines.join('\n') + '\n';
@@ -2283,8 +2275,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (this.spinnerInterval) return; // Already running
     this.spinnerFrame = 0;
     this.activityStarFrame = 0;
-    this.activityScrollOffset = 0;
-    this.activityScrollDirection = 1;
     this.elapsedColorFrame = 0;
     this.spinnerInterval = setInterval(() => {
       this.spinnerFrame = (this.spinnerFrame + 1) % spinnerFrames.braille.length;
@@ -2292,10 +2282,6 @@ export class UnifiedUIRenderer extends EventEmitter {
       // Update elapsed time color animation (slower cycle)
       if (this.spinnerFrame % 3 === 0) {
         this.elapsedColorFrame = (this.elapsedColorFrame + 1) % this.elapsedColorFrames.length;
-      }
-      // Update horizontal scroll for long activity lines (slower scroll)
-      if (this.spinnerFrame % 4 === 0) {
-        this.activityScrollOffset += this.activityScrollDirection;
       }
       // Re-render to show updated spinner/star frame
       if (!this.plainMode && this.mode === 'streaming') {
@@ -2315,8 +2301,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     this.spinnerFrame = 0;
     this.activityStarFrame = 0;
     this.activityMessage = null;
-    this.activityScrollOffset = 0;
-    this.activityScrollDirection = 1;
     this.elapsedColorFrame = 0;
   }
 
@@ -3353,7 +3337,8 @@ export class UnifiedUIRenderer extends EventEmitter {
     for (const word of words) {
       const next = current + word;
       if (this.visibleLength(next) > width && current.trim()) {
-        lines.push(this.truncateLine(current.trimEnd(), width));
+        // Don't truncate - just push the line as-is (it fits within width)
+        lines.push(current.trimEnd());
         current = indent + word.trimStart();
       } else {
         current = next;
@@ -3361,10 +3346,11 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (current.trim()) {
-      lines.push(this.truncateLine(current.trimEnd(), width));
+      lines.push(current.trimEnd());
     }
 
-    return lines.length ? lines : [this.truncateLine(text, width)];
+    // If no lines were produced, return the original text without truncation
+    return lines.length ? lines : [text];
   }
 
   private safeWidth(): number {
