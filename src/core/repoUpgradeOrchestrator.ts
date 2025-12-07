@@ -851,7 +851,18 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     this.emit({
       type: 'upgrade.step.complete',
       timestamp: Date.now(),
-      data: { moduleId: module.id, stepId: step.id, variant: winnerVariant, success: winner.success },
+      data: {
+        moduleId: module.id,
+        stepId: step.id,
+        variant: winnerVariant,
+        success: winner.success,
+        // Include outcome details for UI scoring
+        primaryScore: primary.score,
+        primarySuccess: primary.success,
+        refinerScore: refiner?.score,
+        refinerSuccess: refiner?.success,
+        winnerVariant,
+      },
     });
 
     return {

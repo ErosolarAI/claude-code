@@ -356,9 +356,18 @@ class InteractiveShell {
     }
 
     const mode = this.resolveUpgradeMode(args);
-    const continueOnFailure = !args.some(arg => arg === '--stop-on-fail');
+    // Support both --stop-on-fail (halt) and --continue-on-failure (explicit continue)
+    const explicitStopOnFail = args.some(arg => arg === '--stop-on-fail');
+    const explicitContinue = args.some(arg => arg === '--continue-on-failure');
+    const continueOnFailure = explicitContinue || !explicitStopOnFail;
     const validationMode = this.parseValidationMode(args);
-    const enableVariantWorktrees = args.includes('--git-worktrees');
+    // Parse --parallel-variants flag (defaults based on mode definition)
+    const explicitParallelVariants = args.includes('--parallel-variants');
+    // Auto-enable git worktrees for tournament mode, or if explicitly requested
+    const isTournamentMode = mode === 'dual-rl-tournament';
+    const enableVariantWorktrees = isTournamentMode || args.includes('--git-worktrees');
+    // Enable parallel variants for tournament mode by default, or if explicitly requested
+    const parallelVariants = isTournamentMode || explicitParallelVariants;
     const repoPolicy = this.parseUpgradePolicy(args);
     const additionalScopes = args
       .filter(arg => arg.startsWith('scope:'))
@@ -367,8 +376,27 @@ class InteractiveShell {
     const direction = this.parseUpgradeDirection(args);
 
     if (!direction) {
-      this.promptController?.setStatusMessage('Add directions: /upgrade [dual] scope:<path> <what to upgrade>');
-      setTimeout(() => this.promptController?.setStatusMessage(null), 4000);
+      const renderer = this.promptController?.getRenderer();
+      // Show inline help panel with usage info
+      if (renderer && this.promptController?.supportsInlinePanel()) {
+        this.promptController.setInlinePanel([
+          chalk.bold.yellow('⚠ Missing upgrade direction'),
+          '',
+          chalk.dim('Usage: ') + '/upgrade [mode] [flags] <direction>',
+          '',
+          chalk.dim('Examples:'),
+          '  /upgrade dual add error handling to API routes',
+          '  /upgrade tournament scope:src/api improve performance',
+          '  /upgrade refactor authentication flow',
+          '',
+          chalk.dim('Modes: ') + 'dual, tournament, single',
+          chalk.dim('Flags: ') + '--validate, --parallel-variants, --continue-on-failure',
+        ]);
+        setTimeout(() => this.promptController?.clearInlinePanel(), 8000);
+      } else {
+        this.promptController?.setStatusMessage('Missing direction: /upgrade [mode] <what to upgrade>');
+        setTimeout(() => this.promptController?.setStatusMessage(null), 4000);
+      }
       return;
     }
 
@@ -387,6 +415,7 @@ class InteractiveShell {
         additionalScopes,
         objective: direction,
         enableVariantWorktrees,
+        parallelVariants,
         repoPolicy: repoPolicy ?? undefined,
         onEvent: (event) => this.handleUpgradeEvent(event.type, event.data),
         onAgentEvent: (event) => this.handleAgentEventForUpgrade(event),
@@ -449,14 +478,32 @@ class InteractiveShell {
     } else if (type === 'upgrade.step.complete') {
       const variant = data?.['variant'] as 'primary' | 'refiner' | undefined;
       const success = Boolean(data?.['success']);
+      const winnerVariant = data?.['winnerVariant'] as 'primary' | 'refiner' | undefined;
+      const primaryScore = data?.['primaryScore'] as number | undefined;
+      const primarySuccess = data?.['primarySuccess'] as boolean | undefined;
+      const refinerScore = data?.['refinerScore'] as number | undefined;
+      const refinerSuccess = data?.['refinerSuccess'] as boolean | undefined;
+
+      // Update win stats if we have outcome data
+      if (winnerVariant && primarySuccess !== undefined) {
+        this.updateRLWinStatsFromEvent({
+          winnerVariant,
+          primaryScore,
+          primarySuccess,
+          refinerScore,
+          refinerSuccess,
+        });
+      }
+
       // Clear active variant on step completion
       this.promptController.updateRLStatus({
         activeVariant: null,
         currentStep: undefined,
       });
-      // Show completion message
+      // Show completion message with winner indicator
       const status = success ? 'completed' : 'failed';
-      this.promptController.setStatusMessage(`Step ${status} (${variant ?? 'unknown'})`);
+      const winnerIcon = winnerVariant === 'primary' ? '🔵' : winnerVariant === 'refiner' ? '🟠' : '';
+      this.promptController.setStatusMessage(`Step ${status} ${winnerIcon}(${variant ?? 'unknown'})`);
     } else if (type === 'upgrade.step.variants.parallel') {
       // Parallel variant execution starting
       const variants = data?.['variants'] as string[] | undefined;
@@ -503,20 +550,44 @@ class InteractiveShell {
     if (!this.promptController) return;
     const currentStatus = this.promptController.getRLStatus();
     const wins = currentStatus.wins ?? { primary: 0, refiner: 0, ties: 0 };
+    const previousStreak = currentStatus.streak ?? 0;
+    const previousWinner = currentStatus.lastWinner;
 
-    // Update win counts based on winner
-    if (outcome.winnerVariant === 'primary') {
-      wins.primary += 1;
-    } else if (outcome.winnerVariant === 'refiner') {
-      wins.refiner += 1;
-    }
+    // Determine this step's winner
+    let lastWinner: 'primary' | 'refiner' | 'tie' | null = null;
+    let isTie = false;
 
-    // Check for ties (both succeeded with similar scores)
+    // Check for ties first (both succeeded with similar scores)
     if (outcome.primary.success && outcome.refiner?.success) {
       const pScore = outcome.primary.score ?? 0;
       const rScore = outcome.refiner?.score ?? 0;
       if (Math.abs(pScore - rScore) < 0.01) {
+        isTie = true;
+        lastWinner = 'tie';
         wins.ties += 1;
+      }
+    }
+
+    // Update win counts based on winner (if not a tie)
+    if (!isTie) {
+      if (outcome.winnerVariant === 'primary') {
+        wins.primary += 1;
+        lastWinner = 'primary';
+      } else if (outcome.winnerVariant === 'refiner') {
+        wins.refiner += 1;
+        lastWinner = 'refiner';
+      }
+    }
+
+    // Calculate streak - consecutive wins by same variant
+    let streak = 0;
+    if (lastWinner && lastWinner !== 'tie') {
+      if (previousWinner === lastWinner) {
+        // Continue the streak
+        streak = previousStreak + 1;
+      } else {
+        // New streak starts
+        streak = 1;
       }
     }
 
@@ -536,6 +607,84 @@ class InteractiveShell {
       wins,
       scores,
       stepsCompleted,
+      lastWinner,
+      streak,
+    });
+  }
+
+  /**
+   * Update win statistics from event data (lighter weight than full UpgradeStepOutcome).
+   * Called from upgrade.step.complete event handler.
+   */
+  private updateRLWinStatsFromEvent(eventData: {
+    winnerVariant: 'primary' | 'refiner';
+    primaryScore?: number;
+    primarySuccess?: boolean;
+    refinerScore?: number;
+    refinerSuccess?: boolean;
+  }): void {
+    if (!this.promptController) return;
+    const currentStatus = this.promptController.getRLStatus();
+    const wins = currentStatus.wins ?? { primary: 0, refiner: 0, ties: 0 };
+    const previousStreak = currentStatus.streak ?? 0;
+    const previousWinner = currentStatus.lastWinner;
+
+    // Determine this step's winner
+    let lastWinner: 'primary' | 'refiner' | 'tie' | null = null;
+    let isTie = false;
+
+    // Check for ties first (both succeeded with similar scores)
+    if (eventData.primarySuccess && eventData.refinerSuccess) {
+      const pScore = eventData.primaryScore ?? 0;
+      const rScore = eventData.refinerScore ?? 0;
+      if (Math.abs(pScore - rScore) < 0.01) {
+        isTie = true;
+        lastWinner = 'tie';
+        wins.ties += 1;
+      }
+    }
+
+    // Update win counts based on winner (if not a tie)
+    if (!isTie) {
+      if (eventData.winnerVariant === 'primary') {
+        wins.primary += 1;
+        lastWinner = 'primary';
+      } else if (eventData.winnerVariant === 'refiner') {
+        wins.refiner += 1;
+        lastWinner = 'refiner';
+      }
+    }
+
+    // Calculate streak - consecutive wins by same variant
+    let streak = 0;
+    if (lastWinner && lastWinner !== 'tie') {
+      if (previousWinner === lastWinner) {
+        // Continue the streak
+        streak = previousStreak + 1;
+      } else {
+        // New streak starts
+        streak = 1;
+      }
+    }
+
+    // Update scores
+    const scores: { primary?: number; refiner?: number } = {};
+    if (typeof eventData.primaryScore === 'number') {
+      scores.primary = eventData.primaryScore;
+    }
+    if (typeof eventData.refinerScore === 'number') {
+      scores.refiner = eventData.refinerScore;
+    }
+
+    // Update steps completed count
+    const stepsCompleted = (currentStatus.stepsCompleted ?? 0) + 1;
+
+    this.promptController.updateRLStatus({
+      wins,
+      scores,
+      stepsCompleted,
+      lastWinner,
+      streak,
     });
   }
 
@@ -740,19 +889,26 @@ class InteractiveShell {
 
   private resolveUpgradeMode(args: string[]): RepoUpgradeMode {
     const normalized = args.map(arg => arg.toLowerCase());
+    // Check for tournament mode (parallel isolated variants with git worktrees)
+    const explicitTournament = normalized.some(arg => arg === 'tournament' || arg === 'dual-rl-tournament');
+    // Check for dual mode (sequential refiner sees primary's work)
     const explicitDual = normalized.some(arg => arg === 'dual' || arg === 'multi');
     const explicitSingle = normalized.some(arg => arg === 'single' || arg === 'solo');
-    const mode: RepoUpgradeMode = explicitDual
-      ? 'dual-rl-continuous'
-      : explicitSingle
-        ? 'single-continuous'
-        : this.preferredUpgradeMode;
+    const mode: RepoUpgradeMode = explicitTournament
+      ? 'dual-rl-tournament'
+      : explicitDual
+        ? 'dual-rl-continuous'
+        : explicitSingle
+          ? 'single-continuous'
+          : this.preferredUpgradeMode;
 
     this.preferredUpgradeMode = mode;
 
     const toggles = this.promptController?.getModeToggleState();
+    // Consider both dual-rl-continuous and dual-rl-tournament as "dual RL" modes
+    const isDualRlMode = mode === 'dual-rl-continuous' || mode === 'dual-rl-tournament';
     const currentlyDual = toggles?.dualRlEnabled ?? false;
-    if (toggles && currentlyDual !== (mode === 'dual-rl-continuous')) {
+    if (toggles && currentlyDual !== isDualRlMode) {
       this.promptController?.setModeToggles({
         verificationEnabled: toggles.verificationEnabled,
         verificationHotkey: toggles.verificationHotkey,
@@ -762,7 +918,7 @@ class InteractiveShell {
         thinkingHotkey: toggles.thinkingHotkey,
         criticalApprovalMode: toggles.criticalApprovalMode,
         criticalApprovalHotkey: toggles.criticalApprovalHotkey,
-        dualRlEnabled: mode === 'dual-rl-continuous',
+        dualRlEnabled: isDualRlMode,
         dualRlHotkey: toggles.dualRlHotkey,
       });
     }
@@ -795,10 +951,16 @@ class InteractiveShell {
     const parts: string[] = [];
     for (const arg of args) {
       const lower = arg.toLowerCase();
+      // Mode keywords
       if (lower === 'dual' || lower === 'multi' || lower === 'single' || lower === 'solo') continue;
-      if (lower === '--stop-on-fail') continue;
+      if (lower === 'tournament' || lower === 'dual-rl-tournament') continue;
+      // Failure handling flags
+      if (lower === '--stop-on-fail' || lower === '--continue-on-failure') continue;
+      // Validation flags
       if (lower === '--validate' || lower === '--no-validate' || lower.startsWith('--validate=')) continue;
-      if (lower === '--git-worktrees') continue;
+      // Parallel/worktree flags
+      if (lower === '--git-worktrees' || lower === '--parallel-variants') continue;
+      // Prefix arguments
       if (lower.startsWith('policy:')) continue;
       if (lower.startsWith('scope:')) continue;
       parts.push(arg);
@@ -1343,7 +1505,7 @@ class InteractiveShell {
         chalk.hex('#FBBF24')('/secrets set') + chalk.dim(' - Configure keys'),
       chalk.hex('#FBBF24')('/bash') + chalk.dim(' - Run local command'),
       chalk.hex('#FBBF24')('/upgrade <direction>') +
-        chalk.dim(' - Repo upgrade (add "dual" for dual RL, scope:<path>, policy:<name>, --git-worktrees)'),
+        chalk.dim(' - Repo upgrade (dual|tournament, --validate, --parallel-variants, --continue-on-failure)'),
       chalk.hex('#FBBF24')('/clear') + chalk.dim(' - Clear screen') + '  ' +
         chalk.hex('#FBBF24')('/debug') + chalk.dim(' - Toggle debug'),
       chalk.hex('#FBBF24')('/memory') + chalk.dim(' - Episodic memory') + '  ' +

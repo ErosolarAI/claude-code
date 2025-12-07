@@ -983,6 +983,7 @@ export class EpisodicMemory {
 
       const episodesPath = join(this.config.storageDir, 'episodes.json');
       const approachesPath = join(this.config.storageDir, 'approaches.json');
+      const profilesPath = join(this.config.storageDir, 'optimization-profiles.json');
 
       if (existsSync(episodesPath)) {
         const data = JSON.parse(readFileSync(episodesPath, 'utf-8'));
@@ -995,6 +996,13 @@ export class EpisodicMemory {
         const data = JSON.parse(readFileSync(approachesPath, 'utf-8'));
         for (const [key, ap] of Object.entries(data.approaches || {})) {
           this.approaches.set(key, ap as LearnedApproach);
+        }
+      }
+
+      if (existsSync(profilesPath)) {
+        const data = JSON.parse(readFileSync(profilesPath, 'utf-8'));
+        for (const profile of data.profiles || []) {
+          this.optimizationProfiles.set(profile.category as EpisodeCategory, profile as OptimizationProfile);
         }
       }
     } catch (error) {
@@ -1010,6 +1018,7 @@ export class EpisodicMemory {
 
       const episodesPath = join(this.config.storageDir, 'episodes.json');
       const approachesPath = join(this.config.storageDir, 'approaches.json');
+      const profilesPath = join(this.config.storageDir, 'optimization-profiles.json');
 
       writeFileSync(episodesPath, JSON.stringify({
         version: 1,
@@ -1021,6 +1030,12 @@ export class EpisodicMemory {
         version: 1,
         updatedAt: Date.now(),
         approaches: Object.fromEntries(this.approaches),
+      }, null, 2));
+
+      writeFileSync(profilesPath, JSON.stringify({
+        version: 1,
+        updatedAt: Date.now(),
+        profiles: Array.from(this.optimizationProfiles.values()),
       }, null, 2));
 
       this.dirty = false;
@@ -1037,8 +1052,10 @@ export class EpisodicMemory {
     totalEpisodes: number;
     successfulEpisodes: number;
     totalApproaches: number;
+    totalProfiles: number;
     categoryCounts: Record<string, number>;
     topTags: string[];
+    profileSummary: { category: string; successRate: number; preferredMode: string }[];
   } {
     const categoryCounts: Record<string, number> = {};
     const tagCounts: Record<string, number> = {};
@@ -1057,12 +1074,24 @@ export class EpisodicMemory {
       .slice(0, 10)
       .map(([tag]) => tag);
 
+    const profileSummary = Array.from(this.optimizationProfiles.values())
+      .map(p => ({
+        category: p.category,
+        successRate: p.successCount + p.failureCount > 0
+          ? p.successCount / (p.successCount + p.failureCount)
+          : 0,
+        preferredMode: p.preferredMode,
+      }))
+      .sort((a, b) => b.successRate - a.successRate);
+
     return {
       totalEpisodes: this.episodes.size,
       successfulEpisodes: successCount,
       totalApproaches: this.approaches.size,
+      totalProfiles: this.optimizationProfiles.size,
       categoryCounts,
       topTags,
+      profileSummary,
     };
   }
 }

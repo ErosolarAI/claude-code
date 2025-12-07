@@ -448,9 +448,9 @@ export function createBaseCommands(): CommandDefinition[] {
     {
       name: '/upgrade',
       aliases: ['/up'],
-      description: 'Run repo upgrade with optional dual RL tournament mode',
+      description: 'Run repo upgrade with dual RL tournament mode',
       category: 'advanced',
-      usage: '/upgrade [dual] [scope:path] [policy:name] [--git-worktrees] <direction>',
+      usage: '/upgrade [dual|tournament] [scope:path] [--validate] [--parallel-variants] [--continue-on-failure] <direction>',
       async: true,
       handler: async (ctx) => {
         const shell = ctx.shell as { runRepoUpgradeCommand?: (args: string[]) => Promise<void> };
