@@ -5,7 +5,7 @@
 
 import { UnifiedUIController } from '../dist/ui/UnifiedUIController.js';
 import { AnimationScheduler } from '../dist/ui/animation/AnimationScheduler.js';
-import { InterruptPriority } from '../dist/ui/interrupts/InterruptManager.js';
+import { InterruptPriority } from '../dist/ui/interrupts/InterruptManager.js'; // NOTE: Depends on built UI modules in dist/
 import { Writable } from 'stream';
 
 // Create a mock write stream for testing
@@ -22,16 +22,6 @@ async function sleep(ms) {
 
 async function demonstrateUnifiedUI() {
   // TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
 console.log('🚀 Starting Unified UI System Demo\n');
 
   const stream = new TestStream();

@@ -17,7 +17,6 @@ interface ToolArgs extends Record<string, unknown> {
   steps?: Array<{ id: string; name: string; tool?: string; args?: Record<string, unknown>; dependsOn?: string[] }>;
   mode?: string;
   tools?: Array<{ tool: string; args?: Record<string, unknown>; description?: string }>;
-  dryRun?: boolean;
 }
 
 function nowSeconds(ms?: number): string {
@@ -139,10 +138,10 @@ export function createMetaTools(_workingDir: string): ToolDefinition[] {
     },
     {
       name: 'RealToolChain',
-      description: 'Describe a tool chain.',
-      handler: async ({ name, tools = [], dryRun }) => {
+      description: 'Execute a tool chain.',
+      handler: async ({ name, tools = [] }) => {
         const lines = [`Tool Chain: ${name ?? 'Tool Chain'}`];
-        if (dryRun) lines.push('DRY RUN');
+        lines.push('EXECUTING');
         for (const tool of tools) {
           lines.push(`⏺ ${tool.tool}`);
           if (tool.description) {

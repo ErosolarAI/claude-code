@@ -4,7 +4,7 @@ This workspace hosts development and integration tests for the Erosolar CLI agen
 
 ## Getting Started
 - Install dependencies: `npm install`
-- Build: `npm run build`
+- Build: `npm run build` (compiles TypeScript to ESM JavaScript)
 - Run tests: `npm test`
 - Lint: `npm run lint`
 
@@ -47,10 +47,12 @@ flowchart TD
 - Use `npm run quality-gate` when you need a single command that validates linting, types, health checks, and tests in one pass.
 - Build outputs live in `dist/`, which the CLI uses when you run `npm run start`, `erosolar`, or any verification/test harness that relies on the bundled output.
 - Headless runs and live verification harnesses should point to the latest build artifacts and obey the orchestration toggles described below.
+- **Module System**: The codebase uses ES Modules (ESM) throughout with `.js` extensions for imports, ensuring compatibility with modern Node.js environments.
 ## Running the CLI
 - After building, start the interactive shell with `npm run start` or `erosolar`.
 - Use `erosolar --eval "prompt"` for non-interactive text mode.
 - Use `erosolar --json --provider <p> --model <m> --prompt "..."` for headless JSON output.
+- Available flags: `--json`, `--provider <id>`, `--model <id>`, `--eval <prompt>`, `--quick`, `--profile <name>`
 - Run a multi-prompt, real-provider sanity check after setting API keys:  
   `RUN_REAL_LLM_TESTS=1 node scripts/full-flow-human.mjs` (requires `npm run build`).
 

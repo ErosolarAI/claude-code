@@ -294,12 +294,43 @@ export class AgentController implements IAgentController {
     } satisfies AgentCallbacks;
   }
 
+  /**
+   * Check if content looks like garbage/leaked reasoning fragments.
+   * Returns true if the content should be filtered out.
+   */
+  private isGarbageContent(content: string): boolean {
+    const trimmed = content.trim();
+    if (!trimmed) return true;
+
+    // Single or repeated punctuation/markdown artifacts
+    if (/^[)\]}>*`'".:,!?|│┃─━═\s]+$/.test(trimmed)) return true;
+
+    // Just newlines or whitespace
+    if (/^[\s\n\r]+$/.test(trimmed)) return true;
+
+    // Short fragments with high punctuation ratio (likely leaked formatting)
+    if (trimmed.length < 15) {
+      const alphaCount = (trimmed.match(/[a-zA-Z0-9]/g) || []).length;
+      if (alphaCount === 0) return true;
+      if (alphaCount / trimmed.length < 0.2) return true;
+    }
+
+    return false;
+  }
+
   private emitDelta(content: string, isFinal: boolean): void {
     logDebug(`[DEBUG controller] emitDelta called: content="${content?.slice(0, 50)}", isFinal=${isFinal}, hasSink=${!!this.activeSink}`);
     if (!content?.trim()) {
       logDebug('[DEBUG controller] emitDelta: skipping empty content');
       return;
     }
+
+    // Filter out garbage/leaked reasoning fragments
+    if (this.isGarbageContent(content)) {
+      logDebug('[DEBUG controller] emitDelta: filtering garbage content');
+      return;
+    }
+
     logDebug('[DEBUG controller] emitDelta: pushing to sink');
     this.activeSink?.push({
       type: 'message.delta',
@@ -319,6 +350,10 @@ export class AgentController implements IAgentController {
 
   private emitReasoning(content: string): void {
     if (!content?.trim()) {
+      return;
+    }
+    // Filter out garbage/leaked formatting fragments in reasoning too
+    if (this.isGarbageContent(content)) {
       return;
     }
     this.activeSink?.push({

@@ -13,7 +13,7 @@ import * as readline from 'node:readline';
 import { EventEmitter } from 'node:events';
 import { homedir } from 'node:os';
 import chalk from 'chalk';
-import { theme, spinnerFrames } from './theme.js';
+import { theme, spinnerFrames, getToolColor } from './theme.js';
 import { isPlainOutputMode } from './outputMode.js';
 import { AnimatedSpinner, ThinkingIndicator, ContextMeter, disposeAnimations } from './animatedStatus.js';
 import { logDebug } from '../utils/debugLogger.js';
@@ -251,7 +251,13 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Remove all ANSI escape sequences (CSI, OSC, etc.)
     // Including bracketed paste markers (\x1b[200~ and \x1b[201~) which end with ~
     // eslint-disable-next-line no-control-regex
-    return text.replace(/\x1b\[[0-9;]*[A-Za-z~]|\x1b\][^\x07]*\x07|\x1b[PX^_][^\x1b]*\x1b\\|\x1b./g, '');
+    let sanitized = text.replace(/\x1b\[[0-9;]*[A-Za-z~]|\x1b\][^\x07]*\x07|\x1b[PX^_][^\x1b]*\x1b\\|\x1b./g, '');
+    // Also remove partial bracketed paste markers that may have leaked (e.g., "[200~" without ESC)
+    sanitized = sanitized.replace(/\[20[01]~/g, '');
+    // Remove any stray escape character at start/end
+    // eslint-disable-next-line no-control-regex
+    sanitized = sanitized.replace(/^\x1b+|\x1b+$/g, '');
+    return sanitized;
   }
 
   private formatHotkey(combo?: string): string | null {
@@ -1025,8 +1031,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (typeof str === 'string' && str.includes(pasteStartMarker)) {
       this.inBracketedPaste = true;
       this.pasteBufferOverflow = false;
-      const pending = this.consumePendingInsertForPaste();
-      // Extract content after the start marker
+      // Consume and sanitize pending buffer to prevent partial escape sequences leaking
+      const pending = this.sanitizePasteContent(this.consumePendingInsertForPaste());
+      // Extract content after the start marker (discard any content before it - likely partial escapes)
       const startIdx = str.indexOf(pasteStartMarker);
       let content = str.slice(startIdx + pasteStartMarker.length);
       // Check if end marker is also in this chunk
@@ -1045,9 +1052,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (sequence === pasteStartMarker) {
       this.inBracketedPaste = true;
       this.pasteBufferOverflow = false; // Reset overflow flag for new paste
-      // Consume any pending insert buffer to prevent leak
-      const pending = this.consumePendingInsertForPaste();
-      this.pasteBuffer = pending; // Include any chars that arrived before bracketed paste started
+      // Consume and sanitize any pending insert buffer to prevent partial escapes leaking
+      const pending = this.sanitizePasteContent(this.consumePendingInsertForPaste());
+      this.pasteBuffer = pending;
       this.cancelPlainPasteCapture();
       return true;
     }
@@ -1121,6 +1128,14 @@ export class UnifiedUIRenderer extends EventEmitter {
   private handlePlainPaste(str: string, key: readline.Key): boolean {
     // Fallback paste capture when bracketed paste isn't supported
     if (this.inBracketedPaste || key?.ctrl || key?.meta) {
+      this.resetPlainPasteBurst();
+      this.pruneRecentPlainChunks();
+      return false;
+    }
+
+    // Don't treat escape sequences (arrow keys, etc.) as paste
+    // Escape sequences start with \x1b (ESC) and are used for cursor movement, etc.
+    if (typeof str === 'string' && str.startsWith('\x1b')) {
       this.resetPlainPasteBurst();
       this.pruneRecentPlainChunks();
       return false;
@@ -1805,7 +1820,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Very short content checks - catch leaked punctuation fragments like "." or ":"
     if (trimmed.length <= 3) {
       // Single punctuation marks or very short punctuation sequences are garbage
-      if (/^[.,:;!?*#\-_=+|\\/<>(){}\[\]`'"~^@&%$]+$/.test(trimmed)) {
+      if (/^[.,:;!?*#\-_=+|\\/<>(){}[\]`'"~^@&%$]+$/.test(trimmed)) {
         return true;
       }
     }
@@ -1814,7 +1829,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     const lines = content.split('\n');
     const punctOnlyLines = lines.filter(line => {
       const lineTrimmed = line.trim();
-      return lineTrimmed.length > 0 && /^[.,:;!?*#\-_=+|\\/<>(){}\[\]`'"~^@&%$\s]+$/.test(lineTrimmed);
+      return lineTrimmed.length > 0 && /^[.,:;!?*#\-_=+|\\/<>(){}[\]`'"~^@&%$\s]+$/.test(lineTrimmed);
     });
     // If ALL non-empty lines are just punctuation, it's garbage
     const nonEmptyLines = lines.filter(l => l.trim().length > 0);
@@ -2242,9 +2257,13 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Track tool name for pairing with result
     this.lastToolName = toolName;
 
+    // Get tool-specific color (bash=orange, read=cyan, write=green, etc.)
+    const toolColor = getToolColor(toolName);
+    const coloredToolName = toolColor(`[${toolName}]`);
+
     // If no args, just show tool name
     if (!argsStr) {
-      return `${bullet} ${theme.tool(`[${toolName}]`)}\n`;
+      return `${bullet} ${coloredToolName}\n`;
     }
 
     const maxWidth = this.cols - 8; // Leave room for margins
@@ -2252,11 +2271,11 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Parse individual params
     const params = this.parseToolParams(argsStr);
     if (params.length === 0) {
-      return `${bullet} ${theme.tool(`[${toolName}]`)} ${argsStr}\n`;
+      return `${bullet} ${coloredToolName} ${argsStr}\n`;
     }
 
     // Format params with proper wrapping
-    return this.formatToolParams(toolName, params, maxWidth);
+    return this.formatToolParamsColored(toolName, params, maxWidth, toolColor);
   }
 
   /**
@@ -2274,18 +2293,30 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   /**
-   * Format tool params in Claude Code style with wrapping
+   * Format tool params in Claude Code style with wrapping (default green color)
    */
   private formatToolParams(
     toolName: string,
     params: Array<{ key: string; value: string }>,
     maxWidth: number
   ): string {
+    return this.formatToolParamsColored(toolName, params, maxWidth, theme.tool);
+  }
+
+  /**
+   * Format tool params with custom tool color
+   */
+  private formatToolParamsColored(
+    toolName: string,
+    params: Array<{ key: string; value: string }>,
+    maxWidth: number,
+    toolColor: (text: string) => string
+  ): string {
     const bullet = '⏺';
     const lines: string[] = [];
     const indent = '        '; // 8 spaces for continuation
 
-    let currentLine = `${bullet} ${theme.tool(`[${toolName}]`)} `;
+    let currentLine = `${bullet} ${toolColor(`[${toolName}]`)} `;
     let firstParam = true;
 
     for (const param of params) {
@@ -2530,7 +2561,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     const normalized = content.replace(/\s+/g, ' ').trim();
     return this.wrapBulletText(normalized, {
       label: 'thinking',
-      labelColor: theme.info ?? ((value: string) => value),
+      labelColor: theme.secondary ?? theme.ui.muted, // Purple for thinking (distinct from blue tools)
     });
   }
 
@@ -3057,19 +3088,21 @@ export class UnifiedUIRenderer extends EventEmitter {
         buffer.push(`\x1b[${linesToTop}A`);
       }
 
-      // Clear all previous lines - clear extra lines to handle any stale content
-      const linesToClear = Math.max(this.lastOverlayHeight, height) + 1;
-      for (let i = 0; i < linesToClear; i++) {
+      // Clear exactly the old overlay lines, then erase to end of screen
+      for (let i = 0; i < this.lastOverlayHeight; i++) {
         buffer.push('\r');
         buffer.push(ESC.CLEAR_LINE);
-        if (i < linesToClear - 1) {
+        if (i < this.lastOverlayHeight - 1) {
           buffer.push('\x1b[B');
         }
       }
 
+      // Clear anything below the old overlay (handles edge cases)
+      buffer.push('\x1b[J');
+
       // After clearing, cursor is at last cleared line
       // Move back up to the top where new overlay should start
-      const moveBackUp = linesToClear - 1;
+      const moveBackUp = this.lastOverlayHeight - 1;
       if (moveBackUp > 0) {
         buffer.push(`\x1b[${moveBackUp}A`);
       }
@@ -3083,6 +3116,14 @@ export class UnifiedUIRenderer extends EventEmitter {
       if (i < renderedLines.length - 1) {
         buffer.push('\n');
       }
+    }
+
+    // If old overlay was taller, clear any remaining stale lines below
+    // and use CSI J (erase from cursor to end of screen) to clean up
+    if (this.lastOverlayHeight > height) {
+      buffer.push('\n'); // Move to line below last content
+      buffer.push('\x1b[J'); // Clear from cursor to end of screen
+      buffer.push('\x1b[A'); // Move back up to last content line
     }
 
     // Position cursor at prompt input line

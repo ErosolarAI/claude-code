@@ -448,7 +448,7 @@ export async function discoverAllModels(): Promise<DiscoveryResult> {
       return {
         provider: provider.id,
         success: false,
-        models: [],
+        models: [] as ModelConfig[],
         error: errorMessage,
       };
     }
@@ -459,7 +459,7 @@ export async function discoverAllModels(): Promise<DiscoveryResult> {
     discoverOllamaModels().catch(() => ({
       provider: 'ollama' as ProviderId,
       success: false,
-      models: [],
+      models: [] as ModelConfig[],
       error: 'Connection failed',
     }))
   );

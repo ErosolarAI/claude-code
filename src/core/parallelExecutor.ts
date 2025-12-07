@@ -313,7 +313,7 @@ export class ParallelExecutor {
 
         // Check cancellation
         if (this.cancelled) {
-          return this.createResult(task.id, 'cancelled', undefined, undefined, startedAt, attempts);
+          return this.createResult<T>(task.id, 'cancelled', undefined, undefined, startedAt, attempts);
         }
 
         // Execute with timeout
@@ -356,12 +356,12 @@ export class ParallelExecutor {
           data: { error: err.message, attempts },
         });
 
-        return this.createResult(task.id, 'failed', undefined, err, startedAt, attempts);
+        return this.createResult<T>(task.id, 'failed', undefined, err, startedAt, attempts);
       }
     }
 
     // Should never reach here
-    return this.createResult(task.id, 'failed', undefined, new Error('Max attempts exceeded'), startedAt, attempts);
+    return this.createResult<T>(task.id, 'failed', undefined, new Error('Max attempts exceeded'), startedAt, attempts);
   }
 
   private createResult<T>(

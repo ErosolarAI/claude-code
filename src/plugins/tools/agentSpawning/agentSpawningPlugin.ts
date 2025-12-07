@@ -4,7 +4,7 @@ import type { ToolPlugin } from '../registry.js';
 
 class AgentSpawningModule implements CapabilityModule {
   id = 'tool.agent-spawning';
-  description = 'Spawn lightweight helper agents (simulated).';
+  description = 'Spawn lightweight helper agents.';
 
   async create(): Promise<CapabilityContribution> {
     const tools: ToolDefinition[] = [

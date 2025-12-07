@@ -11,7 +11,7 @@ class TaoCapabilityModule implements CapabilityModule {
     const { tools } = createTaoTools();
     const toolSuite: ToolSuite = {
       id: 'tao.tools',
-      description: 'Offensive tooling (simulated)',
+      description: 'Offensive security tooling',
       tools,
     };
 

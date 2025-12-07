@@ -156,11 +156,10 @@ describe('Meta Tools - Comprehensive Prompt Handling', () => {
           { tool: 'Bash', args: { command: 'npm run build' }, description: 'Build project' },
           { tool: 'Bash', args: { command: 'npm test' }, description: 'Run tests' },
         ],
-        dryRun: true,
       });
 
       expect(result).toContain('Tool Chain: Build and Test');
-      expect(result).toContain('DRY RUN');
+      expect(result).toContain('EXECUTING');
       expect(result).toContain('⏺ Bash');
       expect(result).toContain('Build project');
     });

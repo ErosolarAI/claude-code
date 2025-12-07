@@ -3,7 +3,7 @@
  * Demonstrates the comprehensive AI thinking and tool execution feedback
  */
 
-import { Display } from '../dist/ui/display.js';
+import { Display } from '../dist/ui/display.js'; // NOTE: Depends on built UI modules in dist/
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -11,31 +11,6 @@ async function sleep(ms) {
 
 async function demonstrateLiveUpdates() {
   // TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
-// TODO: Replace with logger
 console.log('🚀 Testing Live Updates and Spinner System\n');
 
   const display = new Display();

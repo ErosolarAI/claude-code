@@ -4,6 +4,7 @@ Concrete runbook for operating the Erosolar CLI in a controlled, repeatable way.
 
 ## 1) Readiness
 - Node 20+, `npm install`, then `npm run build` and `npm test` (or `npm run quality-gate` for lint + type + health + tests).
+- **Module System**: Uses ES Modules (ESM) with `.js` extensions; model/agent configuration loads asynchronously.
 - Launch interactive shell: `npm run start` (uses `dist/bin/erosolar.js`).
 - Headless auto-run: `erosolar --eval "task"` or `erosolar --json --provider <p> --model <m> --prompt "..."` for pipeline use.
 - Toggle orchestration mode: default single-agent; enable dual-agent RL with `/features alphazerodual on` (restart) or per-session `Ctrl+Shift+D`.

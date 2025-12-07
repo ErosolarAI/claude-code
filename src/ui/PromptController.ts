@@ -333,6 +333,14 @@ export class PromptController {
     return this.renderer.supportsInlinePanel();
   }
 
+  /**
+   * Set the activity message displayed during streaming (e.g., "Reasoning", "Thinking").
+   * This updates the animated status line: "✳ Reasoning… (esc to interrupt · 34s)"
+   */
+  setActivityMessage(message: string | null): void {
+    this.renderer.setActivity(message);
+  }
+
   setEditMode(mode: EditGuardMode): void {
     this.editMode = mode;
     this.callbacks.onEditModeChange?.(mode);

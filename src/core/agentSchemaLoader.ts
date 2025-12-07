@@ -136,15 +136,15 @@ export function getProvider(providerId: ProviderId): ProviderConfig | undefined 
 /**
  * Get all model configurations (includes both static and discovered models)
  */
-export function getModels(): ModelConfig[] {
+export async function getModels(): Promise<ModelConfig[]> {
   const schemas = getAgentSchemas();
   const staticModels = schemas.models;
 
   // Try to load discovered models
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { getCachedDiscoveredModels } = require('./modelDiscovery.js');
-    const discoveredModels = getCachedDiscoveredModels();
+    // Use dynamic import for ESM compatibility
+    const modelDiscoveryModule = await import('./modelDiscovery.js');
+    const discoveredModels = modelDiscoveryModule.getCachedDiscoveredModels();
 
     // Merge models, preferring static definitions over discovered ones
     const staticIds = new Set(staticModels.map((m: ModelConfig) => m.id));
@@ -160,16 +160,16 @@ export function getModels(): ModelConfig[] {
 /**
  * Get models for a specific provider
  */
-export function getModelsByProvider(providerId: ProviderId): ModelConfig[] {
-  const models = getModels();
+export async function getModelsByProvider(providerId: ProviderId): Promise<ModelConfig[]> {
+  const models = await getModels();
   return models.filter((m) => m.provider === providerId);
 }
 
 /**
  * Get a specific model by ID
  */
-export function getModel(modelId: string): ModelConfig | undefined {
-  const models = getModels();
+export async function getModel(modelId: string): Promise<ModelConfig | undefined> {
+  const models = await getModels();
   return models.find((m) => m.id === modelId);
 }
 
@@ -318,8 +318,8 @@ export function isValidProvider(providerId: string): providerId is ProviderId {
 /**
  * Validate that a model ID exists in the schema
  */
-export function isValidModel(modelId: string): boolean {
-  const model = getModel(modelId);
+export async function isValidModel(modelId: string): Promise<boolean> {
+  const model = await getModel(modelId);
   return model !== undefined;
 }
 

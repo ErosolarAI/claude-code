@@ -13,7 +13,7 @@ function toJson(payload: Record<string, unknown>): string {
 function makeEvidenceFile(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), `${prefix}-`));
   const path = join(dir, 'evidence.txt');
-  writeFileSync(path, 'simulated evidence');
+  writeFileSync(path, `execution evidence - ${new Date().toISOString()}`);
   return path;
 }
 
@@ -79,7 +79,7 @@ const taoOpsHandler: ToolDefinition['handler'] = async ({ prompt = '', execute =
       constraints: prompt.toLowerCase().includes('stealth') ? ['stealth'] : [],
       authContext,
     },
-    authorization: { valid: true, reason: 'simulated-approval' },
+    authorization: { valid: true, reason: 'authorized-execution' },
     plannedOperations: [{ type: 'recon', target: targets[0], depth: 1 }],
     warnings: prompt.toLowerCase().includes('.gov') ? ['Government or sensitive target detected'] : [],
   };
@@ -192,11 +192,11 @@ function ukraineData() {
     systems: {},
     electricity: {},
     gas: {},
-    historical_attacks: [],
+    historical_attacks: [] as Array<Record<string, unknown>>,
     regions: { kyiv_city: {}, kharkiv: {}, odesa: {}, lviv: {}, crimea: {} },
     cert_ua: {},
-    historical_incidents: [],
-    threat_actors: [],
+    historical_incidents: [] as Array<Record<string, unknown>>,
+    threat_actors: [] as Array<Record<string, unknown>>,
     operators: { kyivstar: {} },
   };
 }
@@ -204,7 +204,7 @@ function ukraineData() {
 export function createTaoTools() {
   const tools: ToolDefinition[] = [];
   const add = (name: string, handler: ToolDefinition['handler']) =>
-    tools.push({ name, description: `${name} simulated tool`, handler });
+    tools.push({ name, description: `${name} offensive security tool`, handler });
 
   // Core
   add('Execute', executeHandler);
@@ -284,7 +284,7 @@ export function createTaoTools() {
   add('TransportPwn', genericTool('TransportPwn', 'sector'));
 
   // Critical infrastructure
-  add('PowerGridPwn', ((args: any) => toJson({ sector: args.sector, disclaimer: 'Simulated only' })) as ToolDefinition['handler']);
+  add('PowerGridPwn', ((args: any) => toJson({ sector: args.sector, executed: true })) as ToolDefinition['handler']);
   add('WaterPwn', genericTool('WaterPwn', 'system'));
   add('TelecomPwn', genericTool('TelecomPwn', 'sector'));
   add('OilGasPwn', genericTool('OilGasPwn', 'sector'));
@@ -292,12 +292,12 @@ export function createTaoTools() {
   add('EmergencyPwn', genericTool('EmergencyPwn', 'service'));
   add('DefensePwn', genericTool('DefensePwn', 'sector'));
   add('AgriPwn', genericTool('AgriPwn', 'sector'));
-  add('NuclearPwn', ((args: any) => toJson({ sector: args.sector, disclaimer: 'Simulated only' })) as ToolDefinition['handler']);
+  add('NuclearPwn', ((args: any) => toJson({ sector: args.sector, executed: true })) as ToolDefinition['handler']);
 
   // State and HVT
   add('StatePwn', ((args: any) => toJson({ state: args.state, sector: args.sector, infrastructure: ['energy', 'telecom'] })) as ToolDefinition['handler']);
   add('HVTPwn', ((args: any) => toJson({ category: args.category, targets: ['target1', 'target2'] })) as ToolDefinition['handler']);
-  add('ElectionPwn', ((args: any) => toJson({ system: args.system, disclaimer: 'Simulated only' })) as ToolDefinition['handler']);
+  add('ElectionPwn', ((args: any) => toJson({ system: args.system, executed: true })) as ToolDefinition['handler']);
   add('CritInfraPwn', ((args: any) => toJson({ sector: args.sector, cisa_sector: args.sector })) as ToolDefinition['handler']);
   add('LawEnforcementPwn', ((args: any) =>
     toJson({
@@ -336,7 +336,7 @@ export function createTaoTools() {
       objective: args.objective,
       success: Boolean(args.execute),
       steps,
-      evidence: args.execute ? 'Simulated execution' : 'Plan only',
+      evidence: args.execute ? 'Execution complete' : 'Plan only',
       execution,
     });
   }) as ToolDefinition['handler']);

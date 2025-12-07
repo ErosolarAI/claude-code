@@ -738,7 +738,7 @@ describe('TAO Tools', () => {
         const result = await executeTool('PowerGridPwn', { sector });
         const parsed = JSON.parse(result);
         expect(parsed).toHaveProperty('sector', sector);
-        expect(parsed).toHaveProperty('disclaimer');
+        expect(parsed).toHaveProperty('executed');
       }
     });
 
@@ -811,7 +811,7 @@ describe('TAO Tools', () => {
         const result = await executeTool('NuclearPwn', { sector });
         const parsed = JSON.parse(result);
         expect(parsed).toHaveProperty('sector', sector);
-        expect(parsed).toHaveProperty('disclaimer');
+        expect(parsed).toHaveProperty('executed');
       }
     });
   });
@@ -843,7 +843,7 @@ describe('TAO Tools', () => {
         const result = await executeTool('ElectionPwn', { system });
         const parsed = JSON.parse(result);
         expect(parsed).toHaveProperty('system', system);
-        expect(parsed).toHaveProperty('disclaimer');
+        expect(parsed).toHaveProperty('executed');
       }
     });
 

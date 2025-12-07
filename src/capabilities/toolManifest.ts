@@ -1,4 +1,6 @@
-import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   ToolAvailabilityOption,
   ToolSelectionManifest,
@@ -8,9 +10,10 @@ import type {
 
 type RawToolManifest = ToolSelectionManifest & { $schema?: string };
 
-const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const manifest = normalizeManifest(
-  require('../contracts/tools.schema.json') as Partial<RawToolManifest>
+  JSON.parse(readFileSync(join(__dirname, '../contracts/tools.schema.json'), 'utf-8')) as Partial<RawToolManifest>
 );
 
 export function getToolManifest(): ToolSelectionManifest {

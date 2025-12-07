@@ -1,6 +1,9 @@
 import chalk from 'chalk';
 import gradientString from 'gradient-string';
 
+// Type for gradient function returned by gradientString
+type GradientFunction = (text: string) => string;
+
 /**
  * Theme system with advanced graphics for the AGI CLI
  * Enhanced with neon effects, dynamic gradients, and rich visual styling
@@ -89,21 +92,21 @@ export const theme = {
 
   // Enhanced gradients with more options
   gradient: {
-    primary: gradientString([palette.indigo, palette.purple, palette.pink]),
-    cool: gradientString([palette.blue, palette.indigo, palette.purple]),
-    warm: gradientString([palette.amber, palette.pink, palette.red]),
-    success: gradientString([palette.emerald, palette.teal]),
+    primary: gradientString([palette.indigo, palette.purple, palette.pink]) as GradientFunction,
+    cool: gradientString([palette.blue, palette.indigo, palette.purple]) as GradientFunction,
+    warm: gradientString([palette.amber, palette.pink, palette.red]) as GradientFunction,
+    success: gradientString([palette.emerald, palette.teal]) as GradientFunction,
     // New advanced gradients
-    neon: gradientString([palette.neonCyan, palette.neonBlue, palette.neonPurple, palette.neonPink]),
-    sunset: gradientString([palette.neonOrange, palette.pink, palette.neonPurple]),
-    aurora: gradientString([palette.neonGreen, palette.neonCyan, palette.neonBlue, palette.neonPurple]),
-    fire: gradientString([palette.neonYellow, palette.neonOrange, palette.red]),
-    ocean: gradientString([palette.cyan, palette.blue, palette.indigo]),
-    rainbow: gradientString(['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3']),
-    matrix: gradientString(['#003300', '#00FF00', '#00FF00', '#003300']),
-    synthwave: gradientString(['#FF00FF', '#00FFFF', '#FF00FF']),
-    cyberpunk: gradientString([palette.neonPink, palette.neonCyan, palette.neonYellow]),
-  },
+    neon: gradientString([palette.neonCyan, palette.neonBlue, palette.neonPurple, palette.neonPink]) as GradientFunction,
+    sunset: gradientString([palette.neonOrange, palette.pink, palette.neonPurple]) as GradientFunction,
+    aurora: gradientString([palette.neonGreen, palette.neonCyan, palette.neonBlue, palette.neonPurple]) as GradientFunction,
+    fire: gradientString([palette.neonYellow, palette.neonOrange, palette.red]) as GradientFunction,
+    ocean: gradientString([palette.cyan, palette.blue, palette.indigo]) as GradientFunction,
+    rainbow: gradientString(['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3']) as GradientFunction,
+    matrix: gradientString(['#003300', '#00FF00', '#00FF00', '#003300']) as GradientFunction,
+    synthwave: gradientString(['#FF00FF', '#00FFFF', '#FF00FF']) as GradientFunction,
+    cyberpunk: gradientString([palette.neonPink, palette.neonCyan, palette.neonYellow]) as GradientFunction,
+  } as Record<string, GradientFunction>,
 
   // Neon text styles for special effects
   neon: {
