@@ -13,13 +13,9 @@ import {
   type ValidationRunResult,
   type UpgradeModuleReport,
   type UpgradeVariant,
-  type RewardSignals,
 } from '../core/repoUpgradeOrchestrator.js';
 import { GitWorktreeManager, type CrossVariantComparison } from '../core/gitWorktreeManager.js';
 import { exec as execCallback } from 'node:child_process';
-import { cpSync, mkdtempSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const exec = promisify(execCallback);
@@ -91,9 +87,6 @@ export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promi
         baseCommit: worktreeManager.baseCommitHash,
       },
     });
-  } else if (!variantWorkspaceRoots && isDualMode && options.enableVariantWorktrees) {
-    // Fallback to legacy workspace creation
-    variantWorkspaceRoots = await prepareVariantWorkspaces(options.workingDir, options);
   }
 
   // Create orchestrator with enhanced scoring
@@ -263,7 +256,7 @@ async function executeUpgradeStep(
   let content = '';
   let success = true;
   let errorText: string | undefined;
-  let toolOutputs: string[] = [];
+  const toolOutputs: string[] = [];
 
   try {
     for await (const event of controller.send(prompt)) {
@@ -365,46 +358,6 @@ function extractFindings(
   }
 
   return findings;
-}
-
-async function prepareVariantWorkspaces(
-  workingDir: string,
-  options: RepoUpgradeFlowOptions
-): Promise<Partial<Record<UpgradeVariant, string>> | undefined> {
-  if (!options.enableVariantWorktrees || options.mode !== 'dual-rl-continuous') {
-    return undefined;
-  }
-
-  const roots: Partial<Record<UpgradeVariant, string>> = { primary: workingDir };
-
-  const createWorktree = async (variant: UpgradeVariant, target: string): Promise<boolean> => {
-    try {
-      await exec('git rev-parse --is-inside-work-tree', { cwd: workingDir });
-      await exec(`git worktree add --detach ${target}`, { cwd: workingDir, maxBuffer: 2 * 1024 * 1024 });
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const createCopy = (variant: UpgradeVariant, target: string): void => {
-    const skipDirs = ['node_modules', '.turbo', '.next', 'coverage', 'dist'];
-    cpSync(workingDir, target, {
-      recursive: true,
-      filter: (src) => !skipDirs.some(dir => src.startsWith(join(workingDir, dir))),
-    });
-    roots[variant] = target;
-  };
-
-  const refinerTarget = mkdtempSync(join(tmpdir(), 'agi-refiner-'));
-  const refinerWorktreeMade = await createWorktree('refiner', refinerTarget);
-  if (refinerWorktreeMade) {
-    roots.refiner = refinerTarget;
-    return roots;
-  }
-
-  createCopy('refiner', refinerTarget);
-  return roots;
 }
 
 function summarizeResult(text: string): string {

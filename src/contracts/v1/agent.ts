@@ -18,6 +18,7 @@ export type AgentEventType =
   | 'tool.complete'
   | 'tool.error'
   | 'edit.explanation'
+  | 'reasoning'
   | 'error'
   | 'usage'
   | 'provider.fallback';
@@ -82,6 +83,14 @@ export interface EditExplanationEvent extends AgentEvent {
 }
 
 /**
+ * Reasoning/thought event - model's internal thinking process
+ */
+export interface ReasoningEvent extends AgentEvent {
+  type: 'reasoning';
+  content: string;
+}
+
+/**
  * Error and usage events
  */
 export interface ErrorEvent extends AgentEvent {
@@ -127,6 +136,7 @@ export type AgentEventUnion =
   | ToolCompleteEvent
   | ToolErrorEvent
   | EditExplanationEvent
+  | ReasoningEvent
   | ErrorEvent
   | UsageEvent
   | ProviderFallbackEvent;

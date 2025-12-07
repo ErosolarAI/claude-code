@@ -9,7 +9,7 @@ describe('Message Queue Integration', () => {
   test('Messages queue during streaming mode', () => {
     // Simulate the message queue behavior
     const pendingMessages: Array<{content: string; timestamp: number}> = [];
-    let isStreaming = true;
+    const isStreaming = true;
 
     // Simulate writeLocked behavior
     function writeLocked(content: string): void {
@@ -114,7 +114,7 @@ describe('Message Queue Integration', () => {
 
   test('Empty messages are handled correctly', () => {
     const pendingMessages: Array<{content: string; timestamp: number}> = [];
-    let isStreaming = true;
+    const isStreaming = true;
 
     function writeLocked(content: string): void {
       if (!content) return; // Guard against empty content

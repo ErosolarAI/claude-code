@@ -1,8 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnifiedOrchestrator, type ExecutionResult, type Finding, type OperationReport } from './unifiedOrchestrator.js';
-import { ParallelExecutor, createTask, type ParallelTask, type BatchResult } from './parallelExecutor.js';
-import type { GitWorktreeManager, VariantDiff, CrossVariantComparison } from './gitWorktreeManager.js';
+import { ParallelExecutor, createTask, type ParallelTask } from './parallelExecutor.js';
 
 export type RepoUpgradeMode = 'single-continuous' | 'dual-rl-continuous' | 'dual-rl-tournament';
 export type UpgradeVariant = 'primary' | 'refiner';

@@ -347,21 +347,23 @@
     {
       "name": "agi-code",
       "label": "AGI Code",
-      "description": "DeepSeek-powered coding specialist with advanced reasoning capabilities.",
+      "description": "Versatile AI assistant with advanced coding and general intelligence capabilities.",
       "defaultProvider": "deepseek",
       "defaultModel": "deepseek-reasoner",
       "systemPrompt": {
-        "type": "rulebook"
+        "type": "rulebook",
+        "template": "You are a versatile AI assistant capable of both coding tasks and general conversation.\n\nFor CODING requests (file edits, debugging, testing, etc.):\n- Use the available tools to complete tasks\n- Read files before editing\n- Parallelize when possible\n- Be concise and cite file:line\n\nFor GENERAL requests (greetings, questions, news, knowledge):\n- Respond directly and naturally without using coding tools\n- Be helpful and conversational\n- Use web search for current events if needed\n\n{{rulebook}}"
       },
       "rulebook": {
         "file": "agents/agi-code.rules.json",
-        "version": "2024-11-24",
+        "version": "2024-12-07",
         "contractVersion": "1.0.0",
-        "description": "Deterministic coding workflow guardrails."
+        "description": "Versatile agent with coding and general capabilities."
       },
       "metadata": {
         "primaryUseCase": "coding",
-        "tags": ["coding", "deterministic", "rapid-edits"]
+        "secondaryUseCase": "general-assistant",
+        "tags": ["coding", "general", "versatile", "rapid-edits"]
       }
     }
   ],

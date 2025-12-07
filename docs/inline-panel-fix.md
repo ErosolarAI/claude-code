@@ -20,16 +20,16 @@ Additionally, the `onChange` callback was dismissing the panel whenever the inpu
 
 ### Changes Made
 
-1. **Removed premature dismissal** (line 777):
+1. **Removed premature dismissal** (the start of handleSubmit()):
    - Removed `this.dismissInlinePanel()` from the start of `handleSubmit()`
    - Now panel dismissal happens selectively based on command type
 
-2. **Added conditional dismissal** (lines 792, 799):
+2. **Added conditional dismissal** (conditional dismissal logic):
    - Unknown slash commands dismiss the panel
    - Regular user prompts (non-slash commands) dismiss the panel
    - Known slash commands like `/secrets` and `/help` do NOT dismiss the panel
 
-3. **Removed onChange dismissal** (line 159):
+3. **Removed onChange dismissal** (the onChange callback):
    - Removed `onChange: () => this.dismissInlinePanel()` callback
    - Panel now only dismisses via:
      - Auto-dismiss timer (8 seconds)

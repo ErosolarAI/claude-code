@@ -33,7 +33,7 @@ it('WebSearch returns formatted Brave results', async () => {
   try {
     const tools = createWebTools();
     const searchTool = tools.find((tool) => tool.name === 'WebSearch');
-    expect(searchTool).toBe(WebSearch tool should be registered);
+    assert.ok(searchTool, 'WebSearch tool should be registered');
     const output = await searchTool!.handler({ query: 'example docs' });
     assert.match(output, /Example Docs/);
     assert.match(output, /https:\/\/example.com\/docs/);
@@ -47,7 +47,7 @@ it('WebSearch returns formatted Brave results', async () => {
 it('WebSearch warns when no provider configured', async () => {
   const tools = createWebTools();
   const searchTool = tools.find((tool) => tool.name === 'WebSearch');
-  expect(searchTool);
+  assert.ok(searchTool);
   const output = await searchTool!.handler({ query: 'missing key test' });
   assert.match(output, /requires either BRAVE_SEARCH_API_KEY or SERPAPI_API_KEY/i);
 });

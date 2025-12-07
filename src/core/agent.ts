@@ -701,7 +701,10 @@ export class AgentRuntime {
         contextRecoveryAttempts = 0;
 
         const contextStats = this.getContextStats();
-        const combinedContent = fullContent || reasoningContent;
+        // IMPORTANT: Only use fullContent for user-visible output
+        // reasoningContent is internal model thinking and should NEVER be shown to users
+        // We keep it for conversation history (helps the model) but not for display
+        const combinedContent = fullContent;
 
         if (truncatedResponse) {
           const notice = '\n\n[Response truncated: reached safety limit of 120k characters to prevent OOM.]';
@@ -786,7 +789,20 @@ export class AgentRuntime {
           continue;
         }
 
-        const reply = combinedContent.trim();
+        let reply = combinedContent.trim();
+        let wasReasoningUsedAsReply = false;
+
+        // For reasoning models: if no content but we have reasoning, use reasoning as the response
+        // This handles models like DeepSeek-reasoner that put their entire response in reasoning_content
+        // The reasoning has already been streamed as 'thought' events showing the AI's thinking
+        if (!reply && reasoningContent.trim()) {
+          // Use reasoning as the reply - it contains the model's answer
+          reply = reasoningContent.trim();
+          wasReasoningUsedAsReply = true;
+          // Stream the content so it appears as the actual response (not just thoughts)
+          this.callbacks.onStreamChunk?.(reply, 'content');
+        }
+
         const { output: finalReply, appended } = ensureNextSteps(reply);
 
         // Reset loop detection when we get a text response (not just tool calls)

@@ -18,13 +18,8 @@ import { isPlainOutputMode } from './outputMode.js';
 import { AnimatedSpinner, ThinkingIndicator, ContextMeter, disposeAnimations } from './animatedStatus.js';
 import { logDebug } from '../utils/debugLogger.js';
 import {
-  ELLIPSIS,
-  UI_STRINGS,
-  DISPLAY_LIMITS,
-  truncateString,
   clampPercentage,
   getContextColor,
-  formatDurationMs,
 } from './uiConstants.js';
 
 export interface CommandSuggestion {
@@ -358,6 +353,19 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (!this.interactive) {
       return;
     }
+
+    // Reset input and paste state to prevent stale state from previous session
+    this.buffer = '';
+    this.cursor = 0;
+    this.inputRenderOffset = 0;
+    this.inBracketedPaste = false;
+    this.pasteBuffer = '';
+    this.pasteBufferOverflow = false;
+    this.inPlainPaste = false;
+    this.plainPasteBuffer = '';
+    this.collapsedPaste = null;
+    this.pendingInsertBuffer = '';
+    this.cancelPlainPasteCapture();
 
     if (!this.plainMode) {
       // If an overlay was already rendered before initialization (e.g., banner emitted early),
@@ -1759,8 +1767,18 @@ export class UnifiedUIRenderer extends EventEmitter {
       case 'test':
         return this.wrapBulletText(event.content, { label: 'test', labelColor: theme.info });
 
-      case 'stream':
+      case 'stream': {
+        // Streaming content is the model's response - pass through directly
+        // IMPORTANT: Don't filter streaming chunks with isGarbageOutput because:
+        // 1. Chunks arrive character-by-character or in small pieces
+        // 2. Small chunks like "." or ":" are valid parts of sentences
+        // 3. Filtering would break the streaming display
+        // Only filter completely empty content
+        if (!event.content) {
+          return '';
+        }
         return event.content;
+      }
 
       case 'response':
       default: {
@@ -1782,6 +1800,28 @@ export class UnifiedUIRenderer extends EventEmitter {
   private isGarbageOutput(content: string): boolean {
     if (!content || content.trim().length === 0) return true;
 
+    const trimmed = content.trim();
+
+    // Very short content checks - catch leaked punctuation fragments like "." or ":"
+    if (trimmed.length <= 3) {
+      // Single punctuation marks or very short punctuation sequences are garbage
+      if (/^[.,:;!?*#\-_=+|\\/<>(){}\[\]`'"~^@&%$]+$/.test(trimmed)) {
+        return true;
+      }
+    }
+
+    // Check if content is just punctuation on multiple lines (leaked reasoning)
+    const lines = content.split('\n');
+    const punctOnlyLines = lines.filter(line => {
+      const lineTrimmed = line.trim();
+      return lineTrimmed.length > 0 && /^[.,:;!?*#\-_=+|\\/<>(){}\[\]`'"~^@&%$\s]+$/.test(lineTrimmed);
+    });
+    // If ALL non-empty lines are just punctuation, it's garbage
+    const nonEmptyLines = lines.filter(l => l.trim().length > 0);
+    if (nonEmptyLines.length > 0 && punctOnlyLines.length === nonEmptyLines.length) {
+      return true;
+    }
+
     // Structural check: content starting with < that isn't valid markdown/code
     if (content.startsWith('<') && !content.startsWith('<http') && !content.startsWith('<!')) {
       return true;
@@ -1802,14 +1842,85 @@ export class UnifiedUIRenderer extends EventEmitter {
       return true;
     }
 
+    // Structural check: mostly punctuation/symbols - leaked reasoning fragments
+    const meaningfulLines = lines.filter(line => {
+      const lineTrimmed = line.trim();
+      if (!lineTrimmed) return false;
+      // Line must have at least 30% alphanumeric content
+      const alphaNum = (lineTrimmed.match(/[a-zA-Z0-9]/g) || []).length;
+      return lineTrimmed.length > 0 && alphaNum / lineTrimmed.length >= 0.3;
+    });
+    // If less than 30% of lines are meaningful, it's garbage
+    if (lines.length > 3 && meaningfulLines.length / lines.length < 0.3) {
+      return true;
+    }
+
     // Structural check: gibberish - high ratio of non-word characters
     const alphaCount = (content.match(/[a-zA-Z]/g) || []).length;
     const totalCount = content.replace(/\s/g, '').length;
-    if (totalCount > 20 && alphaCount / totalCount < 0.5) {
-      return true; // Less than 50% letters = likely garbage
+    if (totalCount > 20 && alphaCount / totalCount < 0.4) {
+      return true; // Less than 40% letters = likely garbage
     }
 
     return false;
+  }
+
+  /**
+   * Sanitize tool result content to remove leaked reasoning/thinking output.
+   * This filters out fragments that look like internal model output.
+   */
+  private sanitizeToolResultContent(content: string): string {
+    if (!content) return '';
+
+    // Split into lines and filter out garbage lines
+    const lines = content.split('\n');
+    const cleanLines: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      // Skip empty lines at start
+      if (cleanLines.length === 0 && !trimmed) continue;
+
+      // Skip lines that look like leaked reasoning fragments
+      // Common patterns: single punctuation, markdown artifacts, emoji fragments
+      if (/^[)\]}>*`'"]+$/.test(trimmed)) continue;
+      if (/^[*_]{2,}$/.test(trimmed)) continue; // Just ** or __
+      if (/^[|│┃]+$/.test(trimmed)) continue; // Just vertical bars
+      if (/^[─━═]+$/.test(trimmed)) continue; // Just horizontal lines
+      if (/^\.{2,}$/.test(trimmed)) continue; // Just dots
+      if (/^[\s️]+$/.test(trimmed)) continue; // Just whitespace/emoji modifiers
+      if (/^[:\s]+$/.test(trimmed)) continue; // Just colons/whitespace
+      if (/^[,\s]+$/.test(trimmed)) continue; // Just commas/whitespace
+
+      // Skip markdown bold/italic fragments that leaked
+      if (/^\*{1,2}[^*]*\*{0,2}$/.test(trimmed) && trimmed.length < 10 && !/\w{3,}/.test(trimmed)) continue;
+
+      // Skip lines that are just short fragments with high punctuation ratio
+      const alphaInLine = (trimmed.match(/[a-zA-Z0-9]/g) || []).length;
+      if (trimmed.length > 0 && trimmed.length < 20 && alphaInLine / trimmed.length < 0.3) continue;
+
+      // Skip very short lines that are just punctuation or single chars (except numbers)
+      if (trimmed.length <= 2 && !/^\d+$/.test(trimmed) && !/^[a-zA-Z]{2}$/.test(trimmed)) {
+        // Allow specific short patterns like "OK", "0", "1" etc.
+        if (!/^(?:ok|no|yes|\d+)$/i.test(trimmed)) continue;
+      }
+
+      // Skip lines that look like stray parentheses or brackets from reasoning
+      if (/^[()[\]{}]+$/.test(trimmed)) continue;
+
+      // Skip lines that look like markdown code fence artifacts
+      if (/^```\s*$/.test(trimmed)) continue;
+
+      cleanLines.push(line);
+    }
+
+    // Trim trailing empty lines
+    while (cleanLines.length > 0 && !cleanLines[cleanLines.length - 1]?.trim()) {
+      cleanLines.pop();
+    }
+
+    return cleanLines.join('\n').trim();
   }
 
   private curateReasoningContent(content: string): string | null {
@@ -2246,15 +2357,21 @@ export class UnifiedUIRenderer extends EventEmitter {
    * Format a compact tool result: ⎿  Found X lines (ctrl+o to expand)
    */
   private formatCompactToolResult(content: string): string {
+    // Sanitize content first - filter out garbage/reasoning output that leaked through
+    const sanitized = this.sanitizeToolResultContent(content);
+    if (!sanitized || this.isGarbageOutput(sanitized)) {
+      return ''; // Don't render garbage tool results
+    }
+
     // Parse common result patterns for summary
-    const lineMatch = content.match(/(\d+)\s*lines?/i);
-    const fileMatch = content.match(/(\d+)\s*(?:files?|matches?)/i);
-    const readMatch = content.match(/read.*?(\d+)\s*lines?/i);
+    const lineMatch = sanitized.match(/(\d+)\s*lines?/i);
+    const fileMatch = sanitized.match(/(\d+)\s*(?:files?|matches?)/i);
+    const readMatch = sanitized.match(/read.*?(\d+)\s*lines?/i);
 
     // Check if content contains a file path or command that should be preserved
-    const hasPath = /(?:^|\s)(?:\/[\w./-]+|[\w./-]+\/[\w./-]+)/.test(content);
-    const hasCommand = /^\s*\$\s+.+|command:/i.test(content);
-    const isPathOrDir = /^(?:File|Directory|Path):\s*/i.test(content);
+    const hasPath = /(?:^|\s)(?:\/[\w./-]+|[\w./-]+\/[\w./-]+)/.test(sanitized);
+    const hasCommand = /^\s*\$\s+.+|command:/i.test(sanitized);
+    const isPathOrDir = /^(?:File|Directory|Path):\s*/i.test(sanitized);
 
     let summary: string;
     let preserveFull = false;
@@ -2265,23 +2382,49 @@ export class UnifiedUIRenderer extends EventEmitter {
       summary = `Found ${lineMatch[1]} line${lineMatch[1] === '1' ? '' : 's'}`;
     } else if (fileMatch) {
       summary = `Found ${fileMatch[1]} file${fileMatch[1] === '1' ? '' : 's'}`;
-    } else if (content.match(/^(success|ok|done|completed|written|edited|created)/i)) {
+    } else if (sanitized.match(/^(success|ok|done|completed|written|edited|created)/i)) {
       summary = '✓';
     } else if (isPathOrDir || hasPath || hasCommand) {
       // Preserve full content for paths, directories, and commands
       // Only show first line if multi-line
-      const firstLine = content.split('\n')[0] || content;
+      const firstLine = sanitized.split('\n')[0] || sanitized;
       summary = firstLine;
       preserveFull = true;
     } else {
-      // Use content directly, truncated if needed
-      summary = content.length > 40 ? content.slice(0, 37) + '…' : content;
+      // Extract meaningful summary from content
+      let summaryText = sanitized;
+
+      // Handle "Summary:" prefix from web search/extract results
+      const summaryMatch = sanitized.match(/^Summary:\s*(.+)/i);
+      if (summaryMatch) {
+        summaryText = summaryMatch[1]!;
+      }
+
+      // For multi-line content, use first meaningful line
+      const firstLine = summaryText.split('\n')[0]?.trim() || summaryText;
+
+      // Try to end at a sentence boundary for readability (up to 120 chars)
+      const maxLen = 120;
+      if (firstLine.length > maxLen) {
+        // Look for sentence end within limit
+        const sentenceEnd = firstLine.slice(0, maxLen).search(/[.!?;]\s|[.!?;]$/);
+        if (sentenceEnd > 30) {
+          summary = firstLine.slice(0, sentenceEnd + 1);
+        } else {
+          // No good sentence break, truncate at word boundary
+          const truncated = firstLine.slice(0, maxLen);
+          const lastSpace = truncated.lastIndexOf(' ');
+          summary = lastSpace > 60 ? truncated.slice(0, lastSpace) + '…' : truncated + '…';
+        }
+      } else {
+        summary = firstLine;
+      }
     }
 
-    // Store collapsed result for Ctrl+O expansion
+    // Store collapsed result for Ctrl+O expansion (use sanitized content)
     this.collapsedToolResults.push({
       toolName: this.lastToolName || 'tool',
-      content,
+      content: sanitized,
       summary,
       timestamp: Date.now(),
     });
@@ -2293,7 +2436,7 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     const coloredSummary = this.colorResultSummary(summary);
     // Only show expand hint if content is actually collapsed (multi-line or was truncated)
-    const hasMoreContent = content.includes('\n') || (!preserveFull && content.length > 40);
+    const hasMoreContent = sanitized.includes('\n') || summary.endsWith('…') || (!preserveFull && sanitized.length > summary.length);
     const expandHint = hasMoreContent ? ` ${theme.ui.muted('(ctrl+o to expand)')}` : '';
     return `  ${theme.ui.muted('⎿')}  ${coloredSummary}${expandHint}\n`;
   }
@@ -2478,9 +2621,18 @@ export class UnifiedUIRenderer extends EventEmitter {
     const content = collapsed?.content || this.lastToolResult || '';
     const toolName = collapsed?.toolName || 'result';
 
-    // Format with tool name label
-    const label = `${toolName}`;
-    const rendered = this.wrapBulletText(content, { label, labelColor: theme.info });
+    // Determine if this is structured output that shouldn't be word-wrapped
+    const isStructured = this.isStructuredToolOutput(toolName, content);
+
+    let rendered: string;
+    if (isStructured) {
+      // Preserve structured output (grep, bash, code output) - just indent, don't wrap
+      rendered = this.formatStructuredToolOutput(toolName, content);
+    } else {
+      // Format prose/text with tool name label and word wrapping
+      const label = `${toolName}`;
+      rendered = this.wrapBulletText(content, { label, labelColor: theme.info });
+    }
 
     this.eventQueue.push({
       type: 'response',
@@ -2499,6 +2651,46 @@ export class UnifiedUIRenderer extends EventEmitter {
       void this.processQueue();
     }
     return true;
+  }
+
+  /**
+   * Check if tool output is structured (code, grep, file listings) that shouldn't be word-wrapped.
+   */
+  private isStructuredToolOutput(toolName: string, content: string): boolean {
+    const tool = toolName.toLowerCase();
+    // Tools that produce structured output
+    if (['bash', 'grep', 'read', 'glob', 'execute_bash', 'search', 'find'].includes(tool)) {
+      return true;
+    }
+    // Content patterns that indicate structured output
+    // - File paths with colons (grep output): src/file.ts:123:
+    // - Line numbers: "   1→" or "  42:"
+    // - Code-like patterns
+    if (/^\s*[\w./]+:\d+[:\s]/.test(content)) return true; // grep-style output
+    if (/^\s*\d+[→:│|]\s/.test(content)) return true; // line-numbered output
+    if (/^[│├└─┌┐┘┬┴┼╭╮╯╰]+/.test(content)) return true; // box drawing
+    if (/^\s*[$>]\s+\w+/.test(content)) return true; // command prompt output
+    return false;
+  }
+
+  /**
+   * Format structured tool output preserving line structure.
+   */
+  private formatStructuredToolOutput(toolName: string, content: string): string {
+    const lines = content.split('\n');
+    const header = `⏺ ${theme.info(toolName)}${theme.ui.muted(' · expanded')}\n`;
+    const indent = '  ';
+    const maxWidth = this.safeWidth() - 4;
+
+    const formattedLines = lines.map(line => {
+      // Truncate overly long lines instead of wrapping (preserves structure)
+      if (line.length > maxWidth) {
+        return indent + line.slice(0, maxWidth - 1) + '…';
+      }
+      return indent + line;
+    });
+
+    return header + formattedLines.join('\n') + '\n';
   }
 
   /**
@@ -2566,7 +2758,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       if (!this.plainMode && this.mode === 'streaming') {
         this.renderPrompt();
       }
-    }, 80); // ~12 FPS for smooth spinner animation
+    }, 120); // ~8 FPS - reduced from 80ms to minimize flickering while keeping animation smooth
   }
 
   /**
@@ -2848,6 +3040,13 @@ export class UnifiedUIRenderer extends EventEmitter {
     const promptIndex = Math.max(0, Math.min(overlay.promptIndex, renderedLines.length - 1));
     const height = renderedLines.length;
 
+    // Batch all ANSI operations into a single write to prevent flickering
+    // This eliminates the visual jitter caused by multiple sequential terminal writes
+    const buffer: string[] = [];
+
+    // Hide cursor during render to prevent visual artifacts
+    buffer.push('\x1b[?25l');
+
     // Clear previous prompt and handle height changes
     // Note: We check lastOverlayHeight > 0 to know if there's something to clear,
     // but we use lastOverlay?.promptIndex for cursor positioning (defaulting to 0 if cleared)
@@ -2855,40 +3054,34 @@ export class UnifiedUIRenderer extends EventEmitter {
       // Move up from prompt row to top of overlay
       const linesToTop = this.lastOverlay?.promptIndex ?? 0;
       if (linesToTop > 0) {
-        this.write(`\x1b[${linesToTop}A`);
+        buffer.push(`\x1b[${linesToTop}A`);
       }
 
-      // Clear all previous lines
-      for (let i = 0; i < this.lastOverlayHeight; i++) {
-        this.write('\r');
-        this.write(ESC.CLEAR_LINE);
-        if (i < this.lastOverlayHeight - 1) {
-          this.write('\x1b[B');
+      // Clear all previous lines - clear extra lines to handle any stale content
+      const linesToClear = Math.max(this.lastOverlayHeight, height) + 1;
+      for (let i = 0; i < linesToClear; i++) {
+        buffer.push('\r');
+        buffer.push(ESC.CLEAR_LINE);
+        if (i < linesToClear - 1) {
+          buffer.push('\x1b[B');
         }
       }
 
-      // If new height is greater, we need to add blank lines
-      const extraLines = height - this.lastOverlayHeight;
-      if (extraLines > 0) {
-        for (let i = 0; i < extraLines; i++) {
-          this.write('\n');
-        }
-      }
-
-      // Move back to top of where overlay should start
-      const moveBackUp = Math.max(0, height - 1);
+      // After clearing, cursor is at last cleared line
+      // Move back up to the top where new overlay should start
+      const moveBackUp = linesToClear - 1;
       if (moveBackUp > 0) {
-        this.write(`\x1b[${moveBackUp}A`);
+        buffer.push(`\x1b[${moveBackUp}A`);
       }
     }
 
     // Write prompt lines (no trailing newline on last line)
     for (let i = 0; i < renderedLines.length; i++) {
-      this.write('\r');
-      this.write(ESC.CLEAR_LINE);
-      this.write(renderedLines[i] || '');
+      buffer.push('\r');
+      buffer.push(ESC.CLEAR_LINE);
+      buffer.push(renderedLines[i] || '');
       if (i < renderedLines.length - 1) {
-        this.write('\n');
+        buffer.push('\n');
       }
     }
 
@@ -2897,9 +3090,15 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Cursor is now at the last line. Move up to the prompt row.
     const linesToMoveUp = height - 1 - promptIndex;
     if (linesToMoveUp > 0) {
-      this.write(`\x1b[${linesToMoveUp}A`);
+      buffer.push(`\x1b[${linesToMoveUp}A`);
     }
-    this.write(`\x1b[${promptCol}G`);
+    buffer.push(`\x1b[${promptCol}G`);
+
+    // Show cursor again after positioning
+    buffer.push('\x1b[?25h');
+
+    // Single atomic write to prevent flickering
+    this.write(buffer.join(''));
 
     this.cursorVisibleColumn = promptCol;
     this.hasRenderedPrompt = true;

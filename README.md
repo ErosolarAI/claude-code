@@ -21,9 +21,9 @@ flowchart TD
   quality["`npm run quality-gate`\n(lint + types + health + tests)"]
   cli["`npm run start` / `erosolar`"]
   headless["`erosolar --eval \"...\"` / `--json` headless runs"]
-  verification1["`npm run agi:verify`"]
-  verification2["`npm run agi:real-flow`"]
-  fullflow["`npm run full-flow` (real provider integration)"]
+  verification1["Offline AGI verification"]
+  verification2["Real AGI flow test"]
+  fullflow["Live provider integration"]
   tools["TAO/Kinetic tools + dual-agent RL tooling"]
 
   install --> build
@@ -55,9 +55,9 @@ flowchart TD
   `RUN_REAL_LLM_TESTS=1 node scripts/full-flow-human.mjs` (requires `npm run build`).
 
 ## AGI Verification
-- Offline AGI core verification (no provider needed): `npm run agi:verify`
-- Real AGI flow test with long-form human prompts: `npm run agi:real-flow` (runs against dist build)
-- Live provider full-flow harness (requires `RUN_REAL_LLM_TESTS=1` + API key): `npm run full-flow`
+- Offline AGI core verification (no provider needed): Run the test suite with `npm test`
+- Real AGI flow test with long-form human prompts: Use `node scripts/full-flow-human.mjs` (requires `RUN_REAL_LLM_TESTS=1` and API keys)
+- Live provider full-flow harness: Same as above (requires `RUN_REAL_LLM_TESTS=1` + API key)
 
 ## Orchestration Modes
 - Single agent (default): single-pass orchestrator with enforced tool use.

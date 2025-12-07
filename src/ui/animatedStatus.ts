@@ -5,7 +5,7 @@
 
 import { theme, spinnerFrames, progressChars } from './theme.js';
 import { AnimationScheduler } from './animation/AnimationScheduler.js';
-import { CONTEXT_THRESHOLDS, clampPercentage, getContextColor } from './uiConstants.js';
+import { clampPercentage, getContextColor } from './uiConstants.js';
 
 // Singleton scheduler for global animation coordination
 let globalScheduler: AnimationScheduler | null = null;

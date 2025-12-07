@@ -10,7 +10,6 @@
 
 import type { AgentController } from './agentController.js';
 import type { AgentEventUnion } from '../contracts/v1/agent.js';
-import { WorkerPool, type WorkerConfig, type WorkItem } from '../core/parallelExecutor.js';
 
 // ============================================================================
 // Types

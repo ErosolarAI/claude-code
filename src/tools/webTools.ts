@@ -184,27 +184,39 @@ async function searchTavily(
   apiKey: string,
   options: { maxResults: number; searchDepth: string; includeAnswer: boolean }
 ): Promise<string> {
-  const response = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query,
-      search_depth: options.searchDepth,
-      include_answer: options.includeAnswer,
-      max_results: options.maxResults,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Tavily API error: ${response.status} ${text}`);
+  try {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: options.searchDepth,
+        include_answer: options.includeAnswer,
+        max_results: options.maxResults,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Tavily API error: ${response.status} ${text}`);
+    }
+
+    const data = (await response.json()) as TavilySearchResponse;
+    return formatTavilyResults(data, 'Tavily');
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Tavily search timed out after 30 seconds');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = (await response.json()) as TavilySearchResponse;
-  return formatTavilyResults(data, 'Tavily');
 }
 
 /**
@@ -220,20 +232,33 @@ async function searchBrave(
     count: String(options.maxResults),
   });
 
-  const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
-    headers: {
-      'Accept': 'application/json',
-      'X-Subscription-Token': apiKey,
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Brave Search API error: ${response.status} ${text}`);
+  try {
+    const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Subscription-Token': apiKey,
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Brave Search API error: ${response.status} ${text}`);
+    }
+
+    const data = (await response.json()) as BraveSearchResponse;
+    return formatBraveResults(data, 'Brave Search');
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Brave search timed out after 30 seconds');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = (await response.json()) as BraveSearchResponse;
-  return formatBraveResults(data, 'Brave Search');
 }
 
 /**
@@ -251,15 +276,29 @@ async function searchSerpAPI(
     num: String(options.maxResults),
   });
 
-  const response = await fetch(`https://serpapi.com/search?${params}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`SerpAPI error: ${response.status} ${text}`);
+  try {
+    const response = await fetch(`https://serpapi.com/search?${params}`, {
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`SerpAPI error: ${response.status} ${text}`);
+    }
+
+    const data = (await response.json()) as SerpAPIResponse;
+    return formatSerpAPIResults(data, 'SerpAPI');
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('SerpAPI search timed out after 30 seconds');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = (await response.json()) as SerpAPIResponse;
-  return formatSerpAPIResults(data, 'SerpAPI');
 }
 
 /**

@@ -2,13 +2,18 @@
   "$schema": "../src/contracts/schemas/agent-rules.schema.json",
   "contractVersion": "1.0.0",
   "profile": "agi-code",
-  "version": "2024-12-01",
+  "version": "2024-11-24",
   "label": "AGI Code",
-  "description": "Lean coding agent.",
+  "description": "Versatile coding agent with general intelligence.",
   "globalPrinciples": [
     {
+      "id": "core.versatile",
+      "summary": "Handle any request: coding tasks use tools; general questions (greetings, knowledge, news) respond directly without tools.",
+      "severity": "critical"
+    },
+    {
       "id": "core.act_first",
-      "summary": "Use tools to complete tasks. Brief explanation is optional.",
+      "summary": "For coding tasks: use tools to complete. Brief explanation is optional.",
       "severity": "critical"
     },
     {
@@ -33,13 +38,18 @@
     },
     {
       "id": "core.concise",
-      "summary": "Be concise. Cite file:line.",
+      "summary": "Be concise. For coding: cite file:line. For conversation: be natural and helpful.",
       "severity": "required"
     },
     {
       "id": "core.complete",
       "summary": "Complete the task. Continue until done.",
       "severity": "critical"
+    },
+    {
+      "id": "core.general_knowledge",
+      "summary": "For non-coding questions: answer directly from knowledge. Use web search for current events if available.",
+      "severity": "required"
     }
   ],
   "phases": [

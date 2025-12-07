@@ -35,7 +35,7 @@ import type { AgentEventUnion } from '../contracts/v1/agent.js';
 import type { ProviderId } from '../core/types.js';
 import type { RepoUpgradeMode, RepoUpgradeReport, UpgradeStepOutcome } from '../core/repoUpgradeOrchestrator.js';
 import { runRepoUpgradeFlow } from '../orchestration/repoUpgradeRunner.js';
-import { getEpisodicMemory, type Episode } from '../core/episodicMemory.js';
+import { getEpisodicMemory } from '../core/episodicMemory.js';
 
 const exec = promisify(childExec);
 import { ensureNextSteps } from '../core/finalResponseFormatter.js';
@@ -734,16 +734,10 @@ class InteractiveShell {
       }
 
       case 'tool.complete': {
-        if (event.result && typeof event.result === 'string') {
-          const lines = event.result.split('\n');
-          if (lines.length > 8) {
-            const preview = lines.slice(0, 8).join('\n');
-            renderer.addEvent('tool-result', `${preview}\n... (${lines.length - 8} more lines)`);
-          } else if (event.result.length > 500) {
-            renderer.addEvent('tool-result', `${event.result.slice(0, 500)}...`);
-          } else if (event.result.trim()) {
-            renderer.addEvent('tool-result', event.result);
-          }
+        // Pass full result to renderer - it handles display truncation
+        // and stores full content for Ctrl+O expansion
+        if (event.result && typeof event.result === 'string' && event.result.trim()) {
+          renderer.addEvent('tool-result', event.result);
         }
         break;
       }
@@ -1805,7 +1799,7 @@ class InteractiveShell {
 
     // Start episodic memory tracking
     const memory = getEpisodicMemory();
-    const episodeId = memory.startEpisode(prompt, `shell-${Date.now()}`);
+    memory.startEpisode(prompt, `shell-${Date.now()}`);
     let episodeSuccess = false;
     const toolsUsed: string[] = [];
     const filesModified: string[] = [];
@@ -1834,19 +1828,26 @@ class InteractiveShell {
             }
             break;
 
+          case 'reasoning':
+            // Display model's reasoning/thought process
+            if (renderer && event.content) {
+              renderer.addEvent('thought', event.content);
+            }
+            break;
+
           case 'message.complete':
             // Response complete - ensure final output includes required "Next steps"
             episodeSuccess = true; // Mark episode as successful
             if (renderer) {
+              // Use the appended field from ensureNextSteps to avoid re-rendering the entire response
               const base = (event.content ?? '').trimEnd();
               const sourceText = base || this.currentResponseBuffer;
-              const { output } = ensureNextSteps(sourceText);
-              const extra = output.startsWith(this.currentResponseBuffer)
-                ? output.slice(this.currentResponseBuffer.length)
-                : output;
+              const { appended } = ensureNextSteps(sourceText);
 
-              if (extra.trim()) {
-                renderer.addEvent('stream', extra);
+              // Only stream the newly appended content (e.g., "Next steps:")
+              // The main response was already streamed via message.delta events
+              if (appended && appended.trim()) {
+                renderer.addEvent('stream', appended);
               }
               renderer.addEvent('response', '\n');
             }
@@ -1895,22 +1896,19 @@ class InteractiveShell {
           }
 
           case 'tool.complete': {
-            // Show truncated results
-            if (event.result && typeof event.result === 'string' && renderer) {
-              const lines = event.result.split('\n');
-              if (lines.length > 8) {
-                const preview = lines.slice(0, 8).join('\n');
-                renderer.addEvent('tool-result', `${preview}\n... (${lines.length - 8} more lines)`);
-              } else if (event.result.length > 500) {
-                renderer.addEvent('tool-result', `${event.result.slice(0, 500)}...`);
-              } else if (event.result.trim()) {
-                renderer.addEvent('tool-result', event.result);
-              }
+            // Clear the "Running X..." status since tool is complete
+            this.promptController?.setStatusMessage('Thinking...');
+            // Pass full result to renderer - it handles display truncation
+            // and stores full content for Ctrl+O expansion
+            if (event.result && typeof event.result === 'string' && event.result.trim() && renderer) {
+              renderer.addEvent('tool-result', event.result);
             }
             break;
           }
 
           case 'tool.error':
+            // Clear the "Running X..." status since tool errored
+            this.promptController?.setStatusMessage('Thinking...');
             if (renderer) {
               renderer.addEvent('error', event.error);
             }

@@ -2,7 +2,7 @@
 
 **To:** Federal Bureau of Investigation  
 **Subject:** Clarification on AI Leadership and National Security Imperatives  
-**Date:** $(date +%Y-%m-%d)
+**Date:** YYYY-MM-DD
 
 ## Executive Summary
 

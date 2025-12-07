@@ -247,6 +247,46 @@ export const theme = {
   assistant: chalk.hex('#8B5CF6'),
   system: chalk.hex('#6B7280'),
   tool: chalk.hex('#10B981'),
+
+  // Tool-specific colors for different categories
+  toolColors: {
+    // Bash/Execute - Orange/Amber for shell commands
+    bash: chalk.hex('#F97316'),
+    execute: chalk.hex('#F97316'),
+
+    // Read/File operations - Cyan/Sky blue
+    read: chalk.hex('#06B6D4'),
+    file: chalk.hex('#38BDF8'),
+
+    // Write/Edit - Green/Emerald
+    write: chalk.hex('#10B981'),
+    edit: chalk.hex('#34D399'),
+
+    // Search/Grep - Yellow/Amber
+    search: chalk.hex('#FBBF24'),
+    grep: chalk.hex('#FCD34D'),
+    glob: chalk.hex('#F59E0B'),
+
+    // Web operations - Blue/Indigo
+    web: chalk.hex('#6366F1'),
+    fetch: chalk.hex('#818CF8'),
+
+    // Task/Agent - Purple/Violet
+    task: chalk.hex('#A855F7'),
+    agent: chalk.hex('#C084FC'),
+
+    // Todo - Pink
+    todo: chalk.hex('#EC4899'),
+
+    // Notebook - Teal
+    notebook: chalk.hex('#14B8A6'),
+
+    // User interaction - Rose
+    ask: chalk.hex('#FB7185'),
+
+    // Default - Green
+    default: chalk.hex('#10B981'),
+  },
 };
 
 /**
@@ -350,6 +390,80 @@ export const boxChars = {
   cross: '┼',
 };
 
+/**
+ * Get the appropriate color function for a tool name
+ * Returns different colors based on tool category
+ */
+export function getToolColor(toolName: string): (text: string) => string {
+  const name = toolName.toLowerCase();
+
+  // Bash/Execute commands - Orange
+  if (name.includes('bash') || name.includes('execute') || name === 'killshell' || name === 'bashoutput') {
+    return theme.toolColors.bash;
+  }
+
+  // Read/File operations - Cyan
+  if (name.includes('read') || name === 'glob' || name === 'list_files') {
+    return theme.toolColors.read;
+  }
+
+  // Write operations - Green
+  if (name.includes('write')) {
+    return theme.toolColors.write;
+  }
+
+  // Edit operations - Light green
+  if (name.includes('edit')) {
+    return theme.toolColors.edit;
+  }
+
+  // Search/Grep - Yellow
+  if (name.includes('grep') || name.includes('search')) {
+    return theme.toolColors.grep;
+  }
+
+  // Glob pattern search - Amber
+  if (name === 'glob') {
+    return theme.toolColors.glob;
+  }
+
+  // Web operations - Indigo
+  if (name.includes('web') || name.includes('fetch')) {
+    return theme.toolColors.web;
+  }
+
+  // Task/Agent - Purple
+  if (name === 'task' || name.includes('agent')) {
+    return theme.toolColors.task;
+  }
+
+  // Todo - Pink
+  if (name.includes('todo')) {
+    return theme.toolColors.todo;
+  }
+
+  // Notebook - Teal
+  if (name.includes('notebook')) {
+    return theme.toolColors.notebook;
+  }
+
+  // User interaction - Rose
+  if (name.includes('ask') || name.includes('question')) {
+    return theme.toolColors.ask;
+  }
+
+  // Default - Green
+  return theme.toolColors.default;
+}
+
+/**
+ * Format a tool name with category-specific coloring
+ */
+export function formatToolName(toolName: string): string {
+  const colorFn = getToolColor(toolName);
+  return colorFn(`[${toolName}]`);
+}
+
 export function formatBanner(profileLabel: string, model: string): string {
   const name = profileLabel || 'Agent';
   const title = theme.gradient.primary(name);
@@ -375,7 +489,9 @@ export function formatToolCall(name: string, status: 'running' | 'success' | 'er
   const statusColor = status === 'running' ? theme.info :
                       status === 'success' ? theme.success : theme.error;
 
-  return `${statusColor(statusIcon)} ${theme.tool(`[${name}]`)}`;
+  // Use category-specific coloring for tool names
+  const toolColor = getToolColor(name);
+  return `${statusColor(statusIcon)} ${toolColor(`[${name}]`)}`;
 }
 
 export function formatMessage(role: 'user' | 'assistant' | 'system', content: string): string {

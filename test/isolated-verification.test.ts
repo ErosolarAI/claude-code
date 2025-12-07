@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import { IsolatedVerifier } from '../src/core/isolatedVerifier.js';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -111,7 +111,7 @@ describe('Isolated Verification System', () => {
   describe('File system operations', () => {
     test('should verify file existence', async () => {
       const testFile = join(tempDir, 'test.txt');
-      require('fs').writeFileSync(testFile, 'test content');
+      writeFileSync(testFile, 'test content');
 
       const result = await verifier.verifyTaskCompletion('File task', {
         taskDescription: 'Task that creates files',

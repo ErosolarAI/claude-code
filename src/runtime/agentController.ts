@@ -252,7 +252,14 @@ export class AgentController implements IAgentController {
         this.externalCallbacks?.onAssistantMessage?.(content, metadata);
       },
       onStreamChunk: (chunk, type) => {
-        this.emitDelta(chunk, false);
+        if (type === 'content') {
+          // Content chunks go to message.delta for streaming display
+          this.emitDelta(chunk, false);
+        } else if (type === 'reasoning') {
+          // Reasoning chunks go to reasoning event for thought display
+          this.emitReasoning(chunk);
+        }
+        // Pass all chunks to external callbacks
         this.externalCallbacks?.onStreamChunk?.(chunk, type);
       },
       onUsage: (usage) => {
@@ -283,6 +290,7 @@ export class AgentController implements IAgentController {
         this.emitDelta(`[Retrying ${attempt}/${maxAttempts}: ${error.message}]`, false);
         this.externalCallbacks?.onRetrying?.(attempt, maxAttempts, error);
       },
+      // onBeforeFirstToolCall not needed - model's reasoning is now emitted as thought events
     } satisfies AgentCallbacks;
   }
 
@@ -306,6 +314,17 @@ export class AgentController implements IAgentController {
       type: 'error',
       timestamp: Date.now(),
       error: message,
+    });
+  }
+
+  private emitReasoning(content: string): void {
+    if (!content?.trim()) {
+      return;
+    }
+    this.activeSink?.push({
+      type: 'reasoning',
+      timestamp: Date.now(),
+      content,
     });
   }
 

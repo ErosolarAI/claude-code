@@ -11,16 +11,14 @@
  */
 
 import { formatPlan, normalizePlanItems, resolvePlanWidth, wrapPlanText } from '../utils/planFormatter.js';
-import { theme, icons, progressChars } from './theme.js';
+import { theme, icons, progressChars, formatToolName, getToolColor } from './theme.js';
 import {
   TRUNCATE,
   ELLIPSIS,
   PROGRESS,
   DISPLAY_LIMITS,
-  COVERAGE_THRESHOLDS,
   UI_STRINGS,
   truncateString,
-  truncatePath,
   calculatePercentage,
   clampPercentage,
   getCoverageColor,
@@ -61,12 +59,13 @@ export function formatToolCall(
 ): string {
   const includePrefix = options.includePrefix ?? true;
   const symbol = includePrefix ? `${theme.info('⏺')} ` : '';
-  const toolName = theme.tool(`[${call.name}]`);
+  // Use category-specific coloring for tool names
+  const toolNameDisplay = formatToolName(call.name);
 
   // Format args inline (only show relevant ones)
   const argsDisplay = formatInlineArgs(call.args);
 
-  return `${symbol}${toolName}${argsDisplay ? ` ${argsDisplay}` : ''}`;
+  return `${symbol}${toolNameDisplay}${argsDisplay ? ` ${argsDisplay}` : ''}`;
 }
 
 /**
@@ -2020,10 +2019,11 @@ export function formatCompactToolLine(
   for (const op of operations) {
     const icon = op.status === 'success' ? icons.success :
                  op.status === 'error' ? icons.error : icons.running;
-    const color = op.status === 'success' ? theme.success :
-                  op.status === 'error' ? theme.error : theme.info;
+    const statusColor = op.status === 'success' ? theme.success :
+                        op.status === 'error' ? theme.error : theme.info;
+    const toolColor = getToolColor(op.name);
 
-    let badge = `${color(icon)} ${theme.tool(op.name)}`;
+    let badge = `${statusColor(icon)} ${toolColor(op.name)}`;
     if (op.summary) {
       badge += ` ${theme.ui.muted(op.summary)}`;
     }

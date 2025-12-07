@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 
+// eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE = /\x1b\[[0-9;]*[A-Za-z]/g;
 
 function stripAnsi(str) {

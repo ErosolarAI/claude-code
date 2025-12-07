@@ -8,7 +8,7 @@
  * Framework: agi-cli
  */
 
-import { ConcurrencyPool, parallelMap, RateLimiter, type ConcurrencyConfig } from '../utils/asyncUtils.js';
+import { ConcurrencyPool, parallelMap, RateLimiter } from '../utils/asyncUtils.js';
 
 // ============================================================================
 // Types

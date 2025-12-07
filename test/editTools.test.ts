@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex */
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';

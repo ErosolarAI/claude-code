@@ -5,7 +5,7 @@
 
 import { describe, test, expect } from '@jest/globals';
 import { execSync, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -347,13 +347,12 @@ describe('Performance and Resource Usage', () => {
     // Calculate total size (rough estimate)
     const calcSize = (dir: string): number => {
       let total = 0;
-      const fs = require('fs');
 
       try {
-        const items = fs.readdirSync(dir);
+        const items = readdirSync(dir);
         items.forEach((item: string) => {
           const path = join(dir, item);
-          const stat = fs.statSync(path);
+          const stat = statSync(path);
 
           if (stat.isDirectory()) {
             total += calcSize(path);
