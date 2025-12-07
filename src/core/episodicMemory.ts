@@ -351,7 +351,7 @@ export class EpisodicMemory {
   private episodeFilesModified: Set<string> = new Set();
 
   constructor(config: Partial<EpisodicMemoryConfig> = {}) {
-    const dataRoot = process.env['EROSOLAR_DATA_DIR']?.trim() || join(homedir(), '.agi');
+    const dataRoot = process.env['AGI_DATA_DIR']?.trim() || join(homedir(), '.agi');
 
     this.config = {
       maxEpisodes: 1000,

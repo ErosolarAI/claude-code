@@ -40,6 +40,52 @@ import { getEpisodicMemory } from '../core/episodicMemory.js';
 const exec = promisify(childExec);
 import { ensureNextSteps } from '../core/finalResponseFormatter.js';
 
+// Timeout constants for attack tournament
+const ATTACK_AGENT_STEP_TIMEOUT_MS = 30_000; // 30s per agent step (reduced from 60s to prevent long hangs)
+const ATTACK_REASONING_TIMEOUT_MS = 20_000; // 20s max for reasoning-only without action
+const ATTACK_TOURNAMENT_TIMEOUT_MS = 180_000; // 3 min total tournament timeout (reduced from 5 min)
+
+/**
+ * Iterate over an async iterator with a timeout per iteration.
+ * If no event is received within the timeout, yields a special timeout marker.
+ */
+async function* iterateWithTimeout<T>(
+  iterator: AsyncIterable<T>,
+  timeoutMs: number,
+  onTimeout?: () => void
+): AsyncGenerator<T | { __timeout: true }> {
+  const asyncIterator = iterator[Symbol.asyncIterator]();
+
+  while (true) {
+    const nextPromise = asyncIterator.next();
+    const timeoutPromise = new Promise<{ __timeout: true }>((resolve) =>
+      setTimeout(() => resolve({ __timeout: true }), timeoutMs)
+    );
+
+    const result = await Promise.race([nextPromise, timeoutPromise]);
+
+    if ('__timeout' in result) {
+      onTimeout?.();
+      yield result;
+      // After timeout, attempt to abort the iterator if it supports it
+      if (typeof asyncIterator.return === 'function') {
+        try {
+          await asyncIterator.return(undefined);
+        } catch {
+          // Ignore return errors
+        }
+      }
+      return;
+    }
+
+    if (result.done) {
+      return;
+    }
+
+    yield result.value;
+  }
+}
+
 let cachedVersion: string | null = null;
 
 // Get version from package.json
@@ -482,6 +528,19 @@ class InteractiveShell {
       renderer.addEvent('response', chalk.dim(`Target: ${targetArg}\n`));
     }
 
+    // Overall tournament timeout
+    const tournamentStartTime = Date.now();
+    const checkTournamentTimeout = (): boolean => {
+      const elapsed = Date.now() - tournamentStartTime;
+      if (elapsed > ATTACK_TOURNAMENT_TIMEOUT_MS) {
+        if (renderer) {
+          renderer.addEvent('error', chalk.yellow(`⏱ Tournament timeout (${Math.round(elapsed / 1000)}s) - completing with current results`));
+        }
+        return true;
+      }
+      return false;
+    };
+
     try {
       // Show learned weights in UI
       const weights = await this.loadAttackWeights();
@@ -492,6 +551,7 @@ class InteractiveShell {
       let totalSteps = 0;
       let primaryResponse = '';
       let refinerResponse = '';
+      const MAX_CONTINUATION_ATTEMPTS = 3;
 
       // ==================== PRIMARY AGENT ====================
       if (renderer) {
@@ -499,93 +559,232 @@ class InteractiveShell {
       }
       this.promptController?.updateRLStatus({ activeVariant: 'primary' });
 
-      const primaryPrompt = await this.buildAttackPrompt(targetArg, 'primary');
-      let primaryReasoningBuffer = '';
+      // Run primary agent with continuation loop
+      let primaryAttempts = 0;
+      let primaryTimedOut = false;
+      while (primaryAttempts < MAX_CONTINUATION_ATTEMPTS && !primaryTimedOut && !checkTournamentTimeout()) {
+        const primaryPrompt = primaryAttempts === 0
+          ? await this.buildAttackPrompt(targetArg, 'primary')
+          : 'Continue. Execute the Bash tool NOW with: nmap -sn 192.168.1.0/24';
 
-      for await (const event of this.controller.send(primaryPrompt)) {
-        // Track reasoning for fallback
-        if (event.type === 'reasoning' && event.content) {
-          primaryReasoningBuffer += event.content;
-        }
+        let primaryReasoningBuffer = '';
+        let primaryToolCalled = false;
+        const stepStartTime = Date.now();
+        let reasoningOnlyStartTime: number | null = null;
 
-        const result = this.handleAttackAgentEvent(event, renderer, 'primary');
-        primaryResponse += result.content;
-        totalSteps += result.stepIncrement;
-
-        if (result.score !== null) {
-          if (result.score > 0.5) {
-            primaryWins++;
-          } else {
-            refinerWins++;
+        // Use timeout-wrapped iterator to prevent hanging
+        for await (const eventOrTimeout of iterateWithTimeout(
+          this.controller.send(primaryPrompt),
+          ATTACK_AGENT_STEP_TIMEOUT_MS,
+          () => {
+            if (renderer) {
+              renderer.addEvent('response', chalk.yellow(`\n⏱ Primary agent step timeout (${ATTACK_AGENT_STEP_TIMEOUT_MS / 1000}s) - moving on\n`));
+            }
           }
-          this.promptController?.updateRLStatus({
-            wins: { primary: primaryWins, refiner: refinerWins, ties: 0 },
-            totalSteps,
-          });
-        }
-      }
+        )) {
+          // Check for timeout marker
+          if (eventOrTimeout && typeof eventOrTimeout === 'object' && '__timeout' in eventOrTimeout) {
+            primaryTimedOut = true;
+            break;
+          }
 
-      // Fallback: synthesize from reasoning if no response
-      if (!primaryResponse.trim() && primaryReasoningBuffer.trim()) {
-        const synthesized = this.synthesizeFromReasoning(primaryReasoningBuffer);
-        if (synthesized && renderer) {
-          renderer.addEvent('stream', synthesized);
-          primaryResponse = synthesized;
-          primaryWins++; // Credit for producing analysis
+          const event = eventOrTimeout as AgentEventUnion;
+
+          // Track reasoning-only time - abort if reasoning too long without action
+          if (event.type === 'reasoning' && event.content) {
+            primaryReasoningBuffer += event.content;
+            if (!reasoningOnlyStartTime) {
+              reasoningOnlyStartTime = Date.now();
+            }
+            // Check if we've been reasoning too long without any action
+            if (Date.now() - reasoningOnlyStartTime > ATTACK_REASONING_TIMEOUT_MS) {
+              if (renderer) {
+                renderer.addEvent('response', chalk.yellow(`\n⏱ Primary reasoning timeout (${ATTACK_REASONING_TIMEOUT_MS / 1000}s without action) - moving on\n`));
+              }
+              primaryTimedOut = true;
+              break;
+            }
+          }
+
+          // Reset reasoning timer when we get actionable events
+          if (event.type === 'tool.start' || event.type === 'message.delta') {
+            reasoningOnlyStartTime = null;
+          }
+
+          if (event.type === 'tool.start') {
+            primaryToolCalled = true;
+          }
+
+          const result = this.handleAttackAgentEvent(event, renderer, 'primary');
+          primaryResponse += result.content;
+          totalSteps += result.stepIncrement;
+
+          if (result.score !== null) {
+            if (result.score > 0.5) {
+              primaryWins++;
+            } else {
+              refinerWins++;
+            }
+            this.promptController?.updateRLStatus({
+              wins: { primary: primaryWins, refiner: refinerWins, ties: 0 },
+              totalSteps,
+            });
+          }
+
+          // Also check overall step timeout
+          if (Date.now() - stepStartTime > ATTACK_AGENT_STEP_TIMEOUT_MS) {
+            if (renderer) {
+              renderer.addEvent('response', chalk.yellow(`\n⏱ Primary step timeout (${ATTACK_AGENT_STEP_TIMEOUT_MS / 1000}s) - moving on\n`));
+            }
+            primaryTimedOut = true;
+            break;
+          }
+        }
+
+        // If a tool was called or we got response content, we're done
+        if (primaryToolCalled || primaryResponse.trim() || primaryTimedOut) {
+          break;
+        }
+
+        // Synthesize from reasoning if available
+        if (primaryReasoningBuffer.trim()) {
+          const synthesized = this.synthesizeFromReasoning(primaryReasoningBuffer);
+          if (synthesized) {
+            if (renderer) renderer.addEvent('stream', synthesized);
+            primaryResponse = synthesized;
+            primaryWins++;
+            break;
+          }
+        }
+
+        // No tools, no response - try continuation
+        primaryAttempts++;
+        if (primaryAttempts < MAX_CONTINUATION_ATTEMPTS && renderer) {
+          renderer.addEvent('response', chalk.dim(`[Primary agent inactive - prompting action (${primaryAttempts}/${MAX_CONTINUATION_ATTEMPTS})]\n`));
         }
       }
 
       // Show primary summary
       if (renderer) {
-        renderer.addEvent('response', chalk.hex('#0EA5E9')(`\n🔵 Primary complete - Score: ${primaryWins}\n\n`));
+        const statusSuffix = primaryTimedOut ? ' (timed out)' : '';
+        renderer.addEvent('response', chalk.hex('#0EA5E9')(`\n🔵 Primary complete - Score: ${primaryWins}${statusSuffix}\n\n`));
       }
 
       // ==================== REFINER AGENT ====================
-      if (renderer) {
-        renderer.addEvent('banner', chalk.hex('#F97316')('🟠 REFINER Agent Starting...'));
-      }
-      this.promptController?.updateRLStatus({ activeVariant: 'refiner' });
-
-      const refinerPrompt = await this.buildAttackPrompt(targetArg, 'refiner', primaryResponse);
-      let refinerReasoningBuffer = '';
-
-      for await (const event of this.controller.send(refinerPrompt)) {
-        // Track reasoning for fallback
-        if (event.type === 'reasoning' && event.content) {
-          refinerReasoningBuffer += event.content;
+      if (!checkTournamentTimeout()) {
+        if (renderer) {
+          renderer.addEvent('banner', chalk.hex('#F97316')('🟠 REFINER Agent Starting...'));
         }
+        this.promptController?.updateRLStatus({ activeVariant: 'refiner' });
 
-        const result = this.handleAttackAgentEvent(event, renderer, 'refiner');
-        refinerResponse += result.content;
-        totalSteps += result.stepIncrement;
+        // Run refiner agent with continuation loop
+        let refinerAttempts = 0;
+        let refinerTimedOut = false;
+        while (refinerAttempts < MAX_CONTINUATION_ATTEMPTS && !refinerTimedOut && !checkTournamentTimeout()) {
+          const refinerPrompt = refinerAttempts === 0
+            ? await this.buildAttackPrompt(targetArg, 'refiner', primaryResponse)
+            : 'Continue. Execute the Bash tool NOW with: nmap -sV -p 22,80,443 192.168.1.1';
 
-        if (result.score !== null) {
-          if (result.score > 0.5) {
-            // Refiner gets credit for good findings
-            refinerWins++;
-          } else {
-            // Poor result doesn't help refiner
+          let refinerReasoningBuffer = '';
+          let refinerToolCalled = false;
+          const stepStartTime = Date.now();
+          let reasoningOnlyStartTime: number | null = null;
+
+          // Use timeout-wrapped iterator to prevent hanging
+          for await (const eventOrTimeout of iterateWithTimeout(
+            this.controller.send(refinerPrompt),
+            ATTACK_AGENT_STEP_TIMEOUT_MS,
+            () => {
+              if (renderer) {
+                renderer.addEvent('response', chalk.yellow(`\n⏱ Refiner agent step timeout (${ATTACK_AGENT_STEP_TIMEOUT_MS / 1000}s) - moving on\n`));
+              }
+            }
+          )) {
+            // Check for timeout marker
+            if (eventOrTimeout && typeof eventOrTimeout === 'object' && '__timeout' in eventOrTimeout) {
+              refinerTimedOut = true;
+              break;
+            }
+
+            const event = eventOrTimeout as AgentEventUnion;
+
+            // Track reasoning-only time - abort if reasoning too long without action
+            if (event.type === 'reasoning' && event.content) {
+              refinerReasoningBuffer += event.content;
+              if (!reasoningOnlyStartTime) {
+                reasoningOnlyStartTime = Date.now();
+              }
+              // Check if we've been reasoning too long without any action
+              if (Date.now() - reasoningOnlyStartTime > ATTACK_REASONING_TIMEOUT_MS) {
+                if (renderer) {
+                  renderer.addEvent('response', chalk.yellow(`\n⏱ Refiner reasoning timeout (${ATTACK_REASONING_TIMEOUT_MS / 1000}s without action) - moving on\n`));
+                }
+                refinerTimedOut = true;
+                break;
+              }
+            }
+
+            // Reset reasoning timer when we get actionable events
+            if (event.type === 'tool.start' || event.type === 'message.delta') {
+              reasoningOnlyStartTime = null;
+            }
+
+            if (event.type === 'tool.start') {
+              refinerToolCalled = true;
+            }
+
+            const result = this.handleAttackAgentEvent(event, renderer, 'refiner');
+            refinerResponse += result.content;
+            totalSteps += result.stepIncrement;
+
+            if (result.score !== null) {
+              if (result.score > 0.5) {
+                refinerWins++;
+              }
+              this.promptController?.updateRLStatus({
+                wins: { primary: primaryWins, refiner: refinerWins, ties: 0 },
+                totalSteps,
+              });
+            }
+
+            // Also check overall step timeout
+            if (Date.now() - stepStartTime > ATTACK_AGENT_STEP_TIMEOUT_MS) {
+              if (renderer) {
+                renderer.addEvent('response', chalk.yellow(`\n⏱ Refiner step timeout (${ATTACK_AGENT_STEP_TIMEOUT_MS / 1000}s) - moving on\n`));
+              }
+              refinerTimedOut = true;
+              break;
+            }
           }
-          this.promptController?.updateRLStatus({
-            wins: { primary: primaryWins, refiner: refinerWins, ties: 0 },
-            totalSteps,
-          });
-        }
-      }
 
-      // Fallback: synthesize from reasoning if no response
-      if (!refinerResponse.trim() && refinerReasoningBuffer.trim()) {
-        const synthesized = this.synthesizeFromReasoning(refinerReasoningBuffer);
-        if (synthesized && renderer) {
-          renderer.addEvent('stream', synthesized);
-          refinerResponse = synthesized;
-          refinerWins++; // Credit for producing analysis
-        }
-      }
+          // If a tool was called or we got response content, we're done
+          if (refinerToolCalled || refinerResponse.trim() || refinerTimedOut) {
+            break;
+          }
 
-      // Show refiner summary
-      if (renderer) {
-        renderer.addEvent('response', chalk.hex('#F97316')(`\n🟠 Refiner complete - Score: ${refinerWins}\n\n`));
+          // Synthesize from reasoning if available
+          if (refinerReasoningBuffer.trim()) {
+            const synthesized = this.synthesizeFromReasoning(refinerReasoningBuffer);
+            if (synthesized) {
+              if (renderer) renderer.addEvent('stream', synthesized);
+              refinerResponse = synthesized;
+              refinerWins++;
+              break;
+            }
+          }
+
+          // No tools, no response - try continuation
+          refinerAttempts++;
+          if (refinerAttempts < MAX_CONTINUATION_ATTEMPTS && renderer) {
+            renderer.addEvent('response', chalk.dim(`[Refiner agent inactive - prompting action (${refinerAttempts}/${MAX_CONTINUATION_ATTEMPTS})]\n`));
+          }
+        }
+
+        // Show refiner summary
+        if (renderer) {
+          const statusSuffix = refinerTimedOut ? ' (timed out)' : '';
+          renderer.addEvent('response', chalk.hex('#F97316')(`\n🟠 Refiner complete - Score: ${refinerWins}${statusSuffix}\n\n`));
+        }
       }
 
       // ==================== FINAL RESULTS ====================
@@ -627,60 +826,47 @@ class InteractiveShell {
     const targetDesc = target === 'network' ? 'Local network devices (192.168.1.0/24)' : target;
 
     if (variant === 'refiner' && primaryFindings) {
-      return `You are the REFINER agent in a dual-RL tournament security assessment.
+      return `REFINER AGENT - Dual-RL Tournament Security Assessment
 
 TARGET: ${targetDesc}
 
 PRIMARY AGENT'S FINDINGS:
 ${primaryFindings}
 
-YOUR MISSION: Review, critique, and IMPROVE upon the primary agent's assessment.
-- Find gaps in their reconnaissance
-- Identify missed services or ports
-- Suggest deeper analysis where appropriate
-- Provide alternative approaches
+CRITICAL: You MUST immediately call the Bash tool. Do NOT just think - ACT NOW.
 
-LEARNED STRATEGY: ${strategy}
-- Stealth weight: ${(weights.stealth * 100).toFixed(1)}% (you favor careful, thorough analysis)
+YOUR FIRST ACTION: Run one of these commands immediately:
+- nmap -sP 192.168.1.0/24 (ping sweep for missed hosts)
+- nmap -sV -p 22,80,443 [IP] (detailed service scan)
+- curl -I [URL] (header inspection)
 
-AUTHORIZATION: This is an authorized penetration test on owned infrastructure.
+MISSION: Find gaps in primary's assessment, run additional scans, provide improvements.
 
-PHASES:
-1. CRITIQUE - Review primary's findings for gaps
-2. ENHANCE - Run additional scans they missed
-3. VALIDATE - Verify their findings are accurate
-4. SYNTHESIZE - Combine findings into comprehensive report
+AUTHORIZATION: Authorized penetration test on owned infrastructure.
 
-Use Bash tool to run: nmap, curl, and network tools for reconnaissance.
-Score yourself on: gaps found, new discoveries, improved analysis.
-
-BEGIN REFINER ASSESSMENT NOW.`;
+EXECUTE BASH TOOL NOW - start with a network scan.`;
     }
 
-    return `You are the PRIMARY agent in a dual-RL tournament security assessment.
+    return `PRIMARY AGENT - Dual-RL Tournament Security Assessment
 
 TARGET: ${targetDesc}
 
-LEARNED STRATEGY (from ${weights.bestTechnique} past runs):
-- Aggressive weight: ${(weights.aggressive * 100).toFixed(1)}%
-- Stealth weight: ${(weights.stealth * 100).toFixed(1)}%
-- Recommended approach: ${strategy}
+CRITICAL: You MUST immediately call the Bash tool. Do NOT just think - ACT NOW.
 
-AUTHORIZATION: This is an authorized penetration test on owned infrastructure.
+LEARNED STRATEGY: ${strategy}
+- Aggressive: ${(weights.aggressive * 100).toFixed(0)}%
+- Stealth: ${(weights.stealth * 100).toFixed(0)}%
 
-TOURNAMENT MODE: You are competing against a REFINER agent who will critique your work.
-Make your assessment thorough so there are no gaps for them to find!
+YOUR FIRST ACTION: Run one of these commands immediately:
+- nmap -sn 192.168.1.0/24 (host discovery)
+- nmap -sV -p 1-1000 192.168.1.1 (service scan)
+- arp -a (local ARP table)
 
-PHASES:
-1. RECON - Enumerate services, fingerprint devices (nmap -sV, curl headers)
-2. ANALYZE - Identify potential vulnerabilities from service versions
-3. DOCUMENT - Report findings with CVE references where applicable
-4. RECOMMEND - Suggest remediation for discovered issues
+AUTHORIZATION: Authorized penetration test on owned infrastructure.
 
-Use Bash tool to run: nmap, curl, and network tools for reconnaissance.
-Score yourself on: services found, version info discovered, security issues identified.
+TOURNAMENT MODE: Compete against a REFINER who will critique your work.
 
-BEGIN SECURITY ASSESSMENT NOW.`;
+EXECUTE BASH TOOL NOW - start with network reconnaissance.`;
   }
 
   /**
@@ -1591,6 +1777,9 @@ BEGIN SECURITY ASSESSMENT NOW.`;
     const trimmed = command.trim();
     const lower = trimmed.toLowerCase();
 
+    logDebug('[DEBUG] handleSlashCommand called with:', debugSnippet(trimmed));
+    logDebug('[DEBUG] lower starts with /attack:', lower.startsWith('/attack'));
+
     // Handle /model with arguments - silent model switch
     if (lower.startsWith('/model ') || lower.startsWith('/m ')) {
       const arg = trimmed.slice(trimmed.indexOf(' ') + 1).trim();
@@ -1645,6 +1834,7 @@ BEGIN SECURITY ASSESSMENT NOW.`;
 
     // Dual-RL tournament attack with self-modifying reward
     if (lower.startsWith('/attack')) {
+      logDebug('[DEBUG] /attack command detected, args:', trimmed.split(/\s+/).slice(1).slice(0, 3).join(' '));
       const args = trimmed.split(/\s+/).slice(1);
       void this.runDualRLAttack(args);
       return true;
@@ -2360,6 +2550,10 @@ BEGIN SECURITY ASSESSMENT NOW.`;
   private handleSubmit(text: string): void {
     const trimmed = text.trim();
 
+    logDebug('[DEBUG] handleSubmit called with:', debugSnippet(text));
+    logDebug('[DEBUG] trimmed starts with /:', trimmed.startsWith('/'));
+    logDebug('[DEBUG] first 20 chars:', JSON.stringify(trimmed.slice(0, 20)));
+
     // Handle secret input mode - capture the API key value
     if (this.secretInputMode.active && this.secretInputMode.secretId) {
       this.handleSecretValue(trimmed);
@@ -2372,15 +2566,20 @@ BEGIN SECURITY ASSESSMENT NOW.`;
 
     // Handle slash commands first - these don't go to the AI
     if (trimmed.startsWith('/')) {
+      logDebug('[DEBUG] Detected slash command, calling handleSlashCommand');
       if (this.handleSlashCommand(trimmed)) {
+        logDebug('[DEBUG] handleSlashCommand returned true');
         return;
       }
       // Unknown slash command - silent status flash, dismiss inline panel
+      logDebug('[DEBUG] handleSlashCommand returned false - unknown command');
       this.dismissInlinePanel();
-      this.promptController?.setStatusMessage(`Unknown: ${trimmed}`);
+      this.promptController?.setStatusMessage(`Unknown: ${trimmed.slice(0, 30)}`);
       setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
       return;
     }
+
+    logDebug('[DEBUG] Not a slash command, processing as prompt');
 
     // Dismiss inline panel for regular user prompts
     this.dismissInlinePanel();

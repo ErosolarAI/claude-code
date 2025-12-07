@@ -42,7 +42,7 @@ Commit message format:
 
 <body explaining the changes>
 
-🤖 Generated with [Erosolar-CLI](https://claude.com/claude-code)
+🤖 Generated with [AGI-CLI](https://github.com/agi-cli)
 
 Co-Authored-By: Claude <noreply@anthropic.com>
 
@@ -137,7 +137,7 @@ PR body format:
 ## Test plan
 [Bulleted markdown checklist of TODOs for testing the pull request...]
 
-🤖 Generated with [Erosolar-CLI](https://claude.com/claude-code)
+🤖 Generated with [AGI-CLI](https://github.com/agi-cli)
 
 Important:
 - Return the PR URL when done
@@ -241,7 +241,7 @@ EOF
     }
 
     parts.push('');
-    parts.push('🤖 Generated with [Erosolar-CLI](https://claude.com/claude-code)');
+    parts.push('🤖 Generated with [AGI-CLI](https://github.com/agi-cli)');
     parts.push('');
     parts.push('Co-Authored-By: Claude <noreply@anthropic.com>');
 

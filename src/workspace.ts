@@ -23,9 +23,9 @@ export interface WorkspaceCaptureOptions {
 
 export function resolveWorkspaceCaptureOptions(env: NodeJS.ProcessEnv = process.env): WorkspaceCaptureOptions {
   return {
-    treeDepth: parsePositiveInt(env['EROSOLAR_CONTEXT_TREE_DEPTH']),
-    maxEntries: parsePositiveInt(env['EROSOLAR_CONTEXT_MAX_ENTRIES']),
-    docExcerptLimit: parsePositiveInt(env['EROSOLAR_CONTEXT_DOC_LIMIT']),
+    treeDepth: parsePositiveInt(env['AGI_CONTEXT_TREE_DEPTH']),
+    maxEntries: parsePositiveInt(env['AGI_CONTEXT_MAX_ENTRIES']),
+    docExcerptLimit: parsePositiveInt(env['AGI_CONTEXT_DOC_LIMIT']),
   };
 }
 

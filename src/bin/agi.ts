@@ -22,11 +22,10 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
           const __filename = url.fileURLToPath(import.meta.url);
           const pkgPath = path.resolve(path.dirname(__filename), '../../package.json');
           const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-          const name = pkg.name ?? 'erosolar-cli';
           const version = pkg.version || '0.0.0';
-          console.log(`${name} v${version}`);
+          console.log(`agi v${version}`);
         } catch {
-          console.log('erosolar-cli (version unknown)');
+          console.log('agi (version unknown)');
         }
         process.exit(0);
       });
@@ -111,15 +110,15 @@ async function main(): Promise<void> {
 // Inline help for fast response (no imports needed)
 function printHelpFast(): void {
   console.log(`
-erosolar-cli - Core Interactive AI Agent for Coding
+agi - Unified AGI Core Interactive AI Agent
 
-Usage: erosolar [options] [prompt]
+Usage: agi [options] [prompt]
 
 Modes:
-  erosolar                        Start interactive shell (requires TTY)
-  erosolar "prompt"               Start interactive shell with initial prompt
-  erosolar -q "prompt"            Quick mode - single command, minimal UI
-  echo "prompt" | erosolar        Pipe mode - process stdin prompts
+  agi                        Start interactive shell (requires TTY)
+  agi "prompt"               Start interactive shell with initial prompt
+  agi -q "prompt"            Quick mode - single command, minimal UI
+  echo "prompt" | agi        Pipe mode - process stdin prompts
 
 Options:
   -v, --version              Show version number
@@ -134,9 +133,17 @@ Examples:
   agi -q "fix the build error"           # Quick mode
   echo "run npm test" | agi              # Pipe mode
 
+Commands:
+  /attack                    Dual-RL attack tournament (security assessment)
+  /upgrade                   Dual-RL upgrade tournament (code improvement)
+  /model                     Switch AI model
+  /help                      Show available commands
+
 Environment Variables:
   ANTHROPIC_API_KEY    Anthropic API key
   OPENAI_API_KEY       OpenAI API key
   GOOGLE_API_KEY       Google AI API key
+  XAI_API_KEY          xAI (Grok) API key
+  DEEPSEEK_API_KEY     DeepSeek API key
 `);
 }

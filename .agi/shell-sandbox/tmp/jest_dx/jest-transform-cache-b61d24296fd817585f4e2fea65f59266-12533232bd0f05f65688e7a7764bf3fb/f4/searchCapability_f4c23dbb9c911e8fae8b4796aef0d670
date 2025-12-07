@@ -1,0 +1,38 @@
+2a50b043bfdb317a0a65cf4900cfadc6
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.SearchCapabilityModule = void 0;
+var _searchTools = require("../tools/searchTools.js");
+/**
+ * Unified Search Capability Module
+ *
+ * Provides the Search tool which combines:
+ * - File pattern matching (glob)
+ * - Content search (regex/grep)
+ * - Definition finding (functions, classes, interfaces)
+ */
+class SearchCapabilityModule {
+  id = 'capability.search';
+  constructor(options = {}) {
+    this.options = options;
+  }
+  async create(context) {
+    const workingDir = this.options.workingDir ?? context.workingDir;
+    return {
+      id: 'search.unified',
+      description: 'Unified search for files and content',
+      toolSuite: {
+        id: 'search',
+        tools: (0, _searchTools.createSearchTools)(workingDir)
+      },
+      metadata: {
+        workingDir
+      }
+    };
+  }
+}
+exports.SearchCapabilityModule = SearchCapabilityModule;
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJfc2VhcmNoVG9vbHMiLCJyZXF1aXJlIiwiU2VhcmNoQ2FwYWJpbGl0eU1vZHVsZSIsImlkIiwiY29uc3RydWN0b3IiLCJvcHRpb25zIiwiY3JlYXRlIiwiY29udGV4dCIsIndvcmtpbmdEaXIiLCJkZXNjcmlwdGlvbiIsInRvb2xTdWl0ZSIsInRvb2xzIiwiY3JlYXRlU2VhcmNoVG9vbHMiLCJtZXRhZGF0YSIsImV4cG9ydHMiXSwic291cmNlcyI6WyJzZWFyY2hDYXBhYmlsaXR5LnRzIl0sInNvdXJjZXNDb250ZW50IjpbImltcG9ydCB0eXBlIHsgQ2FwYWJpbGl0eUNvbnRyaWJ1dGlvbiwgQ2FwYWJpbGl0eUNvbnRleHQsIENhcGFiaWxpdHlNb2R1bGUgfSBmcm9tICcuLi9ydW50aW1lL2FnZW50SG9zdC5qcyc7XG5pbXBvcnQgeyBjcmVhdGVTZWFyY2hUb29scyB9IGZyb20gJy4uL3Rvb2xzL3NlYXJjaFRvb2xzLmpzJztcblxuZXhwb3J0IGludGVyZmFjZSBTZWFyY2hDYXBhYmlsaXR5T3B0aW9ucyB7XG4gIHdvcmtpbmdEaXI/OiBzdHJpbmc7XG59XG5cbi8qKlxuICogVW5pZmllZCBTZWFyY2ggQ2FwYWJpbGl0eSBNb2R1bGVcbiAqXG4gKiBQcm92aWRlcyB0aGUgU2VhcmNoIHRvb2wgd2hpY2ggY29tYmluZXM6XG4gKiAtIEZpbGUgcGF0dGVybiBtYXRjaGluZyAoZ2xvYilcbiAqIC0gQ29udGVudCBzZWFyY2ggKHJlZ2V4L2dyZXApXG4gKiAtIERlZmluaXRpb24gZmluZGluZyAoZnVuY3Rpb25zLCBjbGFzc2VzLCBpbnRlcmZhY2VzKVxuICovXG5leHBvcnQgY2xhc3MgU2VhcmNoQ2FwYWJpbGl0eU1vZHVsZSBpbXBsZW1lbnRzIENhcGFiaWxpdHlNb2R1bGUge1xuICByZWFkb25seSBpZCA9ICdjYXBhYmlsaXR5LnNlYXJjaCc7XG4gIHByaXZhdGUgcmVhZG9ubHkgb3B0aW9uczogU2VhcmNoQ2FwYWJpbGl0eU9wdGlvbnM7XG5cbiAgY29uc3RydWN0b3Iob3B0aW9uczogU2VhcmNoQ2FwYWJpbGl0eU9wdGlvbnMgPSB7fSkge1xuICAgIHRoaXMub3B0aW9ucyA9IG9wdGlvbnM7XG4gIH1cblxuICBhc3luYyBjcmVhdGUoY29udGV4dDogQ2FwYWJpbGl0eUNvbnRleHQpOiBQcm9taXNlPENhcGFiaWxpdHlDb250cmlidXRpb24+IHtcbiAgICBjb25zdCB3b3JraW5nRGlyID0gdGhpcy5vcHRpb25zLndvcmtpbmdEaXIgPz8gY29udGV4dC53b3JraW5nRGlyO1xuICAgIHJldHVybiB7XG4gICAgICBpZDogJ3NlYXJjaC51bmlmaWVkJyxcbiAgICAgIGRlc2NyaXB0aW9uOiAnVW5pZmllZCBzZWFyY2ggZm9yIGZpbGVzIGFuZCBjb250ZW50JyxcbiAgICAgIHRvb2xTdWl0ZToge1xuICAgICAgICBpZDogJ3NlYXJjaCcsXG4gICAgICAgIHRvb2xzOiBjcmVhdGVTZWFyY2hUb29scyh3b3JraW5nRGlyKSxcbiAgICAgIH0sXG4gICAgICBtZXRhZGF0YTogeyB3b3JraW5nRGlyIH0sXG4gICAgfTtcbiAgfVxufVxuIl0sIm1hcHBpbmdzIjoiOzs7Ozs7QUFDQSxJQUFBQSxZQUFBLEdBQUFDLE9BQUE7QUFNQTtBQUNBO0FBQ0E7QUFDQTtBQUNBO0FBQ0E7QUFDQTtBQUNBO0FBQ08sTUFBTUMsc0JBQXNCLENBQTZCO0VBQ3JEQyxFQUFFLEdBQUcsbUJBQW1CO0VBR2pDQyxXQUFXQSxDQUFDQyxPQUFnQyxHQUFHLENBQUMsQ0FBQyxFQUFFO0lBQ2pELElBQUksQ0FBQ0EsT0FBTyxHQUFHQSxPQUFPO0VBQ3hCO0VBRUEsTUFBTUMsTUFBTUEsQ0FBQ0MsT0FBMEIsRUFBbUM7SUFDeEUsTUFBTUMsVUFBVSxHQUFHLElBQUksQ0FBQ0gsT0FBTyxDQUFDRyxVQUFVLElBQUlELE9BQU8sQ0FBQ0MsVUFBVTtJQUNoRSxPQUFPO01BQ0xMLEVBQUUsRUFBRSxnQkFBZ0I7TUFDcEJNLFdBQVcsRUFBRSxzQ0FBc0M7TUFDbkRDLFNBQVMsRUFBRTtRQUNUUCxFQUFFLEVBQUUsUUFBUTtRQUNaUSxLQUFLLEVBQUUsSUFBQUMsOEJBQWlCLEVBQUNKLFVBQVU7TUFDckMsQ0FBQztNQUNESyxRQUFRLEVBQUU7UUFBRUw7TUFBVztJQUN6QixDQUFDO0VBQ0g7QUFDRjtBQUFDTSxPQUFBLENBQUFaLHNCQUFBLEdBQUFBLHNCQUFBIiwiaWdub3JlTGlzdCI6W119

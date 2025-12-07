@@ -3,7 +3,7 @@
  *
  * Controls whether to use decorative box-drawing characters or plain text.
  * Plain mode outputs clipboard-friendly text without Unicode borders.
- * Automatically enabled in CI or non-interactive shells; override with EROSOLAR_PLAIN_OUTPUT=true.
+ * Automatically enabled in CI or non-interactive shells; override with AGI_PLAIN_OUTPUT=true.
  */
 
 let _plainMode: boolean | null = null;
@@ -17,7 +17,7 @@ export function isPlainOutputMode(): boolean {
     return _plainMode;
   }
 
-  const envValue = process.env['EROSOLAR_PLAIN_OUTPUT'];
+  const envValue = process.env['AGI_PLAIN_OUTPUT'];
   if (envValue !== undefined) {
     const envEnabled = ['true', '1', 'yes', 'on'].includes(envValue.toLowerCase());
     if (envEnabled) {

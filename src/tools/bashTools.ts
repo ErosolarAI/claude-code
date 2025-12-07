@@ -335,15 +335,15 @@ export async function buildSandboxEnv(
   workingDir: string,
   options?: { preserveHome?: boolean }
 ): Promise<NodeJS.ProcessEnv> {
-  const envPreference = process.env['EROSOLAR_PRESERVE_HOME'];
+  const envPreference = process.env['AGI_PRESERVE_HOME'];
   const preserveHome = envPreference === '1' ? true : envPreference === '0' ? false : Boolean(options?.preserveHome);
   const paths = await ensureSandboxPaths(workingDir);
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    EROSOLAR_SANDBOX_ROOT: paths.root,
-    EROSOLAR_SANDBOX_HOME: paths.home,
-    EROSOLAR_SANDBOX_TMP: paths.tmp,
+    AGI_SANDBOX_ROOT: paths.root,
+    AGI_SANDBOX_HOME: paths.home,
+    AGI_SANDBOX_TMP: paths.tmp,
   };
 
   if (!preserveHome) env['HOME'] = paths.home;

@@ -311,8 +311,8 @@ export function shouldShowUpdateNotification(state: AutoUpdateState): boolean {
 }
 
 function resolveAutoUpdateEnabled(): { enabled: boolean; reason?: string } {
-  const disabledEnv = process.env['EROSOLAR_DISABLE_AUTO_UPDATE'];
-  const autoEnv = process.env['EROSOLAR_AUTO_UPDATE'];
+  const disabledEnv = process.env['AGI_DISABLE_AUTO_UPDATE'];
+  const autoEnv = process.env['AGI_AUTO_UPDATE'];
 
   const explicitDisable =
     parseBoolean(autoEnv) === false ||
@@ -397,7 +397,7 @@ function writeAutoUpdateState(state: AutoUpdateState): void {
 }
 
 function resolveUpdateCommand(): string {
-  const override = process.env['EROSOLAR_UPDATE_COMMAND'];
+  const override = process.env['AGI_UPDATE_COMMAND'];
   if (override && override.trim()) {
     return override.trim();
   }

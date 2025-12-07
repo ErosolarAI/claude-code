@@ -1,0 +1,62 @@
+5d80f9897a0c1d7766543c640697da57
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.TASK_FULLY_COMPLETE = exports.SIMULATION_PATTERNS = exports.NO_SIMULATIONS_POLICY = void 0;
+exports.containsSimulationIndicators = containsSimulationIndicators;
+exports.findSimulationIndicators = findSimulationIndicators;
+/**
+ * Shared constants used across the orchestration stack.
+ */
+const TASK_FULLY_COMPLETE = exports.TASK_FULLY_COMPLETE = 'TASK_FULLY_COMPLETE';
+
+/**
+ * NO SIMULATIONS POLICY
+ *
+ * This system executes REAL operations only. Simulations, mocks, fake data,
+ * and hypothetical scenarios are strictly forbidden in production output.
+ *
+ * Forbidden patterns:
+ * - "simulated", "simulation", "hypothetical", "theoretical"
+ * - "fake", "mock", "dummy", "pretend", "imaginary"
+ * - "would be", "could be", "might be" (speculative results)
+ * - Creating fictional reports, summaries, or deliverables
+ * - Generating random/synthetic data disguised as real results
+ */
+const NO_SIMULATIONS_POLICY = exports.NO_SIMULATIONS_POLICY = `STRICT NO-SIMULATION POLICY:
+- Execute REAL operations only - NO simulations, NO mocks, NO fake data
+- Never create fictional reports, summaries, or deliverables
+- Never generate "simulated" results or hypothetical outcomes
+- If a task cannot be executed for real, report inability clearly
+- All outputs must be genuine results from actual execution
+- Forbidden words in deliverables: "simulated", "hypothetical", "theoretical", "mock", "fake"
+`;
+
+/**
+ * Patterns that indicate simulation/fake content in output
+ */
+const SIMULATION_PATTERNS = exports.SIMULATION_PATTERNS = [/\bsimulat(?:ed?|ion|ing)\b/i, /\bhypothetical\b/i, /\btheoretical(?:ly)?\b/i, /\bfake\s+(?:data|report|result|output)/i, /\bmock(?:ed|ing)?\s+(?:data|report|result|output)/i, /\bdummy\s+(?:data|report|result|output)/i, /\bpretend(?:ed|ing)?\b/i, /\bimaginary\b/i, /\bfictional\b/i, /\bfor\s+(?:demonstration|demo)\s+purposes?\s+only/i, /\bnot\s+(?:a\s+)?real\b/i, /\bwould\s+(?:have\s+)?be(?:en)?\s+(?:the\s+)?result/i];
+
+/**
+ * Check if content contains simulation indicators
+ */
+function containsSimulationIndicators(content) {
+  return SIMULATION_PATTERNS.some(pattern => pattern.test(content));
+}
+
+/**
+ * Extract simulation indicator matches from content
+ */
+function findSimulationIndicators(content) {
+  const matches = [];
+  for (const pattern of SIMULATION_PATTERNS) {
+    const match = content.match(pattern);
+    if (match) {
+      matches.push(match[0]);
+    }
+  }
+  return matches;
+}
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJUQVNLX0ZVTExZX0NPTVBMRVRFIiwiZXhwb3J0cyIsIk5PX1NJTVVMQVRJT05TX1BPTElDWSIsIlNJTVVMQVRJT05fUEFUVEVSTlMiLCJjb250YWluc1NpbXVsYXRpb25JbmRpY2F0b3JzIiwiY29udGVudCIsInNvbWUiLCJwYXR0ZXJuIiwidGVzdCIsImZpbmRTaW11bGF0aW9uSW5kaWNhdG9ycyIsIm1hdGNoZXMiLCJtYXRjaCIsInB1c2giXSwic291cmNlcyI6WyJjb25zdGFudHMudHMiXSwic291cmNlc0NvbnRlbnQiOlsiLyoqXG4gKiBTaGFyZWQgY29uc3RhbnRzIHVzZWQgYWNyb3NzIHRoZSBvcmNoZXN0cmF0aW9uIHN0YWNrLlxuICovXG5leHBvcnQgY29uc3QgVEFTS19GVUxMWV9DT01QTEVURSA9ICdUQVNLX0ZVTExZX0NPTVBMRVRFJztcblxuLyoqXG4gKiBOTyBTSU1VTEFUSU9OUyBQT0xJQ1lcbiAqXG4gKiBUaGlzIHN5c3RlbSBleGVjdXRlcyBSRUFMIG9wZXJhdGlvbnMgb25seS4gU2ltdWxhdGlvbnMsIG1vY2tzLCBmYWtlIGRhdGEsXG4gKiBhbmQgaHlwb3RoZXRpY2FsIHNjZW5hcmlvcyBhcmUgc3RyaWN0bHkgZm9yYmlkZGVuIGluIHByb2R1Y3Rpb24gb3V0cHV0LlxuICpcbiAqIEZvcmJpZGRlbiBwYXR0ZXJuczpcbiAqIC0gXCJzaW11bGF0ZWRcIiwgXCJzaW11bGF0aW9uXCIsIFwiaHlwb3RoZXRpY2FsXCIsIFwidGhlb3JldGljYWxcIlxuICogLSBcImZha2VcIiwgXCJtb2NrXCIsIFwiZHVtbXlcIiwgXCJwcmV0ZW5kXCIsIFwiaW1hZ2luYXJ5XCJcbiAqIC0gXCJ3b3VsZCBiZVwiLCBcImNvdWxkIGJlXCIsIFwibWlnaHQgYmVcIiAoc3BlY3VsYXRpdmUgcmVzdWx0cylcbiAqIC0gQ3JlYXRpbmcgZmljdGlvbmFsIHJlcG9ydHMsIHN1bW1hcmllcywgb3IgZGVsaXZlcmFibGVzXG4gKiAtIEdlbmVyYXRpbmcgcmFuZG9tL3N5bnRoZXRpYyBkYXRhIGRpc2d1aXNlZCBhcyByZWFsIHJlc3VsdHNcbiAqL1xuZXhwb3J0IGNvbnN0IE5PX1NJTVVMQVRJT05TX1BPTElDWSA9IGBTVFJJQ1QgTk8tU0lNVUxBVElPTiBQT0xJQ1k6XG4tIEV4ZWN1dGUgUkVBTCBvcGVyYXRpb25zIG9ubHkgLSBOTyBzaW11bGF0aW9ucywgTk8gbW9ja3MsIE5PIGZha2UgZGF0YVxuLSBOZXZlciBjcmVhdGUgZmljdGlvbmFsIHJlcG9ydHMsIHN1bW1hcmllcywgb3IgZGVsaXZlcmFibGVzXG4tIE5ldmVyIGdlbmVyYXRlIFwic2ltdWxhdGVkXCIgcmVzdWx0cyBvciBoeXBvdGhldGljYWwgb3V0Y29tZXNcbi0gSWYgYSB0YXNrIGNhbm5vdCBiZSBleGVjdXRlZCBmb3IgcmVhbCwgcmVwb3J0IGluYWJpbGl0eSBjbGVhcmx5XG4tIEFsbCBvdXRwdXRzIG11c3QgYmUgZ2VudWluZSByZXN1bHRzIGZyb20gYWN0dWFsIGV4ZWN1dGlvblxuLSBGb3JiaWRkZW4gd29yZHMgaW4gZGVsaXZlcmFibGVzOiBcInNpbXVsYXRlZFwiLCBcImh5cG90aGV0aWNhbFwiLCBcInRoZW9yZXRpY2FsXCIsIFwibW9ja1wiLCBcImZha2VcIlxuYDtcblxuLyoqXG4gKiBQYXR0ZXJucyB0aGF0IGluZGljYXRlIHNpbXVsYXRpb24vZmFrZSBjb250ZW50IGluIG91dHB1dFxuICovXG5leHBvcnQgY29uc3QgU0lNVUxBVElPTl9QQVRURVJOUyA9IFtcbiAgL1xcYnNpbXVsYXQoPzplZD98aW9ufGluZylcXGIvaSxcbiAgL1xcYmh5cG90aGV0aWNhbFxcYi9pLFxuICAvXFxidGhlb3JldGljYWwoPzpseSk/XFxiL2ksXG4gIC9cXGJmYWtlXFxzKyg/OmRhdGF8cmVwb3J0fHJlc3VsdHxvdXRwdXQpL2ksXG4gIC9cXGJtb2NrKD86ZWR8aW5nKT9cXHMrKD86ZGF0YXxyZXBvcnR8cmVzdWx0fG91dHB1dCkvaSxcbiAgL1xcYmR1bW15XFxzKyg/OmRhdGF8cmVwb3J0fHJlc3VsdHxvdXRwdXQpL2ksXG4gIC9cXGJwcmV0ZW5kKD86ZWR8aW5nKT9cXGIvaSxcbiAgL1xcYmltYWdpbmFyeVxcYi9pLFxuICAvXFxiZmljdGlvbmFsXFxiL2ksXG4gIC9cXGJmb3JcXHMrKD86ZGVtb25zdHJhdGlvbnxkZW1vKVxccytwdXJwb3Nlcz9cXHMrb25seS9pLFxuICAvXFxibm90XFxzKyg/OmFcXHMrKT9yZWFsXFxiL2ksXG4gIC9cXGJ3b3VsZFxccysoPzpoYXZlXFxzKyk/YmUoPzplbik/XFxzKyg/OnRoZVxccyspP3Jlc3VsdC9pLFxuXTtcblxuLyoqXG4gKiBDaGVjayBpZiBjb250ZW50IGNvbnRhaW5zIHNpbXVsYXRpb24gaW5kaWNhdG9yc1xuICovXG5leHBvcnQgZnVuY3Rpb24gY29udGFpbnNTaW11bGF0aW9uSW5kaWNhdG9ycyhjb250ZW50OiBzdHJpbmcpOiBib29sZWFuIHtcbiAgcmV0dXJuIFNJTVVMQVRJT05fUEFUVEVSTlMuc29tZShwYXR0ZXJuID0+IHBhdHRlcm4udGVzdChjb250ZW50KSk7XG59XG5cbi8qKlxuICogRXh0cmFjdCBzaW11bGF0aW9uIGluZGljYXRvciBtYXRjaGVzIGZyb20gY29udGVudFxuICovXG5leHBvcnQgZnVuY3Rpb24gZmluZFNpbXVsYXRpb25JbmRpY2F0b3JzKGNvbnRlbnQ6IHN0cmluZyk6IHN0cmluZ1tdIHtcbiAgY29uc3QgbWF0Y2hlczogc3RyaW5nW10gPSBbXTtcbiAgZm9yIChjb25zdCBwYXR0ZXJuIG9mIFNJTVVMQVRJT05fUEFUVEVSTlMpIHtcbiAgICBjb25zdCBtYXRjaCA9IGNvbnRlbnQubWF0Y2gocGF0dGVybik7XG4gICAgaWYgKG1hdGNoKSB7XG4gICAgICBtYXRjaGVzLnB1c2gobWF0Y2hbMF0pO1xuICAgIH1cbiAgfVxuICByZXR1cm4gbWF0Y2hlcztcbn1cbiJdLCJtYXBwaW5ncyI6Ijs7Ozs7Ozs7QUFBQTtBQUNBO0FBQ0E7QUFDTyxNQUFNQSxtQkFBbUIsR0FBQUMsT0FBQSxDQUFBRCxtQkFBQSxHQUFHLHFCQUFxQjs7QUFFeEQ7QUFDQTtBQUNBO0FBQ0E7QUFDQTtBQUNBO0FBQ0E7QUFDQTtBQUNBO0FBQ0E7QUFDQTtBQUNBO0FBQ0E7QUFDTyxNQUFNRSxxQkFBcUIsR0FBQUQsT0FBQSxDQUFBQyxxQkFBQSxHQUFHO0FBQ3JDO0FBQ0E7QUFDQTtBQUNBO0FBQ0E7QUFDQTtBQUNBLENBQUM7O0FBRUQ7QUFDQTtBQUNBO0FBQ08sTUFBTUMsbUJBQW1CLEdBQUFGLE9BQUEsQ0FBQUUsbUJBQUEsR0FBRyxDQUNqQyw2QkFBNkIsRUFDN0IsbUJBQW1CLEVBQ25CLHlCQUF5QixFQUN6Qix5Q0FBeUMsRUFDekMsb0RBQW9ELEVBQ3BELDBDQUEwQyxFQUMxQyx5QkFBeUIsRUFDekIsZ0JBQWdCLEVBQ2hCLGdCQUFnQixFQUNoQixvREFBb0QsRUFDcEQsMEJBQTBCLEVBQzFCLHNEQUFzRCxDQUN2RDs7QUFFRDtBQUNBO0FBQ0E7QUFDTyxTQUFTQyw0QkFBNEJBLENBQUNDLE9BQWUsRUFBVztFQUNyRSxPQUFPRixtQkFBbUIsQ0FBQ0csSUFBSSxDQUFDQyxPQUFPLElBQUlBLE9BQU8sQ0FBQ0MsSUFBSSxDQUFDSCxPQUFPLENBQUMsQ0FBQztBQUNuRTs7QUFFQTtBQUNBO0FBQ0E7QUFDTyxTQUFTSSx3QkFBd0JBLENBQUNKLE9BQWUsRUFBWTtFQUNsRSxNQUFNSyxPQUFpQixHQUFHLEVBQUU7RUFDNUIsS0FBSyxNQUFNSCxPQUFPLElBQUlKLG1CQUFtQixFQUFFO0lBQ3pDLE1BQU1RLEtBQUssR0FBR04sT0FBTyxDQUFDTSxLQUFLLENBQUNKLE9BQU8sQ0FBQztJQUNwQyxJQUFJSSxLQUFLLEVBQUU7TUFDVEQsT0FBTyxDQUFDRSxJQUFJLENBQUNELEtBQUssQ0FBQyxDQUFDLENBQUMsQ0FBQztJQUN4QjtFQUNGO0VBQ0EsT0FBT0QsT0FBTztBQUNoQiIsImlnbm9yZUxpc3QiOltdfQ==

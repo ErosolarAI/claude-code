@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Self-Test Runner for Erosolar CLI
+ * Self-Test Runner for AGI CLI
  *
  * Launches the CLI in a separate process and runs extensive tests
  * to verify functionality works correctly in a real runtime environment.
@@ -47,7 +47,7 @@ interface CLITestContext {
  */
 export async function runSelfTest(): Promise<boolean> {
   console.log(`\n${COLORS.bold}╔══════════════════════════════════════════════════════════╗${COLORS.reset}`);
-  console.log(`${COLORS.bold}║       EROSOLAR CLI SELF-TEST SUITE                       ║${COLORS.reset}`);
+  console.log(`${COLORS.bold}║       AGI CLI SELF-TEST SUITE                            ║${COLORS.reset}`);
   console.log(`${COLORS.bold}╚══════════════════════════════════════════════════════════╝${COLORS.reset}\n`);
 
   const results: TestResult[] = [];

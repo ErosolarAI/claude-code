@@ -56,7 +56,7 @@ export async function runQuickMode(options: QuickLaunchOptions): Promise<void> {
   const workspaceContext = buildWorkspaceContext(workingDir, workspaceOptions);
 
   // Log pre-controller time
-  if (process.env['EROSOLAR_DEBUG']) {
+  if (process.env['AGI_DEBUG']) {
     console.error(`[quick] pre-controller: ${Date.now() - startTime}ms`);
   }
 
@@ -72,7 +72,7 @@ export async function runQuickMode(options: QuickLaunchOptions): Promise<void> {
   const initTime = Date.now() - startTime;
 
   // Log init time in debug mode
-  if (process.env['EROSOLAR_DEBUG']) {
+  if (process.env['AGI_DEBUG']) {
     console.error(`[quick] initialized in ${initTime}ms`);
   }
 

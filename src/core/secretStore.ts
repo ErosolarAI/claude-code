@@ -132,8 +132,8 @@ const SECRET_DEFINITIONS: SecretDefinition[] = [
   },
 ];
 
-const envErosolarHome = process.env['EROSOLAR_HOME'];
-const SECRET_DIR = envErosolarHome ? resolve(envErosolarHome) : join(homedir(), '.agi');
+const envAgiHome = process.env['AGI_HOME'];
+const SECRET_DIR = envAgiHome ? resolve(envAgiHome) : join(homedir(), '.agi');
 const SECRET_FILE = join(SECRET_DIR, 'secrets.json');
 
 export class MissingSecretError extends Error {

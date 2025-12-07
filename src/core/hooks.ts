@@ -98,14 +98,12 @@ export function loadHooks(workingDir: string): HooksConfig {
   const userSettingsPaths = [
     join(homedir(), '.claude', 'settings.json'),
     join(homedir(), '.agi', 'settings.json'),
-    join(homedir(), '.erosolar', 'settings.json'),
   ];
 
   // Load from project settings (.claude/settings.json or .agi/settings.json)
   const projectSettingsPaths = [
     join(workingDir, '.claude', 'settings.json'),
     join(workingDir, '.agi', 'settings.json'),
-    join(workingDir, '.erosolar', 'settings.json'),
   ];
 
   // Load user settings first, then override with project settings

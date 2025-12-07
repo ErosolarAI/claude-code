@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import type { ConversationMessage, ProviderId } from './types.js';
 import type { ProfileName } from '../config.js';
 
-const dataRoot = process.env['EROSOLAR_DATA_DIR']?.trim() || join(homedir(), '.agi');
+const dataRoot = process.env['AGI_DATA_DIR']?.trim() || join(homedir(), '.agi');
 const sessionsDir = join(dataRoot, 'sessions');
 const indexPath = join(sessionsDir, 'index.json');
 

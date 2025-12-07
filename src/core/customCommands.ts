@@ -5,9 +5,9 @@ import type { ProfileName } from '../config.js';
 import type { ProviderId } from './types.js';
 import { logDebug } from '../utils/debugLogger.js';
 
-const dataRoot = process.env['EROSOLAR_DATA_DIR']?.trim() || join(homedir(), '.agi');
+const dataRoot = process.env['AGI_DATA_DIR']?.trim() || join(homedir(), '.agi');
 const defaultCommandsDir =
-  process.env['EROSOLAR_COMMANDS_DIR']?.trim() || join(dataRoot, 'commands');
+  process.env['AGI_COMMANDS_DIR']?.trim() || join(dataRoot, 'commands');
 
 export interface LoadedCustomCommand {
   command: string;

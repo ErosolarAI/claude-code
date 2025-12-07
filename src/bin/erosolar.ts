@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Erosolar CLI entrypoint.
- * Lightweight shim that reuses the AGI CLI implementation while exposing the expected binary name.
+ * Legacy entrypoint (alias for agi).
+ * Lightweight shim that reuses the AGI CLI implementation.
  */
 import './agi.js';
