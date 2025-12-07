@@ -63,7 +63,11 @@ export class OrchestrationUIBridge {
     if (!this.showRealtime) {
       return;
     }
-    const name = event.data && typeof event.data === 'object' ? (event.data as any).toolName ?? '' : '';
+    const data = event.data;
+    let name = '';
+    if (data && typeof data === 'object' && 'toolName' in data) {
+      name = String((data as {toolName: unknown}).toolName);
+    }
     this.display.writeRaw(`[${event.type}] ${name}\n`);
     this.updateCoordinator.enqueue({
       lane: 'status',

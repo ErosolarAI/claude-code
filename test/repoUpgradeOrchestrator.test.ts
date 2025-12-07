@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -136,6 +136,29 @@ describe('RepoUpgradeOrchestrator - modes', () => {
     expect(executor).toHaveBeenCalledTimes(1);
     expect(report.results[0]?.success).toBe(false);
   });
+
+  it('uses refiner bias to break ties when both variants succeed', async () => {
+    const executor = jest.fn(async (input: UpgradeStepExecutionInput) => ({
+      success: true,
+      summary: `${input.step.id}-${input.variant}`,
+      score: 0.4,
+      execution: {
+        success: true,
+        output: input.variant,
+        duration: 1,
+        command: `${input.module.id}/${input.step.id}/${input.variant}`,
+      },
+    }));
+
+    const orchestrator = new RepoUpgradeOrchestrator(executor);
+    const plan = makePlan(simpleModule('tie-breaker'));
+
+    const report = await orchestrator.run(plan, { mode: 'dual-rl-continuous' });
+    const step = report.modules[0]?.steps[0];
+
+    expect(step?.winnerVariant).toBe('refiner');
+    expect(executor).toHaveBeenCalledTimes((plan.modules[0]?.steps.length ?? 0) * 2);
+  });
 });
 
 describe('buildRepoWidePlan', () => {
@@ -145,6 +168,23 @@ describe('buildRepoWidePlan', () => {
       const plan = buildRepoWidePlan(dir);
       expect(plan.modules).toHaveLength(1);
       expect(plan.modules[0]?.id).toBe('repo-wide');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('expands npm/yarn workspaces into dedicated modules', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'upgrade-fw-'));
+    try {
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'workspace-test', workspaces: ['packages/*'] }));
+      mkdirSync(join(dir, 'packages', 'svc-a'), { recursive: true });
+      const plan = buildRepoWidePlan(dir);
+      const ids = plan.modules.map((m) => m.id);
+
+      expect(ids.some((id) => id.includes('workspace-packages-svc-a'))).toBe(true);
+      const workspaceModule = plan.modules.find((m) => m.id.includes('workspace-packages-svc-a'));
+      expect(workspaceModule?.scope).toEqual(['packages/svc-a/**/*']);
+      expect(workspaceModule?.validationCommands?.length).toBeGreaterThan(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

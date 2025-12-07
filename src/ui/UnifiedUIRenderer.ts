@@ -12,6 +12,7 @@
 import * as readline from 'node:readline';
 import { EventEmitter } from 'node:events';
 import { homedir } from 'node:os';
+import chalk from 'chalk';
 import { theme, spinnerFrames } from './theme.js';
 import { isPlainOutputMode } from './outputMode.js';
 import { AnimatedSpinner, ThinkingIndicator, ContextMeter, disposeAnimations } from './animatedStatus.js';
@@ -140,6 +141,12 @@ export class UnifiedUIRenderer extends EventEmitter {
   private readonly activityStarFrames = ['✳', '✴', '✵', '✶', '✷', '✸'];
   // Token count during streaming
   private streamingTokens = 0;
+  // Horizontal scroll animation for long activity lines
+  private activityScrollOffset = 0;
+  private activityScrollDirection = 1; // 1 = right, -1 = left
+  // Elapsed time color animation
+  private elapsedColorFrame = 0;
+  private readonly elapsedColorFrames = ['#F59E0B', '#FBBF24', '#FCD34D', '#FDE68A', '#FCD34D', '#FBBF24'];
   // User-friendly activity phrases (clean, professional)
   private readonly funActivityPhrases = [
     'Thinking', 'Processing', 'Analyzing', 'Working', 'Preparing',
@@ -443,6 +450,44 @@ export class UnifiedUIRenderer extends EventEmitter {
       return;
     }
 
+    // macOS Option+key produces Unicode characters; handle them before key metadata checks.
+    const macOptionChars: Record<string, string> = {
+      '©': 'g',  // Option+G
+      '™': 'g',  // Option+Shift+G
+      'å': 'a',  // Option+A
+      'Å': 'a',  // Option+Shift+A
+      '√': 'v',  // Option+V / Option+Shift+V
+      '∂': 'd',  // Option+D
+      'Î': 'd',  // Option+Shift+D (common macOS emission)
+      '∆': 'd',  // Common alternate delta symbol
+    };
+
+    if (str && macOptionChars[str]) {
+      const letter = macOptionChars[str];
+      // Clear any pending insert buffer so the symbol never lands in the prompt
+      this.pendingInsertBuffer = '';
+      switch (letter) {
+        case 'a':
+          this.emit('toggle-critical-approval');
+          this.renderPrompt();
+          return;
+        case 'g':
+          this.emit('toggle-auto-continue');
+          this.renderPrompt();
+          return;
+        case 'd':
+          this.emit('toggle-dual-rl');
+          this.renderPrompt();
+          return;
+        case 'v':
+          this.emit('toggle-verify');
+          this.renderPrompt();
+          return;
+        default:
+          break;
+      }
+    }
+
     if (!normalizedKey) {
       return;
     }
@@ -451,35 +496,6 @@ export class UnifiedUIRenderer extends EventEmitter {
       this.cancelInputCapture(new Error('Input capture cancelled'));
       this.clearBuffer();
       return;
-    }
-
-    // macOS Option+key produces Unicode characters, detect them directly:
-    // Option+G = © (copyright), Option+A = å, Option+V = √, Option+D = ∂
-    const macOptionChars: Record<string, string> = {
-      '©': 'g',  // Option+G
-      'å': 'a',  // Option+A
-      '√': 'v',  // Option+V
-      '∂': 'd',  // Option+D
-    };
-
-    if (str && macOptionChars[str]) {
-      const letter = macOptionChars[str];
-      if (letter === 'a') {
-        this.emit('toggle-critical-approval');
-        return;
-      }
-      if (letter === 'g') {
-        this.emit('toggle-auto-continue');
-        return;
-      }
-      if (letter === 'd') {
-        this.emit('toggle-dual-rl');
-        return;
-      }
-      if (letter === 'v') {
-        this.emit('toggle-verify');
-        return;
-      }
     }
 
     // Detect Ctrl+Shift combinations (fallback for non-macOS or configured terminals)
@@ -517,23 +533,38 @@ export class UnifiedUIRenderer extends EventEmitter {
       return false;
     };
 
+    const handleCtrlShiftToggle = (letter: 'a' | 'g' | 'd' | 'v'): void => {
+      // Ensure no buffered chars leak into the prompt
+      this.pendingInsertBuffer = '';
+      if (letter === 'a') {
+        this.emit('toggle-critical-approval');
+      } else if (letter === 'g') {
+        this.emit('toggle-auto-continue');
+      } else if (letter === 'd') {
+        this.emit('toggle-dual-rl');
+      } else if (letter === 'v') {
+        this.emit('toggle-verify');
+      }
+      this.renderPrompt();
+    };
+
     if (isCtrlShift('a')) {
-      this.emit('toggle-critical-approval');
+      handleCtrlShiftToggle('a');
       return;
     }
 
     if (isCtrlShift('g')) {
-      this.emit('toggle-auto-continue');
+      handleCtrlShiftToggle('g');
       return;
     }
 
     if (isCtrlShift('d')) {
-      this.emit('toggle-dual-rl');
+      handleCtrlShiftToggle('d');
       return;
     }
 
     if (isCtrlShift('v')) {
-      this.emit('toggle-verify');
+      handleCtrlShiftToggle('v');
       return;
     }
 
@@ -2248,9 +2279,20 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (this.spinnerInterval) return; // Already running
     this.spinnerFrame = 0;
     this.activityStarFrame = 0;
+    this.activityScrollOffset = 0;
+    this.activityScrollDirection = 1;
+    this.elapsedColorFrame = 0;
     this.spinnerInterval = setInterval(() => {
       this.spinnerFrame = (this.spinnerFrame + 1) % spinnerFrames.braille.length;
       this.activityStarFrame = (this.activityStarFrame + 1) % this.activityStarFrames.length;
+      // Update elapsed time color animation (slower cycle)
+      if (this.spinnerFrame % 3 === 0) {
+        this.elapsedColorFrame = (this.elapsedColorFrame + 1) % this.elapsedColorFrames.length;
+      }
+      // Update horizontal scroll for long activity lines (slower scroll)
+      if (this.spinnerFrame % 4 === 0) {
+        this.activityScrollOffset += this.activityScrollDirection;
+      }
       // Re-render to show updated spinner/star frame
       if (!this.plainMode && this.mode === 'streaming') {
         this.renderPrompt();
@@ -2269,6 +2311,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     this.spinnerFrame = 0;
     this.activityStarFrame = 0;
     this.activityMessage = null;
+    this.activityScrollOffset = 0;
+    this.activityScrollDirection = 1;
+    this.elapsedColorFrame = 0;
   }
 
   /**
@@ -2602,16 +2647,51 @@ export class UnifiedUIRenderer extends EventEmitter {
       }
       const needsEllipsis = !displayActivity.trimEnd().endsWith('…') && !displayActivity.trimEnd().endsWith('...');
       // Format: ⠋ Working… (esc to interrupt · 1m 19s · ↑1.2k tokens)
-      const parts = ['esc to interrupt'];
-      if (elapsed) parts.push(elapsed);
+      // Build parts with animated elapsed time color
+      const elapsedColor = chalk.hex(this.elapsedColorFrames[this.elapsedColorFrame % this.elapsedColorFrames.length] ?? '#F59E0B');
+      const parts: string[] = ['esc to interrupt'];
+      if (elapsed) parts.push(elapsedColor(elapsed));
       if (this.streamingTokens > 0) {
         parts.push(`↑${this.formatTokenCount(this.streamingTokens)} tokens`);
       }
       const prefix = `${spinnerDecorated} `;
-      const activityLine = `${prefix}${displayActivity.trim()}${needsEllipsis ? '…' : ''} ${theme.ui.muted(`(${parts.join(' · ')})`)}`;
-      const indent = ' '.repeat(this.visibleLength(prefix));
-      const wrapped = this.wrapOverlayLine(activityLine, maxWidth, indent);
-      lines.push(...wrapped);
+      const activityText = `${displayActivity.trim()}${needsEllipsis ? '…' : ''}`;
+      const suffix = ` ${theme.ui.muted('(')}${parts.join(theme.ui.muted(' · '))}${theme.ui.muted(')')}`;
+
+      // Build the full activity line content (without prefix for scrolling calculation)
+      const fullContent = activityText + suffix;
+      const prefixLen = this.visibleLength(prefix);
+      const availableWidth = maxWidth - prefixLen;
+
+      // Apply horizontal scrolling if content is too long
+      let displayContent = fullContent;
+      const contentLen = this.visibleLength(fullContent);
+      if (contentLen > availableWidth) {
+        // Calculate scroll bounds
+        const maxScroll = contentLen - availableWidth + 3; // +3 for padding
+
+        // Bounce the scroll direction at boundaries
+        if (this.activityScrollOffset >= maxScroll) {
+          this.activityScrollDirection = -1;
+        } else if (this.activityScrollOffset <= 0) {
+          this.activityScrollDirection = 1;
+        }
+
+        // Create scrolled view with visual indicators
+        const offset = Math.max(0, Math.min(this.activityScrollOffset, maxScroll));
+        const startIndicator = offset > 0 ? '‹' : '';
+        const endIndicator = offset < maxScroll ? '›' : '';
+
+        // Extract visible portion (handle ANSI codes properly)
+        const plainContent = this.stripAnsi(fullContent);
+        const visiblePlain = plainContent.slice(offset, offset + availableWidth - 2);
+
+        // Re-apply styling to the visible portion
+        displayContent = startIndicator + visiblePlain + endIndicator;
+      }
+
+      const activityLine = `${prefix}${displayContent}`;
+      lines.push(activityLine);
     }
 
     // Top divider

@@ -2,6 +2,7 @@ import type { AgentController } from '../runtime/agentController.js';
 import {
   RepoUpgradeOrchestrator,
   buildRepoWidePlan,
+  REPO_UPGRADE_MODE_DEFINITIONS,
   type RepoUpgradeMode,
   type RepoUpgradeReport,
   type RepoUpgradeStep,
@@ -73,12 +74,17 @@ export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promi
  */
 function buildStepPrompt(input: UpgradeStepExecutionInput): string {
   const lines: string[] = [];
-  const header = input.variant === 'refiner'
-    ? 'Refiner pass: improve or fix the previous result with higher quality and safety.'
-    : 'Primary pass: produce the best upgrade steps with minimal blast radius.';
+  const modeDefinition = REPO_UPGRADE_MODE_DEFINITIONS[input.mode];
+  const variantLabel = input.variant === 'refiner' ? 'Refiner pass' : 'Primary pass';
+  const variantGuidance = modeDefinition?.variantGuidance?.[input.variant];
 
-  lines.push(`Repository upgrade (${input.mode}). ${header}`);
-  lines.push(`Module: ${input.module.label} (${input.module.scope.join(', ')})`);
+  lines.push(`Repository upgrade (${modeDefinition?.label ?? input.mode})`);
+  if (modeDefinition?.description) {
+    lines.push(modeDefinition.description);
+  }
+  lines.push(variantGuidance ? `${variantLabel}: ${variantGuidance}` : variantLabel);
+  lines.push(`Module: ${input.module.label}`);
+  lines.push(`Scope: ${formatScope(input.module.scope)}`);
   lines.push(`Step: [${input.step.intent}] ${input.step.description}`);
 
   if (input.step.prompt) {
@@ -96,8 +102,13 @@ function buildStepPrompt(input: UpgradeStepExecutionInput): string {
   if (input.previousResult?.summary) {
     lines.push(`Previous summary: ${truncate(input.previousResult.summary, 240)}`);
   }
+  if (input.variant === 'refiner' && input.previousResult?.detail) {
+    lines.push(`Previous detail: ${truncate(input.previousResult.detail, 320)}`);
+  }
 
-  lines.push('Deliver a concise summary of actions taken and highlight remaining risks. Prefer commands/tests that keep scope local.');
+  lines.push(
+    'Deliver a concise summary of actions taken and highlight remaining risks. Keep edits within the module scope and prefer commands/tests that run quickly and locally.'
+  );
   return lines.join('\n');
 }
 
@@ -158,6 +169,12 @@ function summarizeResult(text: string): string {
 function truncate(text: string, limit: number): string {
   if (text.length <= limit) return text;
   return `${text.slice(0, limit - 3)}...`;
+}
+
+function formatScope(scopes: string[]): string {
+  if (!scopes.length) return '(no scope)';
+  if (scopes.length === 1) return scopes[0] ?? '(no scope)';
+  return scopes.slice(0, 3).join(' | ') + (scopes.length > 3 ? ' …' : '');
 }
 
 function scoreOutput(output: string): number {

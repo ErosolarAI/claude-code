@@ -546,6 +546,65 @@ class InteractiveShell {
       return true;
     }
 
+    // Toggle dual-agent RL mode
+    if (lower === '/dual' || lower === '/mode') {
+      this.promptController?.toggleDualMode();
+      const state = this.promptController?.getModeToggleState();
+      this.promptController?.setStatusMessage(state?.dualRlEnabled ? 'Dual RL on' : 'Dual RL off');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
+      return true;
+    }
+    if (lower.startsWith('/mode ')) {
+      const arg = lower.split(/\s+/)[1];
+      const state = this.promptController?.getModeToggleState();
+      if (arg === 'dual' || arg === 'multi') {
+        this.promptController?.setModeToggles({
+          dualRlEnabled: true,
+          verificationEnabled: state?.verificationEnabled ?? false,
+          autoContinueEnabled: state?.autoContinueEnabled ?? false,
+        });
+        this.promptController?.setStatusMessage('Dual RL on');
+      } else if (arg === 'single' || arg === 'solo') {
+        this.promptController?.setModeToggles({
+          dualRlEnabled: false,
+          verificationEnabled: state?.verificationEnabled ?? false,
+          autoContinueEnabled: state?.autoContinueEnabled ?? false,
+        });
+        this.promptController?.setStatusMessage('Dual RL off');
+      } else {
+        this.promptController?.setStatusMessage('Use /mode dual|single');
+      }
+      setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
+      return true;
+    }
+
+    // Toggle auto-continue
+    if (lower === '/auto' || lower === '/continue' || lower === '/loop') {
+      this.promptController?.toggleAutoContinue();
+      const on = this.promptController?.getModeToggleState().autoContinueEnabled;
+      this.promptController?.setStatusMessage(on ? 'Auto-continue on' : 'Auto-continue off');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
+      return true;
+    }
+
+    // Toggle verification
+    if (lower === '/verify' || lower === '/test') {
+      this.promptController?.toggleVerify();
+      const on = this.promptController?.getModeToggleState().verificationEnabled;
+      this.promptController?.setStatusMessage(on ? 'Verify on' : 'Verify off');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
+      return true;
+    }
+
+    // Toggle approvals mode
+    if (lower === '/approve' || lower === '/approvals') {
+      this.promptController?.toggleApprovals();
+      const mode = this.promptController?.getModeToggleState().criticalApprovalMode ?? 'auto';
+      this.promptController?.setStatusMessage(`Approvals: ${mode}`);
+      setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
+      return true;
+    }
+
     if (lower === '/exit' || lower === '/quit' || lower === '/q') {
       this.handleExit();
       return true;

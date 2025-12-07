@@ -32,6 +32,24 @@ export class PromptController {
   private statusMain: string | null = null;
   private statusOverride: string | null = null;
   private statusStreaming: string | null = null;
+  private modeToggleState: {
+    verificationEnabled: boolean;
+    verificationHotkey?: string;
+    autoContinueEnabled: boolean;
+    autoContinueHotkey?: string;
+    thinkingModeLabel?: string | null;
+    thinkingHotkey?: string;
+    criticalApprovalMode: 'auto' | 'approval';
+    criticalApprovalHotkey?: string;
+    dualRlEnabled: boolean;
+    dualRlHotkey?: string;
+    debugEnabled?: boolean;
+  } = {
+    verificationEnabled: false,
+    autoContinueEnabled: false,
+    criticalApprovalMode: 'auto',
+    dualRlEnabled: false,
+  };
   private started = false;
   private disposed = false;
   // Store bound handlers for cleanup
@@ -57,7 +75,6 @@ export class PromptController {
       this.callbacks.onChange?.(payload);
     });
     this.addBoundHandler('resume', () => this.callbacks.onResume?.());
-    this.addBoundHandler('toggle-critical-approval', () => this.callbacks.onToggleCriticalApproval?.());
     this.addBoundHandler('expand-tool-result', () => {
       const expanded = this.renderer.expandLastToolResult();
       if (!expanded) {
@@ -66,9 +83,27 @@ export class PromptController {
       }
       this.callbacks.onExpandToolResult?.();
     });
-    this.addBoundHandler('toggle-auto-continue', () => this.callbacks.onToggleAutoContinue?.());
-    this.addBoundHandler('toggle-dual-rl', () => this.callbacks.onToggleDualRl?.());
-    this.addBoundHandler('toggle-verify', () => this.callbacks.onToggleVerify?.());
+    this.addBoundHandler('toggle-auto-continue', () => {
+      this.modeToggleState.autoContinueEnabled = !this.modeToggleState.autoContinueEnabled;
+      this.syncModeToggles();
+      this.callbacks.onToggleAutoContinue?.();
+    });
+    this.addBoundHandler('toggle-dual-rl', () => {
+      this.modeToggleState.dualRlEnabled = !this.modeToggleState.dualRlEnabled;
+      this.syncModeToggles();
+      this.callbacks.onToggleDualRl?.();
+    });
+    this.addBoundHandler('toggle-verify', () => {
+      this.modeToggleState.verificationEnabled = !this.modeToggleState.verificationEnabled;
+      this.syncModeToggles();
+      this.callbacks.onToggleVerify?.();
+    });
+    this.addBoundHandler('toggle-critical-approval', () => {
+      this.modeToggleState.criticalApprovalMode =
+        this.modeToggleState.criticalApprovalMode === 'auto' ? 'approval' : 'auto';
+      this.syncModeToggles();
+      this.callbacks.onToggleCriticalApproval?.();
+    });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,6 +129,7 @@ export class PromptController {
     }
     this.started = true;
     this.renderer.initialize();
+    this.syncModeToggles();
   }
 
   stop(): void {
@@ -135,22 +171,61 @@ export class PromptController {
       verificationEnabled: false,
       autoContinueEnabled: false,
     };
-    this.renderer.updateModeToggles({
-      verificationEnabled: options.verificationEnabled,
+    this.modeToggleState = {
+      ...this.modeToggleState,
+      verificationEnabled: Boolean(options.verificationEnabled),
       verificationHotkey: options.verificationHotkey,
-      autoContinueEnabled: options.autoContinueEnabled,
+      autoContinueEnabled: Boolean(options.autoContinueEnabled),
       autoContinueHotkey: options.autoContinueHotkey,
       thinkingModeLabel: options.thinkingModeLabel,
       thinkingHotkey: options.thinkingHotkey,
-      criticalApprovalMode: options.criticalApprovalMode,
+      criticalApprovalMode: options.criticalApprovalMode ?? this.modeToggleState.criticalApprovalMode,
       criticalApprovalHotkey: options.criticalApprovalHotkey,
-      dualRlEnabled: options.dualRlEnabled,
+      dualRlEnabled: Boolean(options.dualRlEnabled),
       dualRlHotkey: options.dualRlHotkey,
-    });
+    };
+    this.syncModeToggles();
   }
 
   setDebugMode(enabled: boolean): void {
-    this.renderer.updateModeToggles({ debugEnabled: enabled });
+    this.modeToggleState.debugEnabled = enabled;
+    this.syncModeToggles();
+  }
+
+  toggleDualMode(): void {
+    this.modeToggleState.dualRlEnabled = !this.modeToggleState.dualRlEnabled;
+    this.syncModeToggles();
+    this.callbacks.onToggleDualRl?.();
+  }
+
+  toggleAutoContinue(): void {
+    this.modeToggleState.autoContinueEnabled = !this.modeToggleState.autoContinueEnabled;
+    this.syncModeToggles();
+    this.callbacks.onToggleAutoContinue?.();
+  }
+
+  toggleVerify(): void {
+    this.modeToggleState.verificationEnabled = !this.modeToggleState.verificationEnabled;
+    this.syncModeToggles();
+    this.callbacks.onToggleVerify?.();
+  }
+
+  toggleApprovals(): void {
+    this.modeToggleState.criticalApprovalMode =
+      this.modeToggleState.criticalApprovalMode === 'auto' ? 'approval' : 'auto';
+    this.syncModeToggles();
+    this.callbacks.onToggleCriticalApproval?.();
+  }
+
+  /**
+   * Sync the stored toggle state to the renderer so UI reflects the latest flags.
+   */
+  private syncModeToggles(): void {
+    this.renderer.updateModeToggles(this.modeToggleState);
+  }
+
+  getModeToggleState(): Readonly<typeof this.modeToggleState> {
+    return this.modeToggleState;
   }
 
   setStatusMessage(message: string | null): void {
