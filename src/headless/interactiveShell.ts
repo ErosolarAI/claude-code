@@ -33,8 +33,9 @@ import { saveModelPreference } from '../core/preferences.js';
 import { setDebugMode, debugSnippet, logDebug } from '../utils/debugLogger.js';
 import type { AgentEventUnion } from '../contracts/v1/agent.js';
 import type { ProviderId } from '../core/types.js';
-import type { RepoUpgradeMode, RepoUpgradeReport } from '../core/repoUpgradeOrchestrator.js';
+import type { RepoUpgradeMode, RepoUpgradeReport, UpgradeStepOutcome } from '../core/repoUpgradeOrchestrator.js';
 import { runRepoUpgradeFlow } from '../orchestration/repoUpgradeRunner.js';
+import { getEpisodicMemory, type Episode } from '../core/episodicMemory.js';
 
 const exec = promisify(childExec);
 import { ensureNextSteps } from '../core/finalResponseFormatter.js';
@@ -357,13 +358,23 @@ class InteractiveShell {
     const mode = this.resolveUpgradeMode(args);
     const continueOnFailure = !args.some(arg => arg === '--stop-on-fail');
     const validationMode = this.parseValidationMode(args);
+    const enableVariantWorktrees = args.includes('--git-worktrees');
+    const repoPolicy = this.parseUpgradePolicy(args);
     const additionalScopes = args
       .filter(arg => arg.startsWith('scope:'))
       .map(arg => arg.slice('scope:'.length))
       .filter(Boolean);
+    const direction = this.parseUpgradeDirection(args);
+
+    if (!direction) {
+      this.promptController?.setStatusMessage('Add directions: /upgrade [dual] scope:<path> <what to upgrade>');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 4000);
+      return;
+    }
 
     this.isProcessing = true;
-    this.promptController?.setStatusMessage(`Running repo upgrade (${mode})...`);
+    const directionInline = this.truncateInline(direction, 80);
+    this.promptController?.setStatusMessage(`Running repo upgrade (${mode}) — ${directionInline}`);
     this.promptController?.setStreaming(true);
 
     try {
@@ -374,8 +385,11 @@ class InteractiveShell {
         continueOnFailure,
         validationMode,
         additionalScopes,
-        objective: `Repo upgrade (${mode})`,
+        objective: direction,
+        enableVariantWorktrees,
+        repoPolicy: repoPolicy ?? undefined,
         onEvent: (event) => this.handleUpgradeEvent(event.type, event.data),
+        onAgentEvent: (event) => this.handleAgentEventForUpgrade(event),
       });
 
       this.renderUpgradeReport(report);
@@ -406,6 +420,90 @@ class InteractiveShell {
     }
   }
 
+  /**
+   * Handle agent events during upgrade flow to display thoughts, tools, and streaming content.
+   * Mirrors the event handling in processPrompt() to ensure consistent UI display.
+   */
+  private handleAgentEventForUpgrade(event: AgentEventUnion): void {
+    const renderer = this.promptController?.getRenderer();
+    if (!renderer) return;
+
+    switch (event.type) {
+      case 'message.start':
+        this.promptController?.setStatusMessage('Thinking...');
+        break;
+
+      case 'message.delta':
+        renderer.addEvent('stream', event.content);
+        break;
+
+      case 'message.complete':
+        renderer.addEvent('response', '\n');
+        break;
+
+      case 'tool.start': {
+        const toolName = event.toolName;
+        const args = event.parameters;
+        let toolDisplay = `[${toolName}]`;
+
+        if (toolName === 'Bash' && args?.['command']) {
+          toolDisplay += ` $ ${args['command']}`;
+        } else if (toolName === 'Read' && args?.['file_path']) {
+          toolDisplay += ` ${args['file_path']}`;
+        } else if (toolName === 'Write' && args?.['file_path']) {
+          toolDisplay += ` ${args['file_path']}`;
+        } else if (toolName === 'Edit' && args?.['file_path']) {
+          toolDisplay += ` ${args['file_path']}`;
+        } else if (toolName === 'Search' && args?.['pattern']) {
+          toolDisplay += ` ${args['pattern']}`;
+        } else if (toolName === 'Grep' && args?.['pattern']) {
+          toolDisplay += ` ${args['pattern']}`;
+        }
+
+        renderer.addEvent('tool', toolDisplay);
+        this.promptController?.setStatusMessage(`Running ${toolName}...`);
+        break;
+      }
+
+      case 'tool.complete': {
+        if (event.result && typeof event.result === 'string') {
+          const lines = event.result.split('\n');
+          if (lines.length > 8) {
+            const preview = lines.slice(0, 8).join('\n');
+            renderer.addEvent('tool-result', `${preview}\n... (${lines.length - 8} more lines)`);
+          } else if (event.result.length > 500) {
+            renderer.addEvent('tool-result', `${event.result.slice(0, 500)}...`);
+          } else if (event.result.trim()) {
+            renderer.addEvent('tool-result', event.result);
+          }
+        }
+        break;
+      }
+
+      case 'tool.error':
+        renderer.addEvent('error', event.error);
+        break;
+
+      case 'error':
+        renderer.addEvent('error', event.error);
+        break;
+
+      case 'usage':
+        this.promptController?.setMetaStatus({
+          tokensUsed: event.totalTokens,
+          tokenLimit: 200000,
+        });
+        break;
+
+      case 'edit.explanation':
+        if (event.content) {
+          const filesInfo = event.files?.length ? ` (${event.files.join(', ')})` : '';
+          renderer.addEvent('response', `${event.content}${filesInfo}`);
+        }
+        break;
+    }
+  }
+
   private renderUpgradeReport(report: RepoUpgradeReport): void {
     if (!this.promptController?.supportsInlinePanel()) {
       return;
@@ -415,6 +513,15 @@ class InteractiveShell {
     const status = report.success ? chalk.green('✓') : chalk.yellow('⚠');
     lines.push(chalk.bold(`${status} Repo upgrade (${report.mode})`));
     lines.push(chalk.dim(`Continue on failure: ${report.continueOnFailure ? 'yes' : 'no'}`));
+    if (report.objective) {
+      lines.push(chalk.dim(`Direction: ${this.truncateInline(report.objective, 80)}`));
+    }
+    if (report.repoPolicy) {
+      lines.push(chalk.dim(`Policy: ${this.truncateInline(report.repoPolicy, 80)}`));
+    }
+    if (report.variantWorkspaceRoots) {
+      lines.push(chalk.dim(`Workspaces: ${this.formatVariantWorkspaces(report.variantWorkspaceRoots)}`));
+    }
     if (report.mode === 'dual-rl-continuous') {
       const stats = this.getVariantStats(report);
       const tieText = stats.ties > 0 ? chalk.dim(` · ties ${stats.ties}`) : '';
@@ -430,7 +537,8 @@ class InteractiveShell {
       for (const step of module.steps.slice(0, 2)) {
         const winnerMark = step.winnerVariant === 'refiner' ? 'R' : 'P';
         const summary = this.truncateInline(step.winner.summary, 80);
-        lines.push(`   • [${winnerMark}] ${step.intent}: ${summary}`);
+        const reward = this.formatRewardLine(step);
+        lines.push(`   • [${winnerMark}] ${step.intent}: ${summary}${reward}`);
       }
     }
 
@@ -483,6 +591,28 @@ class InteractiveShell {
     return stats;
   }
 
+  private formatVariantWorkspaces(roots: Partial<Record<'primary' | 'refiner', string>>): string {
+    const parts: string[] = [];
+    if (roots.primary) parts.push(`P:${this.truncateInline(roots.primary, 40)}`);
+    if (roots.refiner) parts.push(`R:${this.truncateInline(roots.refiner, 40)}`);
+    return parts.join(' · ');
+  }
+
+  private formatRewardLine(step: UpgradeStepOutcome): string {
+    const winnerScore = typeof step.winner.score === 'number' ? step.winner.score : null;
+    const primaryScore = typeof step.primary.score === 'number' ? step.primary.score : null;
+    const refinerScore = typeof step.refiner?.score === 'number' ? step.refiner.score : null;
+
+    const rewards: string[] = [];
+    if (primaryScore !== null) rewards.push(`P:${primaryScore.toFixed(2)}`);
+    if (refinerScore !== null) rewards.push(`R:${refinerScore.toFixed(2)}`);
+    if (winnerScore !== null && rewards.length === 0) {
+      rewards.push(`reward:${winnerScore.toFixed(2)}`);
+    }
+
+    return rewards.length ? `  ${chalk.dim(`[${rewards.join(' ')}]`)}` : '';
+  }
+
   private truncateInline(text: string, limit: number): string {
     if (!text) return '';
     if (text.length <= limit) return text;
@@ -529,6 +659,33 @@ class InteractiveShell {
       return 'skip';
     }
     return 'ask';
+  }
+
+  private parseUpgradePolicy(args: string[]): string | null {
+    const policyArg = args.find(arg => arg.startsWith('policy:'));
+    if (!policyArg) return null;
+    const value = policyArg.slice('policy:'.length).trim();
+    return value || null;
+  }
+
+  /**
+   * Extract user-provided direction text from /upgrade arguments.
+   * Known flags (mode, validation, scopes) are stripped; anything else is treated as the direction.
+   */
+  private parseUpgradeDirection(args: string[]): string | null {
+    const parts: string[] = [];
+    for (const arg of args) {
+      const lower = arg.toLowerCase();
+      if (lower === 'dual' || lower === 'multi' || lower === 'single' || lower === 'solo') continue;
+      if (lower === '--stop-on-fail') continue;
+      if (lower === '--validate' || lower === '--no-validate' || lower.startsWith('--validate=')) continue;
+      if (lower === '--git-worktrees') continue;
+      if (lower.startsWith('policy:')) continue;
+      if (lower.startsWith('scope:')) continue;
+      parts.push(arg);
+    }
+    const text = parts.join(' ').trim();
+    return text || null;
   }
 
   private async runLocalCommand(command: string): Promise<void> {
@@ -682,6 +839,25 @@ class InteractiveShell {
     if (lower.startsWith('/debug')) {
       const parts = trimmed.split(/\s+/);
       this.handleDebugCommand(parts[1]);
+      return true;
+    }
+
+    // Memory commands
+    if (lower === '/memory' || lower === '/mem') {
+      void this.showMemoryStats();
+      return true;
+    }
+
+    if (lower.startsWith('/memory search ') || lower.startsWith('/mem search ')) {
+      const query = trimmed.replace(/^\/(memory|mem)\s+search\s+/i, '').trim();
+      if (query) {
+        void this.searchMemory(query);
+      }
+      return true;
+    }
+
+    if (lower.startsWith('/memory recent') || lower.startsWith('/mem recent')) {
+      void this.showRecentEpisodes();
       return true;
     }
 
@@ -1035,11 +1211,140 @@ class InteractiveShell {
       chalk.hex('#FBBF24')('/secrets') + chalk.dim(' - Show API keys') + '  ' +
         chalk.hex('#FBBF24')('/secrets set') + chalk.dim(' - Configure keys'),
       chalk.hex('#FBBF24')('/bash') + chalk.dim(' - Run local command'),
-      chalk.hex('#FBBF24')('/upgrade') + chalk.dim(' - Repo upgrade (add "dual" for dual RL, scope:<path>)'),
+      chalk.hex('#FBBF24')('/upgrade <direction>') +
+        chalk.dim(' - Repo upgrade (add "dual" for dual RL, scope:<path>, policy:<name>, --git-worktrees)'),
       chalk.hex('#FBBF24')('/clear') + chalk.dim(' - Clear screen') + '  ' +
         chalk.hex('#FBBF24')('/debug') + chalk.dim(' - Toggle debug'),
+      chalk.hex('#FBBF24')('/memory') + chalk.dim(' - Show episodic memory stats') + '  ' +
+        chalk.hex('#FBBF24')('/memory search') + chalk.dim(' - Search past work'),
       chalk.hex('#FBBF24')('/help') + chalk.dim(' - This help') + '  ' +
         chalk.hex('#FBBF24')('/exit') + chalk.dim(' - Exit AGI'),
+    ];
+
+    this.promptController.setInlinePanel(lines);
+    this.scheduleInlinePanelDismiss();
+  }
+
+  // ==========================================================================
+  // MEMORY COMMANDS
+  // ==========================================================================
+
+  private async showMemoryStats(): Promise<void> {
+    const memory = getEpisodicMemory();
+    const stats = memory.getStats();
+
+    if (!this.promptController?.supportsInlinePanel()) {
+      this.promptController?.setStatusMessage(
+        `Memory: ${stats.totalEpisodes} episodes, ${stats.totalApproaches} patterns`
+      );
+      setTimeout(() => this.promptController?.setStatusMessage(null), 3000);
+      return;
+    }
+
+    const lines = [
+      chalk.bold.hex('#A855F7')('Episodic Memory') + chalk.dim('  (press any key to dismiss)'),
+      '',
+      chalk.hex('#22D3EE')('Episodes: ') + chalk.white(stats.totalEpisodes.toString()) +
+        chalk.dim(` (${stats.successfulEpisodes} successful)`),
+      chalk.hex('#22D3EE')('Learned Approaches: ') + chalk.white(stats.totalApproaches.toString()),
+      '',
+      chalk.dim('Top categories:'),
+      ...Object.entries(stats.categoryCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([cat, count]) => `  ${chalk.hex('#FBBF24')(cat)}: ${count}`),
+      '',
+      chalk.dim('Top tags: ') + stats.topTags.slice(0, 6).join(', '),
+      '',
+      chalk.dim('/memory search <query>') + ' - Search past work',
+      chalk.dim('/memory recent') + ' - Show recent episodes',
+    ];
+
+    this.promptController.setInlinePanel(lines);
+    this.scheduleInlinePanelDismiss();
+  }
+
+  private async searchMemory(query: string): Promise<void> {
+    const memory = getEpisodicMemory();
+
+    this.promptController?.setStatusMessage('Searching memory...');
+
+    try {
+      const results = await memory.search({ query, limit: 5, successOnly: false });
+
+      if (!this.promptController?.supportsInlinePanel()) {
+        this.promptController?.setStatusMessage(
+          results.length > 0 ? `Found ${results.length} matches` : 'No matches found'
+        );
+        setTimeout(() => this.promptController?.setStatusMessage(null), 3000);
+        return;
+      }
+
+      if (results.length === 0) {
+        this.promptController.setInlinePanel([
+          chalk.bold.hex('#A855F7')('Memory Search') + chalk.dim('  (no results)'),
+          '',
+          chalk.dim(`No episodes found matching: "${query}"`),
+        ]);
+        this.scheduleInlinePanelDismiss();
+        return;
+      }
+
+      const lines = [
+        chalk.bold.hex('#A855F7')('Memory Search') + chalk.dim(`  "${query}"`),
+        '',
+        ...results.flatMap((result, idx) => {
+          const ep = result.episode;
+          const successIcon = ep.success ? chalk.green('✓') : chalk.red('✗');
+          const similarity = Math.round(result.similarity * 100);
+          const date = new Date(ep.endTime).toLocaleDateString();
+          return [
+            `${chalk.dim(`${idx + 1}.`)} ${successIcon} ${chalk.white(ep.intent.slice(0, 50))}${ep.intent.length > 50 ? '...' : ''}`,
+            `   ${chalk.dim(date)} | ${chalk.hex('#22D3EE')(ep.category)} | ${chalk.dim(`${similarity}% match`)}`,
+          ];
+        }),
+      ];
+
+      this.promptController.setInlinePanel(lines);
+      this.scheduleInlinePanelDismiss();
+    } catch (error) {
+      this.promptController?.setStatusMessage('Search failed');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
+    }
+  }
+
+  private async showRecentEpisodes(): Promise<void> {
+    const memory = getEpisodicMemory();
+    const episodes = memory.getRecentEpisodes(5);
+
+    if (!this.promptController?.supportsInlinePanel()) {
+      this.promptController?.setStatusMessage(`${episodes.length} recent episodes`);
+      setTimeout(() => this.promptController?.setStatusMessage(null), 3000);
+      return;
+    }
+
+    if (episodes.length === 0) {
+      this.promptController.setInlinePanel([
+        chalk.bold.hex('#A855F7')('Recent Episodes') + chalk.dim('  (none yet)'),
+        '',
+        chalk.dim('Complete some tasks to build episodic memory.'),
+      ]);
+      this.scheduleInlinePanelDismiss();
+      return;
+    }
+
+    const lines = [
+      chalk.bold.hex('#A855F7')('Recent Episodes'),
+      '',
+      ...episodes.flatMap((ep, idx) => {
+        const successIcon = ep.success ? chalk.green('✓') : chalk.red('✗');
+        const date = new Date(ep.endTime).toLocaleDateString();
+        const tools = ep.toolsUsed.slice(0, 3).join(', ');
+        return [
+          `${chalk.dim(`${idx + 1}.`)} ${successIcon} ${chalk.white(ep.intent.slice(0, 45))}${ep.intent.length > 45 ? '...' : ''}`,
+          `   ${chalk.dim(date)} | ${chalk.hex('#22D3EE')(ep.category)} | ${chalk.dim(tools)}`,
+        ];
+      }),
     ];
 
     this.promptController.setInlinePanel(lines);
@@ -1119,6 +1424,13 @@ class InteractiveShell {
 
     const renderer = this.promptController?.getRenderer();
 
+    // Start episodic memory tracking
+    const memory = getEpisodicMemory();
+    const episodeId = memory.startEpisode(prompt, `shell-${Date.now()}`);
+    let episodeSuccess = false;
+    const toolsUsed: string[] = [];
+    const filesModified: string[] = [];
+
     try {
       logDebug('[DEBUG] Starting send loop for prompt:', debugSnippet(prompt));
       for await (const event of this.controller.send(prompt)) {
@@ -1145,6 +1457,7 @@ class InteractiveShell {
 
           case 'message.complete':
             // Response complete - ensure final output includes required "Next steps"
+            episodeSuccess = true; // Mark episode as successful
             if (renderer) {
               const base = (event.content ?? '').trimEnd();
               const sourceText = base || this.currentResponseBuffer;
@@ -1165,6 +1478,21 @@ class InteractiveShell {
             const toolName = event.toolName;
             const args = event.parameters;
             let toolDisplay = `[${toolName}]`;
+
+            // Track tool usage for episodic memory
+            if (!toolsUsed.includes(toolName)) {
+              toolsUsed.push(toolName);
+              memory.recordToolUse(toolName);
+            }
+
+            // Track file modifications
+            const filePath = args?.['file_path'] as string | undefined;
+            if (filePath && (toolName === 'Write' || toolName === 'Edit')) {
+              if (!filesModified.includes(filePath)) {
+                filesModified.push(filePath);
+                memory.recordFileModification(filePath);
+              }
+            }
 
             if (toolName === 'Bash' && args?.['command']) {
               toolDisplay += ` $ ${args['command']}`;
@@ -1266,6 +1594,13 @@ class InteractiveShell {
       this.isProcessing = false;
       this.promptController?.setStreaming(false);
       this.promptController?.setStatusMessage(null);
+
+      // End episodic memory tracking
+      const summary = episodeSuccess
+        ? `Completed: ${prompt.slice(0, 100)}${prompt.length > 100 ? '...' : ''}`
+        : `Failed/interrupted: ${prompt.slice(0, 80)}`;
+      await memory.endEpisode(episodeSuccess, summary);
+
       this.currentResponseBuffer = '';
 
       // Process any queued prompts

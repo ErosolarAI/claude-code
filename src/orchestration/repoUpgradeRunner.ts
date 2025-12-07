@@ -3,6 +3,8 @@ import {
   RepoUpgradeOrchestrator,
   buildRepoWidePlan,
   REPO_UPGRADE_MODE_DEFINITIONS,
+  extractRewardSignals,
+  calculateRewardScore,
   type RepoUpgradeMode,
   type RepoUpgradeReport,
   type RepoUpgradeStep,
@@ -10,8 +12,14 @@ import {
   type UpgradeStepResult,
   type ValidationRunResult,
   type UpgradeModuleReport,
+  type UpgradeVariant,
+  type RewardSignals,
 } from '../core/repoUpgradeOrchestrator.js';
+import { GitWorktreeManager, type CrossVariantComparison } from '../core/gitWorktreeManager.js';
 import { exec as execCallback } from 'node:child_process';
+import { cpSync, mkdtempSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const exec = promisify(execCallback);
@@ -24,27 +32,141 @@ export interface RepoUpgradeFlowOptions {
   additionalScopes?: string[];
   objective?: string;
   onEvent?: (event: { type: string; data?: Record<string, unknown> }) => void;
+  /** Callback to receive raw agent events (tool calls, streaming, thinking) for UI display. */
+  onAgentEvent?: (event: import('../contracts/v1/agent.js').AgentEventUnion) => void;
   validationMode?: 'auto' | 'ask' | 'skip';
   confirmValidation?: (moduleId: string, commands: string[]) => Promise<boolean>;
+  /** Create separate variant workspaces (git worktrees or copies) for dual RL. */
+  enableVariantWorktrees?: boolean;
+  /** Optional explicit variant workspace roots (overrides automatic creation). */
+  variantWorkspaceRoots?: Partial<Record<UpgradeVariant, string>>;
+  /** Optional upgrade/change-management policy to display in prompts and reports. */
+  repoPolicy?: string;
+  /** Enable parallel variant execution in dual-RL modes. */
+  parallelVariants?: boolean;
+  /** Apply winning variant's changes to primary workspace after completion. */
+  applyWinnerChanges?: boolean;
+  /** Custom reward weights for scoring (uses defaults if not provided). */
+  rewardWeights?: import('../core/repoUpgradeOrchestrator.js').RewardWeights;
 }
 
-export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promise<RepoUpgradeReport> {
+/** Extended report with cross-variant comparison data */
+export interface EnhancedRepoUpgradeReport extends RepoUpgradeReport {
+  /** Comparison of changes between variants */
+  variantComparison?: CrossVariantComparison;
+  /** Whether winner's changes were applied to primary */
+  winnerChangesApplied?: boolean;
+  /** Which variant won overall (most step wins) */
+  overallWinner?: UpgradeVariant;
+}
+
+export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promise<EnhancedRepoUpgradeReport> {
   const plan = buildRepoWidePlan(options.workingDir, options.additionalScopes);
-  const orchestrator = new RepoUpgradeOrchestrator((input) => executeUpgradeStep(options.controller, input));
+  const modeDefinition = REPO_UPGRADE_MODE_DEFINITIONS[options.mode];
+  const isDualMode = modeDefinition.variants.includes('refiner');
+
+  // Initialize GitWorktreeManager for dual-RL modes with worktree support
+  let worktreeManager: GitWorktreeManager | null = null;
+  let variantWorkspaceRoots = options.variantWorkspaceRoots;
+
+  if (isDualMode && options.enableVariantWorktrees && !variantWorkspaceRoots) {
+    worktreeManager = new GitWorktreeManager({
+      baseDir: options.workingDir,
+      sessionId: `upgrade-${Date.now()}`,
+      createBranches: true,
+      branchPrefix: 'agi-upgrade',
+    });
+
+    await worktreeManager.initialize();
+
+    // Create refiner workspace
+    await worktreeManager.createVariantWorkspace('refiner');
+    variantWorkspaceRoots = worktreeManager.getWorkspaceRoots();
+
+    options.onEvent?.({
+      type: 'upgrade.worktrees.created',
+      data: {
+        roots: variantWorkspaceRoots,
+        supportsWorktrees: worktreeManager.supportsWorktrees,
+        baseCommit: worktreeManager.baseCommitHash,
+      },
+    });
+  } else if (!variantWorkspaceRoots && isDualMode && options.enableVariantWorktrees) {
+    // Fallback to legacy workspace creation
+    variantWorkspaceRoots = await prepareVariantWorkspaces(options.workingDir, options);
+  }
+
+  // Create orchestrator with enhanced scoring
+  const orchestrator = new RepoUpgradeOrchestrator((input) =>
+    executeUpgradeStep(options.controller, input, options.onAgentEvent, options.rewardWeights)
+  );
 
   if (options.onEvent) {
     orchestrator.onEvent((event) => options.onEvent?.(event));
   }
 
+  // Determine parallel variant execution
+  const parallelVariants = options.parallelVariants ?? modeDefinition.parallelVariants ?? false;
+
   const report = await orchestrator.run(plan, {
     mode: options.mode,
     continueOnFailure: options.continueOnFailure,
     objective: options.objective,
+    variantWorkspaceRoots,
+    repoPolicy: options.repoPolicy,
+    parallelVariants,
   });
 
+  // Build enhanced report
+  const enhancedReport: EnhancedRepoUpgradeReport = {
+    ...report,
+    validationsExecuted: false,
+  };
+
+  // Compute cross-variant comparison if we have a worktree manager
+  if (worktreeManager && isDualMode) {
+    try {
+      const comparison = await worktreeManager.compareVariants();
+      if (comparison) {
+        enhancedReport.variantComparison = comparison;
+      }
+    } catch {
+      // Comparison is optional, continue without it
+    }
+
+    // Determine overall winner and optionally apply changes
+    const overallWinner = determineOverallWinner(report);
+    enhancedReport.overallWinner = overallWinner;
+
+    if (options.applyWinnerChanges && overallWinner === 'refiner') {
+      try {
+        const applied = await worktreeManager.applyWinnerChanges('refiner');
+        enhancedReport.winnerChangesApplied = applied;
+        options.onEvent?.({
+          type: 'upgrade.winner.applied',
+          data: { winner: 'refiner', applied },
+        });
+      } catch {
+        enhancedReport.winnerChangesApplied = false;
+      }
+    }
+
+    // Cleanup worktrees
+    try {
+      await worktreeManager.cleanup();
+      options.onEvent?.({
+        type: 'upgrade.worktrees.cleaned',
+        data: {},
+      });
+    } catch {
+      // Best effort cleanup
+    }
+  }
+
+  // Run validations
   const validationMode = options.validationMode ?? 'ask';
   if (validationMode === 'skip') {
-    return { ...report, validationsExecuted: false };
+    return enhancedReport;
   }
 
   const enrichedModules: typeof report.modules = [];
@@ -62,11 +184,22 @@ export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promi
   }
 
   return {
-    ...report,
+    ...enhancedReport,
     modules: enrichedModules,
     validationArtifacts,
     validationsExecuted: validationMode === 'auto',
   };
+}
+
+/**
+ * Determine which variant won overall based on step wins.
+ */
+function determineOverallWinner(report: RepoUpgradeReport): UpgradeVariant {
+  const stats = report.variantStats;
+  if (stats.refinerWins > stats.primaryWins) {
+    return 'refiner';
+  }
+  return 'primary';
 }
 
 /**
@@ -83,6 +216,12 @@ function buildStepPrompt(input: UpgradeStepExecutionInput): string {
     lines.push(modeDefinition.description);
   }
   lines.push(variantGuidance ? `${variantLabel}: ${variantGuidance}` : variantLabel);
+  if (input.repoPolicy) {
+    lines.push(`Policy: ${input.repoPolicy}`);
+  }
+  if (input.workspaceRoot) {
+    lines.push(`Workspace: ${input.workspaceRoot}`);
+  }
   lines.push(`Module: ${input.module.label}`);
   lines.push(`Scope: ${formatScope(input.module.scope)}`);
   lines.push(`Step: [${input.step.intent}] ${input.step.description}`);
@@ -114,7 +253,9 @@ function buildStepPrompt(input: UpgradeStepExecutionInput): string {
 
 async function executeUpgradeStep(
   controller: AgentController,
-  input: UpgradeStepExecutionInput
+  input: UpgradeStepExecutionInput,
+  onAgentEvent?: (event: import('../contracts/v1/agent.js').AgentEventUnion) => void,
+  rewardWeights?: import('../core/repoUpgradeOrchestrator.js').RewardWeights
 ): Promise<UpgradeStepResult> {
   const prompt = buildStepPrompt(input);
   const start = Date.now();
@@ -122,13 +263,22 @@ async function executeUpgradeStep(
   let content = '';
   let success = true;
   let errorText: string | undefined;
+  let toolOutputs: string[] = [];
 
   try {
     for await (const event of controller.send(prompt)) {
+      // Forward all events to UI callback for display (thoughts, tools, streaming)
+      onAgentEvent?.(event);
+
       if (event.type === 'message.delta') {
         content += event.content;
       } else if (event.type === 'message.complete') {
         content += event.content;
+      } else if (event.type === 'tool.complete') {
+        // Collect tool outputs for enhanced scoring
+        if (typeof event.result === 'string') {
+          toolOutputs.push(event.result);
+        }
       } else if (event.type === 'error') {
         success = false;
         errorText = typeof event.error === 'string' ? event.error : 'unknown error';
@@ -139,15 +289,25 @@ async function executeUpgradeStep(
     errorText = error instanceof Error ? error.message : String(error);
   }
 
-  const summary = summarizeResult(content || errorText || '');
   const durationMs = Date.now() - start;
+  const summary = summarizeResult(content || errorText || '');
   const detail = content?.trim() || errorText || summary;
+
+  // Enhanced scoring using multi-signal reward system
+  const allOutput = [content, ...toolOutputs].join('\n');
+  const signals = extractRewardSignals(allOutput, durationMs);
+
+  // Override execution success based on actual success
+  signals.executionSuccess = success ? 1 : 0;
+
+  // Calculate composite score
+  const score = success ? calculateRewardScore(signals, rewardWeights) : 0;
 
   return {
     success,
     summary,
     detail,
-    score: success ? scoreOutput(content) : 0,
+    score,
     durationMs,
     execution: {
       success,
@@ -156,8 +316,95 @@ async function executeUpgradeStep(
       command: `upgrade:${input.module.id}:${input.step.id}:${input.variant}`,
       error: success ? undefined : (errorText || summary),
     },
+    findings: extractFindings(allOutput, input),
     notes: buildNotes(input.step, success, summary),
   };
+}
+
+/**
+ * Extract findings (warnings, errors, recommendations) from execution output.
+ */
+function extractFindings(
+  output: string,
+  input: UpgradeStepExecutionInput
+): import('../core/unifiedOrchestrator.js').Finding[] {
+  const findings: import('../core/unifiedOrchestrator.js').Finding[] = [];
+
+  // Look for deprecation warnings
+  const deprecationMatches = output.matchAll(/deprecat(?:ed|ion)[:\s]+([^\n]+)/gi);
+  for (const match of deprecationMatches) {
+    findings.push({
+      severity: 'medium',
+      category: 'deprecation',
+      title: `Deprecation in ${input.module.id}`,
+      description: match[1]?.trim(),
+      recommendation: 'Update to non-deprecated API',
+    });
+  }
+
+  // Look for security warnings
+  const securityMatches = output.matchAll(/(?:security|vulnerability|CVE)[:\s]+([^\n]+)/gi);
+  for (const match of securityMatches) {
+    findings.push({
+      severity: 'high',
+      category: 'security',
+      title: `Security concern in ${input.module.id}`,
+      description: match[1]?.trim(),
+      recommendation: 'Review and address security issue',
+    });
+  }
+
+  // Look for breaking changes
+  if (/breaking\s*change/i.test(output)) {
+    findings.push({
+      severity: 'high',
+      category: 'breaking-change',
+      title: `Breaking change detected in ${input.module.id}`,
+      recommendation: 'Verify compatibility and update dependents',
+    });
+  }
+
+  return findings;
+}
+
+async function prepareVariantWorkspaces(
+  workingDir: string,
+  options: RepoUpgradeFlowOptions
+): Promise<Partial<Record<UpgradeVariant, string>> | undefined> {
+  if (!options.enableVariantWorktrees || options.mode !== 'dual-rl-continuous') {
+    return undefined;
+  }
+
+  const roots: Partial<Record<UpgradeVariant, string>> = { primary: workingDir };
+
+  const createWorktree = async (variant: UpgradeVariant, target: string): Promise<boolean> => {
+    try {
+      await exec('git rev-parse --is-inside-work-tree', { cwd: workingDir });
+      await exec(`git worktree add --detach ${target}`, { cwd: workingDir, maxBuffer: 2 * 1024 * 1024 });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const createCopy = (variant: UpgradeVariant, target: string): void => {
+    const skipDirs = ['node_modules', '.turbo', '.next', 'coverage', 'dist'];
+    cpSync(workingDir, target, {
+      recursive: true,
+      filter: (src) => !skipDirs.some(dir => src.startsWith(join(workingDir, dir))),
+    });
+    roots[variant] = target;
+  };
+
+  const refinerTarget = mkdtempSync(join(tmpdir(), 'agi-refiner-'));
+  const refinerWorktreeMade = await createWorktree('refiner', refinerTarget);
+  if (refinerWorktreeMade) {
+    roots.refiner = refinerTarget;
+    return roots;
+  }
+
+  createCopy('refiner', refinerTarget);
+  return roots;
 }
 
 function summarizeResult(text: string): string {
@@ -175,15 +422,6 @@ function formatScope(scopes: string[]): string {
   if (!scopes.length) return '(no scope)';
   if (scopes.length === 1) return scopes[0] ?? '(no scope)';
   return scopes.slice(0, 3).join(' | ') + (scopes.length > 3 ? ' …' : '');
-}
-
-function scoreOutput(output: string): number {
-  if (!output.trim()) return 0;
-  const lower = output.toLowerCase();
-  let score = 0.6;
-  if (/\bpass(ed)?\b/.test(lower) || /\bverified?\b/.test(lower)) score += 0.2;
-  if (/\btest\b/.test(lower) || /\blint\b/.test(lower)) score += 0.1;
-  return Math.min(1, score);
 }
 
 function buildNotes(step: RepoUpgradeStep, success: boolean, summary: string): string[] {

@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
+import { getEpisodicMemory, type EpisodicMemory, type Episode, type MemorySearchResult } from './episodicMemory.js';
 
 // ============================================================================
 // CORE TYPES
@@ -166,6 +167,8 @@ export type PromptCategory =
 export class AGICore extends EventEmitter {
   private context: AGIContext;
   private memoryPath: string;
+  private episodicMemory: EpisodicMemory;
+  private currentEpisodeId: string | null = null;
 
   constructor(workingDir?: string) {
     super();
@@ -178,6 +181,9 @@ export class AGICore extends EventEmitter {
       startTime: Date.now(),
       memory: this.loadMemory(),
     };
+
+    // Initialize episodic memory system
+    this.episodicMemory = getEpisodicMemory();
 
     // Analyze project on initialization
     this.analyzeProject();
@@ -1355,6 +1361,138 @@ export class AGICore extends EventEmitter {
   refreshProjectKnowledge(): ProjectKnowledge {
     this.analyzeProject();
     return this.context.memory.projectKnowledge;
+  }
+
+  // ==========================================================================
+  // EPISODIC MEMORY - Cross-session learning with semantic search
+  // ==========================================================================
+
+  /**
+   * Start tracking a new episode (task/conversation unit)
+   */
+  startEpisode(intent: string): string {
+    this.currentEpisodeId = this.episodicMemory.startEpisode(
+      intent,
+      this.context.sessionId
+    );
+    this.emit('episode:start', { id: this.currentEpisodeId, intent });
+    return this.currentEpisodeId;
+  }
+
+  /**
+   * Record tool usage within the current episode
+   */
+  recordEpisodeToolUse(toolName: string): void {
+    if (this.currentEpisodeId) {
+      this.episodicMemory.recordToolUse(toolName);
+    }
+  }
+
+  /**
+   * Record file modification within the current episode
+   */
+  recordEpisodeFileModification(filePath: string): void {
+    if (this.currentEpisodeId) {
+      this.episodicMemory.recordFileModification(filePath);
+    }
+  }
+
+  /**
+   * End the current episode and save to memory
+   */
+  async endEpisode(success: boolean, summary: string): Promise<Episode | null> {
+    if (!this.currentEpisodeId) return null;
+
+    const episode = await this.episodicMemory.endEpisode(success, summary);
+    this.emit('episode:end', { episode, success });
+    this.currentEpisodeId = null;
+    return episode;
+  }
+
+  /**
+   * Abort the current episode without saving
+   */
+  abortEpisode(): void {
+    if (this.currentEpisodeId) {
+      this.episodicMemory.abortEpisode();
+      this.emit('episode:abort', { id: this.currentEpisodeId });
+      this.currentEpisodeId = null;
+    }
+  }
+
+  /**
+   * Search episodic memory for similar past work
+   */
+  async searchMemory(query: string, options?: {
+    limit?: number;
+    successOnly?: boolean;
+    since?: number;
+  }): Promise<MemorySearchResult[]> {
+    return this.episodicMemory.search({
+      query,
+      limit: options?.limit ?? 5,
+      successOnly: options?.successOnly,
+      since: options?.since,
+    });
+  }
+
+  /**
+   * Get learned approach from episodic memory
+   */
+  async getEpisodicApproach(intent: string): Promise<{
+    approach: string[];
+    tools: string[];
+    successRate: number;
+  } | null> {
+    const learned = await this.episodicMemory.getApproach(intent);
+    if (!learned) return null;
+
+    return {
+      approach: learned.approach,
+      tools: learned.tools,
+      successRate: learned.successRate,
+    };
+  }
+
+  /**
+   * Get recent episodes for context
+   */
+  getRecentEpisodes(limit = 5): Episode[] {
+    return this.episodicMemory.getRecentEpisodes(limit, this.context.sessionId);
+  }
+
+  /**
+   * Get episodic memory statistics
+   */
+  getEpisodicMemoryStats(): {
+    totalEpisodes: number;
+    successfulEpisodes: number;
+    totalApproaches: number;
+    categoryCounts: Record<string, number>;
+    topTags: string[];
+  } {
+    return this.episodicMemory.getStats();
+  }
+
+  /**
+   * Get the episodic memory instance for direct access
+   */
+  getEpisodicMemory(): EpisodicMemory {
+    return this.episodicMemory;
+  }
+
+  /**
+   * Check if there's an active episode
+   */
+  hasActiveEpisode(): boolean {
+    return this.currentEpisodeId !== null;
+  }
+
+  /**
+   * Get current episode ID
+   */
+  getCurrentEpisodeId(): string | null {
+    return this.currentEpisodeId;
   }
 }
 

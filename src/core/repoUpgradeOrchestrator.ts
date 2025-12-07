@@ -1,9 +1,131 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { UnifiedOrchestrator, type ExecutionResult, type Finding, type OperationReport } from './unifiedOrchestrator.js';
+import { ParallelExecutor, createTask, type ParallelTask, type BatchResult } from './parallelExecutor.js';
+import type { GitWorktreeManager, VariantDiff, CrossVariantComparison } from './gitWorktreeManager.js';
 
-export type RepoUpgradeMode = 'single-continuous' | 'dual-rl-continuous';
+export type RepoUpgradeMode = 'single-continuous' | 'dual-rl-continuous' | 'dual-rl-tournament';
 export type UpgradeVariant = 'primary' | 'refiner';
+
+/**
+ * Reward signal components for multi-objective RL scoring.
+ * Each signal is normalized to [0, 1] range.
+ */
+export interface RewardSignals {
+  /** Did the execution complete without errors? (0 or 1) */
+  executionSuccess: number;
+  /** Did tests pass? (0-1, partial credit for some passing) */
+  testsPassed: number;
+  /** Did lint/type checks pass? (0-1) */
+  staticAnalysis: number;
+  /** Code quality metrics (complexity reduction, no new warnings) */
+  codeQuality: number;
+  /** How minimal/surgical were the changes? (inverse of blast radius) */
+  blastRadius: number;
+  /** Confidence from LLM self-assessment keywords */
+  selfAssessment: number;
+  /** Bonus for faster execution (relative to baseline) */
+  speedBonus: number;
+}
+
+/**
+ * Weights for combining reward signals into final score.
+ * Tuned for safe, high-quality upgrades.
+ */
+export interface RewardWeights {
+  executionSuccess: number;
+  testsPassed: number;
+  staticAnalysis: number;
+  codeQuality: number;
+  blastRadius: number;
+  selfAssessment: number;
+  speedBonus: number;
+}
+
+export const DEFAULT_REWARD_WEIGHTS: RewardWeights = {
+  executionSuccess: 0.25,
+  testsPassed: 0.30,
+  staticAnalysis: 0.15,
+  codeQuality: 0.10,
+  blastRadius: 0.10,
+  selfAssessment: 0.05,
+  speedBonus: 0.05,
+};
+
+/**
+ * Calculate composite reward score from individual signals.
+ */
+export function calculateRewardScore(
+  signals: Partial<RewardSignals>,
+  weights: RewardWeights = DEFAULT_REWARD_WEIGHTS
+): number {
+  let score = 0;
+  let totalWeight = 0;
+
+  for (const [key, weight] of Object.entries(weights)) {
+    const signal = signals[key as keyof RewardSignals];
+    if (typeof signal === 'number') {
+      score += signal * weight;
+      totalWeight += weight;
+    }
+  }
+
+  return totalWeight > 0 ? score / totalWeight : 0;
+}
+
+/**
+ * Extract reward signals from execution output text.
+ */
+export function extractRewardSignals(
+  output: string,
+  durationMs: number,
+  baselineDurationMs = 60000
+): Partial<RewardSignals> {
+  const lower = output.toLowerCase();
+  const signals: Partial<RewardSignals> = {};
+
+  // Execution success - no error keywords
+  const hasErrors = /\b(error|exception|failed|failure|fatal)\b/i.test(output);
+  signals.executionSuccess = hasErrors ? 0 : 1;
+
+  // Tests passed - look for test result patterns
+  const testMatch = output.match(/(\d+)\s*(?:tests?\s*)?pass(?:ed|ing)?/i);
+  const failMatch = output.match(/(\d+)\s*(?:tests?\s*)?fail(?:ed|ing)?/i);
+  if (testMatch || failMatch) {
+    const passed = parseInt(testMatch?.[1] ?? '0', 10);
+    const failed = parseInt(failMatch?.[1] ?? '0', 10);
+    const total = passed + failed;
+    signals.testsPassed = total > 0 ? passed / total : (/pass|success|✓/i.test(lower) ? 1 : 0.5);
+  } else if (/all tests pass|tests passing|✓.*test/i.test(lower)) {
+    signals.testsPassed = 1;
+  }
+
+  // Static analysis - lint/type check patterns
+  if (/lint.*pass|no.*lint.*error|eslint.*clean|tsc.*success/i.test(lower)) {
+    signals.staticAnalysis = 1;
+  } else if (/lint.*warn|eslint.*warn/i.test(lower)) {
+    signals.staticAnalysis = 0.7;
+  } else if (/lint.*error|type.*error|eslint.*error/i.test(lower)) {
+    signals.staticAnalysis = 0.3;
+  }
+
+  // Self-assessment from confidence keywords
+  if (/confident|verified|validated|confirmed/i.test(lower)) {
+    signals.selfAssessment = 0.9;
+  } else if (/likely|probably|should work/i.test(lower)) {
+    signals.selfAssessment = 0.6;
+  } else if (/uncertain|unclear|might|may/i.test(lower)) {
+    signals.selfAssessment = 0.3;
+  }
+
+  // Speed bonus - faster than baseline gets bonus
+  if (durationMs > 0 && baselineDurationMs > 0) {
+    const speedRatio = baselineDurationMs / durationMs;
+    signals.speedBonus = Math.min(1, Math.max(0, (speedRatio - 0.5) / 1.5));
+  }
+
+  return signals;
+}
 
 export interface RepoUpgradeModeDefinition {
   id: RepoUpgradeMode;
@@ -15,6 +137,8 @@ export interface RepoUpgradeModeDefinition {
   variantGuidance?: Partial<Record<UpgradeVariant, string>>;
   /** Bias to apply to the refiner when scores are tied (encourages RL exploration) */
   refinerBias?: number;
+  /** Enable parallel variant execution (requires isolated workspaces) */
+  parallelVariants?: boolean;
 }
 
 export const REPO_UPGRADE_MODE_DEFINITIONS: Record<RepoUpgradeMode, RepoUpgradeModeDefinition> = {
@@ -26,11 +150,12 @@ export const REPO_UPGRADE_MODE_DEFINITIONS: Record<RepoUpgradeMode, RepoUpgradeM
     variantGuidance: {
       primary: 'Plan and execute the best possible upgrade in one pass. Keep edits surgical and runnable.',
     },
+    parallelVariants: false,
   },
   'dual-rl-continuous': {
     id: 'dual-rl-continuous',
     label: 'Dual-agent RL continuous',
-    description: 'Primary + refiner loop where the refiner competes to improve safety and quality.',
+    description: 'Primary + refiner loop where the refiner competes to improve safety and quality. Refiner sees primary output.',
     variants: ['primary', 'refiner'],
     variantGuidance: {
       primary: 'Primary pass sets the baseline plan and changes with conservative scope and runnable checks.',
@@ -38,6 +163,20 @@ export const REPO_UPGRADE_MODE_DEFINITIONS: Record<RepoUpgradeMode, RepoUpgradeM
         'RL refiner critiques the primary, fixes gaps, tightens safety, and only repeats steps if they materially improve the result.',
     },
     refinerBias: 0.05,
+    parallelVariants: false, // Sequential so refiner can see primary's work
+  },
+  'dual-rl-tournament': {
+    id: 'dual-rl-tournament',
+    label: 'Dual-agent RL tournament',
+    description: 'Primary and refiner compete in parallel with isolated workspaces. Best result wins per step.',
+    variants: ['primary', 'refiner'],
+    variantGuidance: {
+      primary: 'Execute the upgrade with focus on correctness and test coverage. You are competing against another agent.',
+      refiner:
+        'Execute the upgrade with focus on safety and minimal changes. You are competing against another agent.',
+    },
+    refinerBias: 0.03, // Lower bias since both start fresh
+    parallelVariants: true, // Run in parallel with git worktree isolation
   },
 };
 
@@ -74,6 +213,8 @@ export interface UpgradeStepExecutionInput {
   variant: UpgradeVariant;
   mode: RepoUpgradeMode;
   previousResult?: UpgradeStepResult;
+  workspaceRoot?: string;
+  repoPolicy?: string;
 }
 
 export interface UpgradeStepResult {
@@ -117,12 +258,26 @@ export interface RepoUpgradeReport extends OperationReport {
   /** True when validation commands were executed instead of just suggested */
   validationsExecuted?: boolean;
   variantStats: VariantWinStats;
+  /** Paths used per variant when running dual workspaces (for git/worktree integrations). */
+  variantWorkspaceRoots?: Partial<Record<UpgradeVariant, string>>;
+  /** Optional policy that guided the run (e.g., upgrade or change-management policy). */
+  repoPolicy?: string;
 }
 
 export interface RepoUpgradeRunOptions {
   objective?: string;
   mode: RepoUpgradeMode;
   continueOnFailure?: boolean;
+  /** Optional per-variant workspace roots when running dual RL with separate repos. */
+  variantWorkspaceRoots?: Partial<Record<UpgradeVariant, string>>;
+  /** Optional policy/guideline string to surface in prompts and reports. */
+  repoPolicy?: string;
+  /** Enable parallel module processing (default: false for safety). */
+  parallelModules?: boolean;
+  /** Maximum concurrent modules when parallel processing is enabled (default: 3). */
+  parallelModuleConcurrency?: number;
+  /** Enable parallel variant execution in dual-RL mode (default: true). */
+  parallelVariants?: boolean;
 }
 
 export type UpgradeStepExecutor = (input: UpgradeStepExecutionInput) => Promise<UpgradeStepResult>;
@@ -357,6 +512,9 @@ function expandWorkspacePattern(workspaceRoot: string, pattern: string): string[
 
 export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
   private readonly executor: UpgradeStepExecutor;
+  private variantWorkspaceRoots: Partial<Record<UpgradeVariant, string>> | undefined;
+  private repoPolicy: string | undefined;
+  private parallelExecutor: ParallelExecutor | null = null;
 
   constructor(executor: UpgradeStepExecutor) {
     super();
@@ -364,23 +522,111 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
   }
 
   /**
+   * Get or create a parallel executor instance
+   */
+  private getParallelExecutor(concurrency: number): ParallelExecutor {
+    if (!this.parallelExecutor) {
+      this.parallelExecutor = new ParallelExecutor({
+        maxConcurrency: concurrency,
+        continueOnFailure: true,
+        onTaskEvent: (event) => {
+          this.emit({
+            type: `parallel.${event.type}`,
+            timestamp: event.timestamp,
+            data: event.data,
+          });
+        },
+      });
+    }
+    return this.parallelExecutor;
+  }
+
+  /**
    * Execute the repo-wide plan using either single continuous or dual RL continuous mode.
+   * Supports parallel module processing and parallel variant execution for improved performance.
    */
   async run(plan: RepoUpgradePlan, options: RepoUpgradeRunOptions): Promise<RepoUpgradeReport> {
     const mode = options.mode;
     const continueOnFailure = options.continueOnFailure ?? true;
     const objective = options.objective ?? 'Repository-wide source code upgrade';
     const modeDefinition = getModeDefinition(mode);
+    const parallelModules = options.parallelModules ?? false;
+    const parallelModuleConcurrency = options.parallelModuleConcurrency ?? 3;
+    const parallelVariants = options.parallelVariants ?? true;
+    this.variantWorkspaceRoots = options.variantWorkspaceRoots;
+    this.repoPolicy = options.repoPolicy ?? undefined;
 
     // Reset state per run to keep reports clean
     this.results = [];
     this.findings = [];
+    this.parallelExecutor = null;
 
-    const moduleReports: UpgradeModuleReport[] = [];
     const variantStats: VariantWinStats = { primaryWins: 0, refinerWins: 0, ties: 0, totalSteps: 0 };
+
+    // Emit parallel mode info
+    this.emit({
+      type: 'upgrade.parallel.config',
+      timestamp: Date.now(),
+      data: {
+        parallelModules,
+        parallelModuleConcurrency,
+        parallelVariants,
+        mode,
+      },
+    });
+
+    let moduleReports: UpgradeModuleReport[];
+
+    if (parallelModules && plan.modules.length > 1) {
+      // PARALLEL MODULE PROCESSING
+      moduleReports = await this.runModulesInParallel(
+        plan.modules,
+        mode,
+        modeDefinition,
+        parallelModuleConcurrency,
+        parallelVariants,
+        continueOnFailure,
+        variantStats
+      );
+    } else {
+      // SEQUENTIAL MODULE PROCESSING (original behavior)
+      moduleReports = await this.runModulesSequentially(
+        plan.modules,
+        mode,
+        modeDefinition,
+        parallelVariants,
+        continueOnFailure,
+        variantStats
+      );
+    }
+
+    const baseReport = this.generateReport(objective);
+    return {
+      ...baseReport,
+      mode,
+      continueOnFailure,
+      modules: moduleReports,
+      variantStats,
+      variantWorkspaceRoots: this.variantWorkspaceRoots,
+      repoPolicy: this.repoPolicy,
+    };
+  }
+
+  /**
+   * Run modules sequentially (original behavior)
+   */
+  private async runModulesSequentially(
+    modules: RepoUpgradeModule[],
+    mode: RepoUpgradeMode,
+    modeDefinition: RepoUpgradeModeDefinition,
+    parallelVariants: boolean,
+    continueOnFailure: boolean,
+    variantStats: VariantWinStats
+  ): Promise<UpgradeModuleReport[]> {
+    const moduleReports: UpgradeModuleReport[] = [];
     let halted = false;
 
-    for (const module of plan.modules) {
+    for (const module of modules) {
       if (halted) {
         moduleReports.push({
           id: module.id,
@@ -392,67 +638,208 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
         continue;
       }
 
-      this.emit({
-        type: 'upgrade.module.start',
-        timestamp: Date.now(),
-        data: { moduleId: module.id, label: module.label, scope: module.scope, mode },
-      });
-
-      const moduleReport: UpgradeModuleReport = {
-        id: module.id,
-        label: module.label,
-        scope: module.scope,
-        codemodCommands: module.codemodCommands,
-        validationCommands: module.validationCommands,
-        steps: [],
-        status: 'completed',
-      };
-
-      for (const step of module.steps) {
-        const outcome = await this.runStep(module, step, mode);
-        moduleReport.steps.push(outcome);
-        this.updateVariantStats(variantStats, outcome, modeDefinition);
-
-        if (!outcome.winner.success) {
-          moduleReport.status = 'failed';
-          if (!continueOnFailure) {
-            halted = true;
-            break;
-          }
-        }
-      }
-
+      const moduleReport = await this.processModule(module, mode, modeDefinition, parallelVariants, variantStats, continueOnFailure);
       moduleReports.push(moduleReport);
 
-      this.emit({
-        type: 'upgrade.module.complete',
-        timestamp: Date.now(),
-        data: { moduleId: module.id, status: moduleReport.status },
-      });
+      if (moduleReport.status === 'failed' && !continueOnFailure) {
+        halted = true;
+      }
     }
 
-    const baseReport = this.generateReport(objective);
-    return { ...baseReport, mode, continueOnFailure, modules: moduleReports, variantStats };
+    return moduleReports;
+  }
+
+  /**
+   * Run modules in parallel using the ParallelExecutor
+   */
+  private async runModulesInParallel(
+    modules: RepoUpgradeModule[],
+    mode: RepoUpgradeMode,
+    modeDefinition: RepoUpgradeModeDefinition,
+    concurrency: number,
+    parallelVariants: boolean,
+    continueOnFailure: boolean,
+    variantStats: VariantWinStats
+  ): Promise<UpgradeModuleReport[]> {
+    const executor = this.getParallelExecutor(concurrency);
+
+    this.emit({
+      type: 'upgrade.parallel.start',
+      timestamp: Date.now(),
+      data: { moduleCount: modules.length, concurrency },
+    });
+
+    // Create parallel tasks for each module
+    const tasks: ParallelTask<UpgradeModuleReport>[] = modules.map((module) =>
+      createTask(
+        `module:${module.id}`,
+        async () => this.processModule(module, mode, modeDefinition, parallelVariants, variantStats, continueOnFailure),
+        {
+          label: module.label,
+          parallelizable: true,
+          group: 'modules',
+        }
+      )
+    );
+
+    const batchResult = await executor.execute(tasks);
+
+    this.emit({
+      type: 'upgrade.parallel.complete',
+      timestamp: Date.now(),
+      data: {
+        totalDurationMs: batchResult.totalDurationMs,
+        successCount: batchResult.successCount,
+        failureCount: batchResult.failureCount,
+        parallelismAchieved: batchResult.parallelismAchieved,
+      },
+    });
+
+    // Extract results in order, handling failures
+    const moduleReports: UpgradeModuleReport[] = [];
+    for (const result of batchResult.results) {
+      if (result.status === 'completed' && result.result) {
+        moduleReports.push(result.result);
+      } else {
+        // Create a failed report for tasks that couldn't complete
+        const moduleId = result.taskId.replace('module:', '');
+        const module = modules.find((m) => m.id === moduleId);
+        moduleReports.push({
+          id: moduleId,
+          label: module?.label ?? moduleId,
+          scope: module?.scope ?? [],
+          steps: [],
+          status: 'failed',
+        });
+
+        if (!continueOnFailure) {
+          // Mark remaining as skipped
+          break;
+        }
+      }
+    }
+
+    return moduleReports;
+  }
+
+  /**
+   * Process a single module (can be called in parallel or sequentially)
+   */
+  private async processModule(
+    module: RepoUpgradeModule,
+    mode: RepoUpgradeMode,
+    modeDefinition: RepoUpgradeModeDefinition,
+    parallelVariants: boolean,
+    variantStats: VariantWinStats,
+    continueOnFailure = true
+  ): Promise<UpgradeModuleReport> {
+    this.emit({
+      type: 'upgrade.module.start',
+      timestamp: Date.now(),
+      data: { moduleId: module.id, label: module.label, scope: module.scope, mode },
+    });
+
+    const moduleReport: UpgradeModuleReport = {
+      id: module.id,
+      label: module.label,
+      scope: module.scope,
+      codemodCommands: module.codemodCommands,
+      validationCommands: module.validationCommands,
+      steps: [],
+      status: 'completed',
+    };
+
+    for (const step of module.steps) {
+      const outcome = await this.runStep(module, step, mode, parallelVariants);
+      moduleReport.steps.push(outcome);
+      this.updateVariantStats(variantStats, outcome, modeDefinition);
+
+      if (!outcome.winner.success) {
+        moduleReport.status = 'failed';
+        // Stop processing this module's steps if continueOnFailure is false
+        if (!continueOnFailure) {
+          break;
+        }
+      }
+    }
+
+    this.emit({
+      type: 'upgrade.module.complete',
+      timestamp: Date.now(),
+      data: { moduleId: module.id, status: moduleReport.status },
+    });
+
+    return moduleReport;
   }
 
   private async runStep(
     module: RepoUpgradeModule,
     step: RepoUpgradeStep,
-    mode: RepoUpgradeMode
+    mode: RepoUpgradeMode,
+    parallelVariants = true
   ): Promise<UpgradeStepOutcome> {
     const modeDefinition = getModeDefinition(mode);
     this.emit({
       type: 'upgrade.step.start',
       timestamp: Date.now(),
-      data: { moduleId: module.id, stepId: step.id, variant: 'primary', mode },
+      data: { moduleId: module.id, stepId: step.id, variant: 'primary', mode, parallelVariants },
     });
 
     const variantResults: Partial<Record<UpgradeVariant, UpgradeStepResult>> = {};
 
-    for (const variant of modeDefinition.variants) {
-      const previousResult = variant === 'refiner' ? variantResults.primary : undefined;
-      const result = await this.safeExecuteVariant({ module, step, mode, variant, previousResult });
-      variantResults[variant] = result;
+    // Determine if we can run variants in parallel
+    // Parallel is possible when:
+    // 1. parallelVariants is enabled
+    // 2. We have both primary and refiner variants
+    // 3. We have separate workspace roots for each variant
+    const canRunParallel =
+      parallelVariants &&
+      modeDefinition.variants.includes('refiner') &&
+      this.variantWorkspaceRoots?.refiner &&
+      this.variantWorkspaceRoots.refiner !== this.variantWorkspaceRoots.primary;
+
+    if (canRunParallel && modeDefinition.variants.length > 1) {
+      // PARALLEL VARIANT EXECUTION
+      this.emit({
+        type: 'upgrade.step.variants.parallel',
+        timestamp: Date.now(),
+        data: { moduleId: module.id, stepId: step.id, variants: modeDefinition.variants },
+      });
+
+      const variantPromises = modeDefinition.variants.map(async (variant) => {
+        const result = await this.safeExecuteVariant({
+          module,
+          step,
+          mode,
+          variant,
+          // In parallel mode, refiner doesn't get primary's result as it runs concurrently
+          previousResult: undefined,
+          workspaceRoot: this.variantWorkspaceRoots?.[variant] ?? this.variantWorkspaceRoots?.primary,
+          repoPolicy: this.repoPolicy,
+        });
+        return { variant, result };
+      });
+
+      const results = await Promise.all(variantPromises);
+      for (const { variant, result } of results) {
+        variantResults[variant] = result;
+      }
+    } else {
+      // SEQUENTIAL VARIANT EXECUTION (original behavior)
+      // Refiner gets primary's result for informed refinement
+      for (const variant of modeDefinition.variants) {
+        const previousResult = variant === 'refiner' ? variantResults.primary : undefined;
+        const result = await this.safeExecuteVariant({
+          module,
+          step,
+          mode,
+          variant,
+          previousResult,
+          workspaceRoot: this.variantWorkspaceRoots?.[variant] ?? this.variantWorkspaceRoots?.primary,
+          repoPolicy: this.repoPolicy,
+        });
+        variantResults[variant] = result;
+      }
     }
 
     const primary = variantResults.primary as UpgradeStepResult;

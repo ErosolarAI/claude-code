@@ -206,8 +206,9 @@ export class UnifiedUIRenderer extends EventEmitter {
   /** Strip ANSI escape sequences from text to prevent injection */
   private sanitizePasteContent(text: string): string {
     // Remove all ANSI escape sequences (CSI, OSC, etc.)
+    // Including bracketed paste markers (\x1b[200~ and \x1b[201~) which end with ~
     // eslint-disable-next-line no-control-regex
-    return text.replace(/\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[PX^_][^\x1b]*\x1b\\|\x1b./g, '');
+    return text.replace(/\x1b\[[0-9;]*[A-Za-z~]|\x1b\][^\x07]*\x07|\x1b[PX^_][^\x1b]*\x1b\\|\x1b./g, '');
   }
 
   private formatHotkey(combo?: string): string | null {
@@ -832,7 +833,33 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (sequence === ESC.ENABLE_BRACKETED_PASTE || sequence === ESC.DISABLE_BRACKETED_PASTE) {
       return true;
     }
-    if (sequence === '\x1b[200~') {
+
+    // Handle case where paste markers might be embedded in the string
+    const pasteStartMarker = '\x1b[200~';
+    const pasteEndMarker = '\x1b[201~';
+
+    // Check if str contains paste start marker (handles chunked arrival)
+    if (typeof str === 'string' && str.includes(pasteStartMarker)) {
+      this.inBracketedPaste = true;
+      this.pasteBufferOverflow = false;
+      const pending = this.consumePendingInsertForPaste();
+      // Extract content after the start marker
+      const startIdx = str.indexOf(pasteStartMarker);
+      let content = str.slice(startIdx + pasteStartMarker.length);
+      // Check if end marker is also in this chunk
+      if (content.includes(pasteEndMarker)) {
+        const endIdx = content.indexOf(pasteEndMarker);
+        content = content.slice(0, endIdx);
+        this.pasteBuffer = pending + content;
+        this.commitPasteBuffer();
+        return true;
+      }
+      this.pasteBuffer = pending + content;
+      this.cancelPlainPasteCapture();
+      return true;
+    }
+
+    if (sequence === pasteStartMarker) {
       this.inBracketedPaste = true;
       this.pasteBufferOverflow = false; // Reset overflow flag for new paste
       // Consume any pending insert buffer to prevent leak
@@ -844,7 +871,19 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (!this.inBracketedPaste) {
       return false;
     }
-    if (sequence === '\x1b[201~') {
+
+    // Check if str contains paste end marker
+    if (typeof str === 'string' && str.includes(pasteEndMarker)) {
+      const endIdx = str.indexOf(pasteEndMarker);
+      const contentBefore = str.slice(0, endIdx);
+      if (contentBefore) {
+        this.appendToPasteBuffer('paste', contentBefore);
+      }
+      this.commitPasteBuffer();
+      return true;
+    }
+
+    if (sequence === pasteEndMarker) {
       this.commitPasteBuffer();
       return true;
     }
@@ -1071,7 +1110,8 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   private insertText(text: string): void {
     if (!text) return;
-    if (this.inPlainPaste) {
+    // Don't insert during paste operations - content goes to paste buffer
+    if (this.inBracketedPaste || this.inPlainPaste) {
       return;
     }
     if (this.collapsedPaste) {
@@ -3283,12 +3323,16 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   private expandCollapsedPaste(): void {
     if (!this.collapsedPaste) return;
-    this.buffer = this.collapsedPaste.text;
-    this.cursor = this.buffer.length;
+    const text = this.collapsedPaste.text;
     this.collapsedPaste = null;
+    // Display the pasted content in chat, then submit
+    this.buffer = '';
+    this.cursor = 0;
     this.updateSuggestions();
     this.renderPrompt();
     this.emitInputChange();
+    // Submit the paste content (displayUserPrompt is called within submitText for non-slash commands)
+    this.submitText(text);
   }
 
   captureInput(options: { allowEmpty?: boolean; trim?: boolean; resetBuffer?: boolean } = {}): Promise<string> {
