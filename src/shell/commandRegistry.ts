@@ -443,6 +443,31 @@ export function createBaseCommands(): CommandDefinition[] {
         shell.handleThinkingCommand?.(ctx.input);
       },
     },
+
+    // Advanced - Dual RL Tournament
+    {
+      name: '/upgrade',
+      aliases: ['/up'],
+      description: 'Run repo upgrade with optional dual RL tournament mode',
+      category: 'advanced',
+      usage: '/upgrade [dual] [scope:path] [policy:name] [--git-worktrees] <direction>',
+      async: true,
+      handler: async (ctx) => {
+        const shell = ctx.shell as { runRepoUpgradeCommand?: (args: string[]) => Promise<void> };
+        const args = ctx.input.split(/\s+/).filter(Boolean);
+        await shell.runRepoUpgradeCommand?.(args);
+      },
+    },
+    {
+      name: '/dual',
+      aliases: ['/mode'],
+      description: 'Toggle dual RL tournament mode (⌥D)',
+      category: 'advanced',
+      handler: (ctx) => {
+        const shell = ctx.shell as { toggleDualRlMode?: () => void };
+        shell.toggleDualRlMode?.();
+      },
+    },
   ];
 }
 

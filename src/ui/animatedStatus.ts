@@ -5,6 +5,7 @@
 
 import { theme, spinnerFrames, progressChars } from './theme.js';
 import { AnimationScheduler } from './animation/AnimationScheduler.js';
+import { CONTEXT_THRESHOLDS, clampPercentage, getContextColor } from './uiConstants.js';
 
 // Singleton scheduler for global animation coordination
 let globalScheduler: AnimationScheduler | null = null;
@@ -395,11 +396,13 @@ export class ContextMeter {
   }
 
   render(): string {
-    const pct = Math.round(this.percentage);
-    const color = pct > 90 ? theme.error
-                : pct > 70 ? theme.warning
-                : pct > 50 ? theme.info
-                : theme.success;
+    const pct = Math.round(clampPercentage(this.percentage));
+    const color = getContextColor(pct, {
+      error: theme.error,
+      warning: theme.warning,
+      info: theme.info,
+      success: theme.success,
+    });
 
     return `${theme.ui.muted('ctx')} ${color(`${pct}%`)}`;
   }

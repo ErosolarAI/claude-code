@@ -393,6 +393,18 @@ class InteractiveShell {
       });
 
       this.renderUpgradeReport(report);
+      // Update final RL statistics from report
+      if (report.variantStats) {
+        this.promptController?.updateRLStatus({
+          wins: {
+            primary: report.variantStats.primaryWins,
+            refiner: report.variantStats.refinerWins,
+            ties: report.variantStats.ties,
+          },
+          stepsCompleted: report.variantStats.totalSteps,
+          totalSteps: report.variantStats.totalSteps,
+        });
+      }
       if (validationMode === 'ask') {
         this.promptController?.setStatusMessage('Validation commands listed (rerun with --validate to execute)');
         setTimeout(() => this.promptController?.setStatusMessage(null), 4000);
@@ -406,18 +418,125 @@ class InteractiveShell {
     } finally {
       this.promptController?.setStreaming(false);
       this.isProcessing = false;
+      // Clear RL status after upgrade completes (keep wins visible in report)
+      setTimeout(() => this.promptController?.clearRLStatus(), 5000);
     }
   }
 
   private handleUpgradeEvent(type: string, data?: Record<string, unknown>): void {
     if (!this.promptController) return;
+
+    // Handle different upgrade event types
     if (type === 'upgrade.module.start') {
-      const label = typeof data?.['label'] === 'string' ? data['label'] : data?.['moduleId'];
+      const moduleId = typeof data?.['moduleId'] === 'string' ? data['moduleId'] : undefined;
+      const label = typeof data?.['label'] === 'string' ? data['label'] : moduleId;
       this.promptController.setStatusMessage(`Upgrading ${label ?? 'module'}...`);
+      // Update RL status with current module
+      this.promptController.updateRLStatus({
+        currentModule: moduleId ?? label,
+      });
     } else if (type === 'upgrade.step.start') {
       const stepId = data?.['stepId'];
+      const variant = data?.['variant'] as 'primary' | 'refiner' | undefined;
+      const parallelVariants = Boolean(data?.['parallelVariants']);
       this.promptController.setStatusMessage(`Running step ${stepId ?? ''}...`);
+      // Update RL status with current step and variant
+      this.promptController.updateRLStatus({
+        currentStep: typeof stepId === 'string' ? stepId : undefined,
+        activeVariant: variant ?? null,
+        parallelExecution: parallelVariants,
+      });
+    } else if (type === 'upgrade.step.complete') {
+      const variant = data?.['variant'] as 'primary' | 'refiner' | undefined;
+      const success = Boolean(data?.['success']);
+      // Clear active variant on step completion
+      this.promptController.updateRLStatus({
+        activeVariant: null,
+        currentStep: undefined,
+      });
+      // Show completion message
+      const status = success ? 'completed' : 'failed';
+      this.promptController.setStatusMessage(`Step ${status} (${variant ?? 'unknown'})`);
+    } else if (type === 'upgrade.step.variants.parallel') {
+      // Parallel variant execution starting
+      const variants = data?.['variants'] as string[] | undefined;
+      this.promptController.updateRLStatus({
+        parallelExecution: true,
+        activeVariant: null, // Both running in parallel
+      });
+      this.promptController.setStatusMessage(`Running variants in parallel: ${variants?.join(', ') ?? 'primary, refiner'}`);
+    } else if (type === 'upgrade.module.complete') {
+      const status = data?.['status'] as string;
+      // Clear module info on completion
+      this.promptController.updateRLStatus({
+        currentModule: undefined,
+        currentStep: undefined,
+      });
+      this.promptController.setStatusMessage(`Module ${status ?? 'completed'}`);
+    } else if (type === 'upgrade.parallel.config') {
+      // Parallel execution configuration
+      const parallelModules = Boolean(data?.['parallelModules']);
+      const parallelVariants = Boolean(data?.['parallelVariants']);
+      this.promptController.updateRLStatus({
+        parallelExecution: parallelModules || parallelVariants,
+      });
+    } else if (type === 'upgrade.parallel.start') {
+      const moduleCount = data?.['moduleCount'];
+      this.promptController.updateRLStatus({
+        totalSteps: typeof moduleCount === 'number' ? moduleCount : undefined,
+        stepsCompleted: 0,
+      });
+    } else if (type === 'upgrade.parallel.complete') {
+      const successCount = data?.['successCount'];
+      const failedCount = data?.['failedCount'];
+      this.promptController.setStatusMessage(
+        `Parallel execution complete: ${successCount ?? 0} success, ${failedCount ?? 0} failed`
+      );
     }
+  }
+
+  /**
+   * Update win statistics during RL execution.
+   * Called after step outcomes are determined.
+   */
+  private updateRLWinStats(outcome: UpgradeStepOutcome): void {
+    if (!this.promptController) return;
+    const currentStatus = this.promptController.getRLStatus();
+    const wins = currentStatus.wins ?? { primary: 0, refiner: 0, ties: 0 };
+
+    // Update win counts based on winner
+    if (outcome.winnerVariant === 'primary') {
+      wins.primary += 1;
+    } else if (outcome.winnerVariant === 'refiner') {
+      wins.refiner += 1;
+    }
+
+    // Check for ties (both succeeded with similar scores)
+    if (outcome.primary.success && outcome.refiner?.success) {
+      const pScore = outcome.primary.score ?? 0;
+      const rScore = outcome.refiner?.score ?? 0;
+      if (Math.abs(pScore - rScore) < 0.01) {
+        wins.ties += 1;
+      }
+    }
+
+    // Update scores
+    const scores: { primary?: number; refiner?: number } = {};
+    if (typeof outcome.primary.score === 'number') {
+      scores.primary = outcome.primary.score;
+    }
+    if (typeof outcome.refiner?.score === 'number') {
+      scores.refiner = outcome.refiner.score;
+    }
+
+    // Update steps completed count
+    const stepsCompleted = (currentStatus.stepsCompleted ?? 0) + 1;
+
+    this.promptController.updateRLStatus({
+      wins,
+      scores,
+      stepsCompleted,
+    });
   }
 
   /**
@@ -842,6 +961,18 @@ class InteractiveShell {
       return true;
     }
 
+    // Keyboard shortcuts help
+    if (lower === '/keys' || lower === '/shortcuts' || lower === '/kb') {
+      this.showKeyboardShortcuts();
+      return true;
+    }
+
+    // Session stats
+    if (lower === '/stats' || lower === '/status') {
+      this.showSessionStats();
+      return true;
+    }
+
     // Memory commands
     if (lower === '/memory' || lower === '/mem') {
       void this.showMemoryStats();
@@ -1215,8 +1346,8 @@ class InteractiveShell {
         chalk.dim(' - Repo upgrade (add "dual" for dual RL, scope:<path>, policy:<name>, --git-worktrees)'),
       chalk.hex('#FBBF24')('/clear') + chalk.dim(' - Clear screen') + '  ' +
         chalk.hex('#FBBF24')('/debug') + chalk.dim(' - Toggle debug'),
-      chalk.hex('#FBBF24')('/memory') + chalk.dim(' - Show episodic memory stats') + '  ' +
-        chalk.hex('#FBBF24')('/memory search') + chalk.dim(' - Search past work'),
+      chalk.hex('#FBBF24')('/memory') + chalk.dim(' - Episodic memory') + '  ' +
+        chalk.hex('#FBBF24')('/keys') + chalk.dim(' - Keyboard shortcuts'),
       chalk.hex('#FBBF24')('/help') + chalk.dim(' - This help') + '  ' +
         chalk.hex('#FBBF24')('/exit') + chalk.dim(' - Exit AGI'),
     ];
@@ -1346,6 +1477,92 @@ class InteractiveShell {
         ];
       }),
     ];
+
+    this.promptController.setInlinePanel(lines);
+    this.scheduleInlinePanelDismiss();
+  }
+
+  private showKeyboardShortcuts(): void {
+    if (!this.promptController?.supportsInlinePanel()) {
+      this.promptController?.setStatusMessage('Use /keys in interactive mode');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 3000);
+      return;
+    }
+
+    const kb = (key: string) => chalk.hex('#FBBF24')(key);
+    const desc = (text: string) => chalk.dim(text);
+
+    const lines = [
+      chalk.bold.hex('#6366F1')('Keyboard Shortcuts') + chalk.dim('  (press any key to dismiss)'),
+      '',
+      chalk.hex('#22D3EE')('Navigation'),
+      `  ${kb('Ctrl+A')} / ${kb('Home')}  ${desc('Move to start of line')}`,
+      `  ${kb('Ctrl+E')} / ${kb('End')}   ${desc('Move to end of line')}`,
+      `  ${kb('Alt+←')} / ${kb('Alt+→')}  ${desc('Move word by word')}`,
+      '',
+      chalk.hex('#22D3EE')('Editing'),
+      `  ${kb('Ctrl+U')}  ${desc('Clear entire line')}`,
+      `  ${kb('Ctrl+W')} / ${kb('Alt+⌫')}  ${desc('Delete word backward')}`,
+      `  ${kb('Ctrl+K')}  ${desc('Delete to end of line')}`,
+      '',
+      chalk.hex('#22D3EE')('Display'),
+      `  ${kb('Ctrl+L')}  ${desc('Clear screen')}`,
+      `  ${kb('Ctrl+O')}  ${desc('Expand last tool result')}`,
+      '',
+      chalk.hex('#22D3EE')('Control'),
+      `  ${kb('Ctrl+C')}  ${desc('Cancel input / interrupt')}`,
+      `  ${kb('Ctrl+D')}  ${desc('Exit (when empty)')}`,
+      `  ${kb('Esc')}     ${desc('Interrupt AI response')}`,
+    ];
+
+    this.promptController.setInlinePanel(lines);
+    this.scheduleInlinePanelDismiss();
+  }
+
+  private showSessionStats(): void {
+    if (!this.promptController?.supportsInlinePanel()) {
+      this.promptController?.setStatusMessage('Use /stats in interactive mode');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 3000);
+      return;
+    }
+
+    const history = this.controller.getHistory();
+    const messageCount = history.length;
+    const userMessages = history.filter(m => m.role === 'user').length;
+    const assistantMessages = history.filter(m => m.role === 'assistant').length;
+
+    // Calculate approximate token usage from history
+    let totalChars = 0;
+    for (const msg of history) {
+      if (typeof msg.content === 'string') {
+        totalChars += msg.content.length;
+      }
+    }
+    const approxTokens = Math.round(totalChars / 4); // Rough estimate
+
+    // Get memory stats
+    const memory = getEpisodicMemory();
+    const memStats = memory.getStats();
+    const collapsedCount = this.promptController?.getRenderer?.()?.getCollapsedResultCount?.() ?? 0;
+
+    const lines = [
+      chalk.bold.hex('#6366F1')('Session Stats') + chalk.dim('  (press any key to dismiss)'),
+      '',
+      chalk.hex('#22D3EE')('Conversation'),
+      `  ${chalk.white(messageCount.toString())} messages (${userMessages} user, ${assistantMessages} assistant)`,
+      `  ${chalk.dim('~')}${chalk.white(approxTokens.toLocaleString())} ${chalk.dim('tokens (estimate)')}`,
+      '',
+      chalk.hex('#22D3EE')('Model'),
+      `  ${chalk.white(this.profileConfig.model)} ${chalk.dim('on')} ${chalk.hex('#A855F7')(this.profileConfig.provider)}`,
+      '',
+      chalk.hex('#22D3EE')('Memory'),
+      `  ${chalk.white(memStats.totalEpisodes.toString())} episodes, ${chalk.white(memStats.totalApproaches.toString())} patterns`,
+      collapsedCount > 0 ? `  ${chalk.white(collapsedCount.toString())} expandable results ${chalk.dim('(ctrl+o)')}` : '',
+      '',
+      chalk.hex('#22D3EE')('Mode'),
+      `  Dual RL: ${this.preferredUpgradeMode === 'dual-rl-continuous' ? chalk.green('on') : chalk.dim('off')}`,
+      `  Debug: ${this.debugEnabled ? chalk.green('on') : chalk.dim('off')}`,
+    ].filter(line => line !== '');
 
     this.promptController.setInlinePanel(lines);
     this.scheduleInlinePanelDismiss();

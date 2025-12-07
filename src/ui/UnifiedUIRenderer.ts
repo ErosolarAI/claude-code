@@ -17,6 +17,15 @@ import { theme, spinnerFrames } from './theme.js';
 import { isPlainOutputMode } from './outputMode.js';
 import { AnimatedSpinner, ThinkingIndicator, ContextMeter, disposeAnimations } from './animatedStatus.js';
 import { logDebug } from '../utils/debugLogger.js';
+import {
+  ELLIPSIS,
+  UI_STRINGS,
+  DISPLAY_LIMITS,
+  truncateString,
+  clampPercentage,
+  getContextColor,
+  formatDurationMs,
+} from './uiConstants.js';
 
 export interface CommandSuggestion {
   command: string;
@@ -67,6 +76,32 @@ interface ModeToggleState {
   debugHotkey?: string;
 }
 
+/**
+ * RL agent execution status for real-time display during dual-RL mode.
+ */
+export interface RLAgentStatus {
+  /** Current active variant being executed */
+  activeVariant?: 'primary' | 'refiner' | null;
+  /** Current module being processed */
+  currentModule?: string;
+  /** Current step within the module */
+  currentStep?: string;
+  /** Win statistics for primary vs refiner */
+  wins?: { primary: number; refiner: number; ties: number };
+  /** Current reward scores if available */
+  scores?: { primary?: number; refiner?: number };
+  /** Whether variants are running in parallel */
+  parallelExecution?: boolean;
+  /** Total steps completed */
+  stepsCompleted?: number;
+  /** Total steps to process */
+  totalSteps?: number;
+  /** Last step winner for celebration */
+  lastWinner?: 'primary' | 'refiner' | 'tie' | null;
+  /** Streak count for current leader */
+  streak?: number;
+}
+
 const ESC = {
   HIDE_CURSOR: '\x1b[?25l',
   SHOW_CURSOR: '\x1b[?25h',
@@ -115,6 +150,16 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   private mode: 'idle' | 'streaming' = 'idle';
   private lastToolResult: string | null = null;
+  /** Stack of collapsed tool results for Ctrl+O expansion */
+  private collapsedToolResults: Array<{
+    toolName: string;
+    content: string;
+    summary: string;
+    timestamp: number;
+  }> = [];
+  private readonly maxCollapsedResults = 50;
+  /** Track the last tool name for pairing with results */
+  private lastToolName: string = '';
   private streamingStartTime: number | null = null;
   private statusMessage: string | null = null;
   private statusOverride: string | null = null;
@@ -175,6 +220,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     dualRlEnabled: false,
     debugEnabled: false,
   };
+
+  /** RL agent execution status for dual-RL mode display */
+  private rlStatus: RLAgentStatus = {};
 
   // ------------ Helpers ------------
 
@@ -604,16 +652,143 @@ export class UnifiedUIRenderer extends EventEmitter {
       return;
     }
 
+    // Ctrl+L: Clear screen while preserving input
     if (key.ctrl && key.name === 'l') {
       if (this.collapsedPaste) {
-        this.expandCollapsedPaste();
+        this.expandCollapsedPasteToBuffer();
         return;
       }
+      // Clear screen and redraw
+      this.output.write('\x1b[2J\x1b[H'); // Clear screen, move to top
+      this.hasConversationContent = false;
+      this.clearCollapsedResults();
+      this.renderPrompt();
+      return;
     }
 
     // Ctrl+O: Expand last tool result
     if (key.ctrl && key.name === 'o') {
       this.emit('expand-tool-result');
+      return;
+    }
+
+    // Ctrl+A: Move cursor to start of line
+    if (key.ctrl && key.name === 'a') {
+      if (this.cursor !== 0) {
+        this.cursor = 0;
+        this.inputRenderOffset = 0;
+        this.renderPrompt();
+        this.emitInputChange();
+      }
+      return;
+    }
+
+    // Ctrl+E: Move cursor to end of line
+    if (key.ctrl && key.name === 'e') {
+      if (this.cursor !== this.buffer.length) {
+        this.cursor = this.buffer.length;
+        this.ensureCursorVisible();
+        this.renderPrompt();
+        this.emitInputChange();
+      }
+      return;
+    }
+
+    // Ctrl+W: Delete word backward
+    if (key.ctrl && key.name === 'w') {
+      if (this.cursor > 0) {
+        // Find start of previous word
+        let pos = this.cursor;
+        // Skip trailing spaces
+        while (pos > 0 && this.buffer[pos - 1] === ' ') pos--;
+        // Skip word characters
+        while (pos > 0 && this.buffer[pos - 1] !== ' ') pos--;
+        this.buffer = this.buffer.slice(0, pos) + this.buffer.slice(this.cursor);
+        this.cursor = pos;
+        this.updateSuggestions();
+        this.renderPrompt();
+        this.emitInputChange();
+      }
+      return;
+    }
+
+    // Ctrl+K: Delete from cursor to end of line
+    if (key.ctrl && key.name === 'k') {
+      if (this.cursor < this.buffer.length) {
+        this.buffer = this.buffer.slice(0, this.cursor);
+        this.updateSuggestions();
+        this.renderPrompt();
+        this.emitInputChange();
+      }
+      return;
+    }
+
+    // Home: Move cursor to start
+    if (key.name === 'home') {
+      if (this.cursor !== 0) {
+        this.cursor = 0;
+        this.inputRenderOffset = 0;
+        this.renderPrompt();
+        this.emitInputChange();
+      }
+      return;
+    }
+
+    // End: Move cursor to end
+    if (key.name === 'end') {
+      if (this.cursor !== this.buffer.length) {
+        this.cursor = this.buffer.length;
+        this.ensureCursorVisible();
+        this.renderPrompt();
+        this.emitInputChange();
+      }
+      return;
+    }
+
+    // Alt+Left: Move cursor back one word
+    if (key.meta && key.name === 'left') {
+      if (this.cursor > 0) {
+        let pos = this.cursor;
+        // Skip spaces
+        while (pos > 0 && this.buffer[pos - 1] === ' ') pos--;
+        // Skip word characters
+        while (pos > 0 && this.buffer[pos - 1] !== ' ') pos--;
+        this.cursor = pos;
+        this.ensureCursorVisible();
+        this.renderPrompt();
+        this.emitInputChange();
+      }
+      return;
+    }
+
+    // Alt+Right: Move cursor forward one word
+    if (key.meta && key.name === 'right') {
+      if (this.cursor < this.buffer.length) {
+        let pos = this.cursor;
+        // Skip current word
+        while (pos < this.buffer.length && this.buffer[pos] !== ' ') pos++;
+        // Skip spaces
+        while (pos < this.buffer.length && this.buffer[pos] === ' ') pos++;
+        this.cursor = pos;
+        this.ensureCursorVisible();
+        this.renderPrompt();
+        this.emitInputChange();
+      }
+      return;
+    }
+
+    // Alt+Backspace: Delete word backward (alternative to Ctrl+W)
+    if (key.meta && key.name === 'backspace') {
+      if (this.cursor > 0) {
+        let pos = this.cursor;
+        while (pos > 0 && this.buffer[pos - 1] === ' ') pos--;
+        while (pos > 0 && this.buffer[pos - 1] !== ' ') pos--;
+        this.buffer = this.buffer.slice(0, pos) + this.buffer.slice(this.cursor);
+        this.cursor = pos;
+        this.updateSuggestions();
+        this.renderPrompt();
+        this.emitInputChange();
+      }
       return;
     }
 
@@ -1114,8 +1289,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (this.inBracketedPaste || this.inPlainPaste) {
       return;
     }
+    // If there's a collapsed paste and user types, expand to buffer first then insert at cursor
     if (this.collapsedPaste) {
-      this.expandCollapsedPaste();
+      this.expandCollapsedPasteToBuffer();
     }
     // Ensure cursor is valid before slicing
     this.clampCursor();
@@ -1952,6 +2128,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     const toolName = match[1]!;
     const argsStr = match[2]?.trim() || '';
 
+    // Track tool name for pairing with result
+    this.lastToolName = toolName;
+
     // If no args, just show tool name
     if (!argsStr) {
       return `${bullet} ${theme.tool(`[${toolName}]`)}\n`;
@@ -2072,7 +2251,14 @@ export class UnifiedUIRenderer extends EventEmitter {
     const fileMatch = content.match(/(\d+)\s*(?:files?|matches?)/i);
     const readMatch = content.match(/read.*?(\d+)\s*lines?/i);
 
+    // Check if content contains a file path or command that should be preserved
+    const hasPath = /(?:^|\s)(?:\/[\w./-]+|[\w./-]+\/[\w./-]+)/.test(content);
+    const hasCommand = /^\s*\$\s+.+|command:/i.test(content);
+    const isPathOrDir = /^(?:File|Directory|Path):\s*/i.test(content);
+
     let summary: string;
+    let preserveFull = false;
+
     if (readMatch) {
       summary = `Read ${readMatch[1]} lines`;
     } else if (lineMatch) {
@@ -2081,13 +2267,35 @@ export class UnifiedUIRenderer extends EventEmitter {
       summary = `Found ${fileMatch[1]} file${fileMatch[1] === '1' ? '' : 's'}`;
     } else if (content.match(/^(success|ok|done|completed|written|edited|created)/i)) {
       summary = '✓';
+    } else if (isPathOrDir || hasPath || hasCommand) {
+      // Preserve full content for paths, directories, and commands
+      // Only show first line if multi-line
+      const firstLine = content.split('\n')[0] || content;
+      summary = firstLine;
+      preserveFull = true;
     } else {
       // Use content directly, truncated if needed
       summary = content.length > 40 ? content.slice(0, 37) + '…' : content;
     }
 
+    // Store collapsed result for Ctrl+O expansion
+    this.collapsedToolResults.push({
+      toolName: this.lastToolName || 'tool',
+      content,
+      summary,
+      timestamp: Date.now(),
+    });
+
+    // Trim to max size
+    if (this.collapsedToolResults.length > this.maxCollapsedResults) {
+      this.collapsedToolResults.shift();
+    }
+
     const coloredSummary = this.colorResultSummary(summary);
-    return `  ${theme.ui.muted('⎿')}  ${coloredSummary} ${theme.ui.muted('(ctrl+o to expand)')}\n`;
+    // Only show expand hint if content is actually collapsed (multi-line or was truncated)
+    const hasMoreContent = content.includes('\n') || (!preserveFull && content.length > 40);
+    const expandHint = hasMoreContent ? ` ${theme.ui.muted('(ctrl+o to expand)')}` : '';
+    return `  ${theme.ui.muted('⎿')}  ${coloredSummary}${expandHint}\n`;
   }
 
   private colorResultSummary(summary: string): string {
@@ -2258,12 +2466,22 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   /**
    * Expand the most recent tool result inline (Ctrl+O support).
+   * Pops from the collapsed results stack and displays full content.
    */
   expandLastToolResult(): boolean {
-    if (!this.lastToolResult) {
+    // First try the new stack, fallback to old lastToolResult
+    const collapsed = this.collapsedToolResults.pop();
+    if (!collapsed && !this.lastToolResult) {
       return false;
     }
-    const rendered = this.wrapBulletText(this.lastToolResult, { label: 'tool', labelColor: theme.info });
+
+    const content = collapsed?.content || this.lastToolResult || '';
+    const toolName = collapsed?.toolName || 'result';
+
+    // Format with tool name label
+    const label = `${toolName}`;
+    const rendered = this.wrapBulletText(content, { label, labelColor: theme.info });
+
     this.eventQueue.push({
       type: 'response',
       rawType: 'response',
@@ -2271,10 +2489,31 @@ export class UnifiedUIRenderer extends EventEmitter {
       timestamp: Date.now(),
       isCompacted: false,
     });
+
+    // Clear lastToolResult if we used the stack
+    if (collapsed) {
+      this.lastToolResult = null;
+    }
+
     if (!this.isProcessingQueue) {
       void this.processQueue();
     }
     return true;
+  }
+
+  /**
+   * Get count of expandable collapsed results
+   */
+  getCollapsedResultCount(): number {
+    return this.collapsedToolResults.length;
+  }
+
+  /**
+   * Clear all collapsed results (e.g., on new conversation)
+   */
+  clearCollapsedResults(): void {
+    this.collapsedToolResults = [];
+    this.lastToolResult = null;
   }
 
   // ------------ Status / mode ------------
@@ -2461,6 +2700,34 @@ export class UnifiedUIRenderer extends EventEmitter {
       this.hotkeysInToggleLine.clear();
     }
     this.renderPrompt();
+  }
+
+  /**
+   * Update RL agent execution status for display in the UI.
+   * Called during dual-RL mode to show active agent, module/step progress, and win statistics.
+   */
+  updateRLStatus(status: Partial<RLAgentStatus>): void {
+    const next = { ...this.rlStatus, ...status };
+    const changed = JSON.stringify(next) !== JSON.stringify(this.rlStatus);
+    this.rlStatus = next;
+    if (changed) {
+      this.renderPrompt();
+    }
+  }
+
+  /**
+   * Clear RL agent status (e.g., when RL run completes).
+   */
+  clearRLStatus(): void {
+    this.rlStatus = {};
+    this.renderPrompt();
+  }
+
+  /**
+   * Get current RL status for external access.
+   */
+  getRLStatus(): Readonly<RLAgentStatus> {
+    return this.rlStatus;
   }
 
   setInlinePanel(lines: string[]): void {
@@ -2780,12 +3047,17 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     // Context meter with mini progress bar (shows used percentage, not remaining)
     if (this.statusMeta.contextPercent !== undefined) {
-      const used = Math.min(100, Math.max(0, this.statusMeta.contextPercent));
+      const used = clampPercentage(this.statusMeta.contextPercent);
       const barWidth = 6;
       const filled = Math.round((used / 100) * barWidth);
-      const empty = barWidth - filled;
+      const empty = Math.max(0, barWidth - filled);
       // Color based on how full the context is (green=low usage, yellow=medium, red=high)
-      const barColor = used < 50 ? theme.success : used < 80 ? theme.warning : theme.error;
+      const barColor = getContextColor(used, {
+        error: theme.error,
+        warning: theme.warning,
+        info: theme.info,
+        success: theme.success,
+      });
       const bar = barColor('█'.repeat(filled)) + theme.ui.muted('░'.repeat(empty));
       parts.push(`${bar} ${barColor(`${used}%`)} ${theme.ui.muted('ctx')}`);
     }
@@ -2945,11 +3217,123 @@ export class UnifiedUIRenderer extends EventEmitter {
       segments.push(this.formatMetaSegment('build', `v${this.statusMeta.version}`, 'muted'));
     }
 
+    // Add RL agent status when dual-RL mode is active
+    const rlSegments = this.buildRLStatusSegments();
+    if (rlSegments.length > 0) {
+      segments.push(...rlSegments);
+    }
+
     if (segments.length === 0) {
       return [];
     }
 
     return this.wrapSegments(segments, maxWidth);
+  }
+
+  /**
+   * Build RL agent status segments for display during dual-RL execution.
+   * Shows: tournament scoreboard, active agent, module/step progress, and scores.
+   */
+  private buildRLStatusSegments(): string[] {
+    const segments: string[] = [];
+    const rl = this.rlStatus;
+
+    // Only show RL status when there's meaningful data
+    if (!rl.activeVariant && !rl.wins && !rl.currentModule) {
+      return segments;
+    }
+
+    // Tournament scoreboard (always show when wins exist)
+    if (rl.wins && (rl.wins.primary > 0 || rl.wins.refiner > 0 || rl.wins.ties > 0)) {
+      const totalGames = rl.wins.primary + rl.wins.refiner + rl.wins.ties;
+      const leader = rl.wins.primary > rl.wins.refiner ? 'primary' :
+                     rl.wins.refiner > rl.wins.primary ? 'refiner' : 'tie';
+
+      // Scoreboard with colors based on leader
+      const pColor = leader === 'primary' ? theme.success : theme.info;
+      const rColor = leader === 'refiner' ? theme.success : theme.warning;
+      const pScore = pColor(`${rl.wins.primary}`);
+      const rScore = rColor(`${rl.wins.refiner}`);
+
+      // Trophy for leader
+      const trophy = leader === 'primary' ? theme.info('🏆') :
+                     leader === 'refiner' ? theme.warning('🏆') : '⚖️';
+
+      // Win streak indicator
+      const streakText = rl.streak && rl.streak > 1 ? theme.ui.muted(` 🔥${rl.streak}`) : '';
+
+      segments.push(`${trophy}${pScore}${theme.ui.muted(':')}${rScore}${streakText}`);
+
+      // Progress bar showing relative wins
+      if (totalGames > 0) {
+        const barWidth = 8;
+        const pBars = Math.round((rl.wins.primary / totalGames) * barWidth);
+        const rBars = Math.round((rl.wins.refiner / totalGames) * barWidth);
+        const tBars = Math.max(0, barWidth - pBars - rBars);
+        const bar = theme.info('█'.repeat(pBars)) +
+                    theme.ui.muted('░'.repeat(tBars)) +
+                    theme.warning('█'.repeat(rBars));
+        segments.push(`[${bar}]`);
+      }
+    }
+
+    // Active variant indicator
+    if (rl.activeVariant) {
+      const isParallel = rl.parallelExecution;
+      if (isParallel) {
+        // Both running in parallel
+        segments.push(`${theme.info('⚡P')} ${theme.ui.muted('∥')} ${theme.warning('⚡R')}`);
+      } else {
+        const variantIcon = rl.activeVariant === 'primary' ? '▶' : '▷';
+        const variantLabel = rl.activeVariant === 'primary' ? 'P' : 'R';
+        const variantColor = rl.activeVariant === 'primary' ? theme.info : theme.warning;
+        segments.push(`${variantIcon}${variantColor(variantLabel)}`);
+      }
+    }
+
+    // Last winner indicator
+    if (rl.lastWinner && rl.lastWinner !== 'tie') {
+      const winnerIcon = rl.lastWinner === 'primary' ? theme.info('✓P') : theme.warning('✓R');
+      segments.push(winnerIcon);
+    } else if (rl.lastWinner === 'tie') {
+      segments.push(theme.ui.muted('≈'));
+    }
+
+    // Current module/step (compact)
+    if (rl.currentModule || rl.currentStep) {
+      const stepText = rl.currentStep || rl.currentModule || '';
+      if (stepText) {
+        segments.push(theme.ui.muted(this.truncateMiddle(stepText, 15)));
+      }
+    }
+
+    // Progress indicator (steps completed / total)
+    if (typeof rl.stepsCompleted === 'number' && typeof rl.totalSteps === 'number' && rl.totalSteps > 0) {
+      const pct = Math.round((rl.stepsCompleted / rl.totalSteps) * 100);
+      segments.push(theme.ui.muted(`${pct}%`));
+    }
+
+    // Current reward scores (compact, only during active comparison)
+    if (rl.scores && (typeof rl.scores.primary === 'number' || typeof rl.scores.refiner === 'number')) {
+      const pScore = typeof rl.scores.primary === 'number' ? rl.scores.primary.toFixed(2) : '-';
+      const rScore = typeof rl.scores.refiner === 'number' ? rl.scores.refiner.toFixed(2) : '-';
+      const pVal = rl.scores.primary ?? 0;
+      const rVal = rl.scores.refiner ?? 0;
+      const pDisplay = pVal > rVal ? theme.success(pScore) : theme.info(pScore);
+      const rDisplay = rVal > pVal ? theme.success(rScore) : theme.warning(rScore);
+      segments.push(`${pDisplay}${theme.ui.muted('/')}${rDisplay}`);
+    }
+
+    return segments;
+  }
+
+  /**
+   * Truncate a string in the middle, showing start and end with ellipsis.
+   */
+  private truncateMiddle(text: string, maxLen: number): string {
+    if (text.length <= maxLen) return text;
+    const keepLen = Math.floor((maxLen - 3) / 2);
+    return `${text.slice(0, keepLen)}...${text.slice(-keepLen)}`;
   }
 
   private composeStatusLabel(): { text: string; tone: 'success' | 'info' | 'warn' | 'error' } | null {
@@ -3321,11 +3705,31 @@ export class UnifiedUIRenderer extends EventEmitter {
     };
   }
 
+  /**
+   * Expand collapsed paste into the buffer without submitting (Ctrl+L).
+   * Allows user to edit the pasted content before submission.
+   */
+  private expandCollapsedPasteToBuffer(): void {
+    if (!this.collapsedPaste) return;
+    const text = this.collapsedPaste.text;
+    this.collapsedPaste = null;
+    // Put the pasted content into the buffer for editing
+    this.buffer = text;
+    this.cursor = text.length;
+    this.updateSuggestions();
+    this.renderPrompt();
+    this.emitInputChange();
+  }
+
+  /**
+   * Expand collapsed paste and submit immediately (Enter).
+   * Used when user wants to send the pasted content as-is.
+   */
   private expandCollapsedPaste(): void {
     if (!this.collapsedPaste) return;
     const text = this.collapsedPaste.text;
     this.collapsedPaste = null;
-    // Display the pasted content in chat, then submit
+    // Clear the buffer first to avoid any visual duplication
     this.buffer = '';
     this.cursor = 0;
     this.updateSuggestions();

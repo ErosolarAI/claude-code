@@ -646,7 +646,8 @@ export class Display {
     try {
       return highlightError(JSON.stringify(error, null, 2));
     } catch {
-      return null;
+      // JSON.stringify can fail for circular references or special objects
+      return highlightError('[Unable to serialize error details]');
     }
   }
 

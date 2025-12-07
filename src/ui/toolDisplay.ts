@@ -12,6 +12,20 @@
 
 import { formatPlan, normalizePlanItems, resolvePlanWidth, wrapPlanText } from '../utils/planFormatter.js';
 import { theme, icons, progressChars } from './theme.js';
+import {
+  TRUNCATE,
+  ELLIPSIS,
+  PROGRESS,
+  DISPLAY_LIMITS,
+  COVERAGE_THRESHOLDS,
+  UI_STRINGS,
+  truncateString,
+  truncatePath,
+  calculatePercentage,
+  clampPercentage,
+  getCoverageColor,
+  formatDurationMs,
+} from './uiConstants.js';
 
 export interface ToolCallDisplay {
   name: string;
@@ -133,8 +147,8 @@ function formatInlineArgs(args: Record<string, unknown>): string {
         formatted = `"${value}"`;
       } else {
         // Regular string truncation for less critical values
-        if (value.length > 50) {
-          formatted = `"${value.slice(0, 47)}..."`;
+        if (value.length > TRUNCATE.DESCRIPTION) {
+          formatted = `"${truncateString(value, TRUNCATE.DESCRIPTION - 2)}"`;
         } else {
           formatted = `"${value}"`;
         }
@@ -157,7 +171,7 @@ function formatInlineArgs(args: Record<string, unknown>): string {
 
   // Sort by priority and limit to most important args
   formattedArgs.sort((a, b) => a.priority - b.priority);
-  const displayArgs = formattedArgs.slice(0, 5); // Show max 5 args
+  const displayArgs = formattedArgs.slice(0, DISPLAY_LIMITS.MAX_INLINE_ARGS);
 
   if (displayArgs.length === 0) {
     return '';
@@ -191,11 +205,19 @@ function truncatePathForDisplay(path: string, _maxLength: number): string {
  * import { foo } from 'bar';
  * … +312 lines
  */
-export function formatExpandablePreview(content: string, maxLines: number = 5): {
+export function formatExpandablePreview(
+  content: string,
+  maxLines: number = DISPLAY_LIMITS.PREVIEW_LINES
+): {
   preview: string;
   isExpanded: boolean;
   totalLines: number;
 } {
+  // Input validation
+  if (!content || maxLines < 1) {
+    return { preview: '', isExpanded: true, totalLines: 0 };
+  }
+
   const lines = content.split('\n');
   const totalLines = lines.length;
 
@@ -211,9 +233,9 @@ export function formatExpandablePreview(content: string, maxLines: number = 5): 
   const previewLines = lines.slice(0, maxLines);
   const remainingLines = totalLines - maxLines;
 
-  const ellipsis = theme.ui.muted(`… +${remainingLines} lines (ctrl+o to expand)`);
+  const expandHint = theme.ui.muted(`${ELLIPSIS} +${remainingLines} lines (${UI_STRINGS.EXPAND_HINT})`);
 
-  previewLines.push(`${ellipsis}`);
+  previewLines.push(`${expandHint}`);
 
   return {
     preview: previewLines.join('\n'),
@@ -1542,18 +1564,19 @@ function formatTestingToolResult(
     case 'summarize_coverage_report': {
       const coverageMatch = output.match(/(\d+(?:\.\d+)?)\s*%/);
       if (coverageMatch) {
-        const pct = parseFloat(coverageMatch[1] || '0');
-        const color = pct >= 80 ? theme.success : pct >= 60 ? theme.warning : theme.error;
-        return `${theme.success('✓')} Coverage: ${color(`${pct}%`)}${displayPath ? ` for ${displayPath}` : ''}`;
+        const pct = clampPercentage(parseFloat(coverageMatch[1] || '0') || 0);
+        const color = getCoverageColor(pct, { success: theme.success, warning: theme.warning, error: theme.error });
+        return `${theme.success(UI_STRINGS.SUCCESS)} Coverage: ${color(`${pct}%`)}${displayPath ? ` for ${displayPath}` : ''}`;
       }
-      return `${theme.success('✓')} Coverage analyzed${displayPath ? ` for ${displayPath}` : ''}`;
+      return `${theme.success(UI_STRINGS.SUCCESS)} Coverage analyzed${displayPath ? ` for ${displayPath}` : ''}`;
     }
     case 'analyze_test_coverage': {
       const coverageMatch = output.match(/(\d+(?:\.\d+)?)\s*%/);
       if (coverageMatch) {
-        return `${theme.success('✓')} Test coverage: ${coverageMatch[1]}%`;
+        const pct = clampPercentage(parseFloat(coverageMatch[1] || '0') || 0);
+        return `${theme.success(UI_STRINGS.SUCCESS)} Test coverage: ${pct}%`;
       }
-      return `${theme.success('✓')} Test coverage analyzed`;
+      return `${theme.success(UI_STRINGS.SUCCESS)} Test coverage analyzed`;
     }
     case 'generate_comprehensive_tests': {
       return `${theme.success('✓')} Comprehensive tests generated${displayPath ? ` for ${displayPath}` : ''}`;
@@ -1922,23 +1945,24 @@ export function formatCompactProgressBar(
   total: number,
   options: { width?: number; style?: 'bar' | 'braille' | 'dots' } = {}
 ): string {
-  const { width = 15, style = 'bar' } = options;
-  const percentage = Math.min(100, Math.max(0, Math.round((current / total) * 100)));
-  const filled = Math.round((current / total) * width);
-  const empty = width - filled;
+  const { width = PROGRESS.COMPACT_WIDTH, style = 'bar' } = options;
+  const percentage = calculatePercentage(current, total);
+  const ratio = total > 0 ? current / total : 0;
+  const filled = Math.round(ratio * width);
+  const empty = Math.max(0, width - filled);
 
   let bar: string;
   switch (style) {
     case 'braille': {
       // Smooth braille progress (8 states per character)
-      const fullBlocks = Math.floor((current / total) * width);
-      const remainder = ((current / total) * width) - fullBlocks;
+      const fullBlocks = Math.floor(ratio * width);
+      const remainder = (ratio * width) - fullBlocks;
       const partials = [' ', '⡀', '⡄', '⡆', '⡇', '⣇', '⣧', '⣷', '⣿'];
       const partialIndex = Math.floor(remainder * 8);
       bar = '⣿'.repeat(fullBlocks);
       if (fullBlocks < width) {
         bar += partials[partialIndex] ?? ' ';
-        bar += ' '.repeat(width - fullBlocks - 1);
+        bar += ' '.repeat(Math.max(0, width - fullBlocks - 1));
       }
       bar = theme.progress?.bar?.(bar) ?? theme.info(bar);
       break;
@@ -1959,12 +1983,12 @@ export function formatCompactProgressBar(
  * Format a micro progress indicator (fits in status line)
  */
 export function formatMicroProgress(current: number, total: number): string {
-  const percentage = Math.min(100, Math.max(0, Math.round((current / total) * 100)));
+  const percentage = calculatePercentage(current, total);
 
   // Use single-char block progress
-  const blocks = ['░', '▒', '▓', '█'];
-  const blockIndex = Math.min(3, Math.floor(percentage / 25));
-  const block = blocks[blockIndex] ?? '░';
+  const blocks = PROGRESS.CHARS.partial;
+  const blockIndex = Math.min(blocks.length - 1, Math.floor(percentage / 25));
+  const block = blocks[blockIndex] ?? blocks[0];
 
   return `${theme.info(block)}${percentage}%`;
 }
@@ -1977,7 +2001,7 @@ export function formatSpinnerWithTime(
   label: string,
   elapsedMs: number
 ): string {
-  const elapsed = formatDuration(elapsedMs);
+  const elapsed = formatDurationMs(elapsedMs);
   return `${theme.info(frame)} ${label} ${theme.ui.muted(`(${elapsed})`)}`;
 }
 

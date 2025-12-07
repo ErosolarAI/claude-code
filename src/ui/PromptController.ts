@@ -3,7 +3,10 @@
  * Handles input wiring and status/meta updates without any of the legacy scroll-region plumbing.
  */
 
-import { UnifiedUIRenderer, type CommandSuggestion } from './UnifiedUIRenderer.js';
+import { UnifiedUIRenderer, type CommandSuggestion, type RLAgentStatus } from './UnifiedUIRenderer.js';
+
+// Re-export types for external use
+export type { RLAgentStatus };
 
 export type EditGuardMode = 'display-edits' | 'require-approval' | 'block-writes' | 'ask-permission' | 'plan';
 
@@ -76,9 +79,14 @@ export class PromptController {
     });
     this.addBoundHandler('resume', () => this.callbacks.onResume?.());
     this.addBoundHandler('expand-tool-result', () => {
+      const remainingCount = this.renderer.getCollapsedResultCount();
       const expanded = this.renderer.expandLastToolResult();
       if (!expanded) {
         this.setStatusMessage('No tool result to expand');
+        setTimeout(() => this.setStatusMessage(null), 2000);
+      } else if (remainingCount > 1) {
+        // Show how many more results can be expanded
+        this.setStatusMessage(`Expanded (${remainingCount - 1} more, ctrl+o)`);
         setTimeout(() => this.setStatusMessage(null), 2000);
       }
       this.callbacks.onExpandToolResult?.();
@@ -372,6 +380,30 @@ export class PromptController {
 
   dispose(): void {
     this.renderer.cleanup();
+  }
+
+  // ------------ RL Agent Status Methods ------------
+
+  /**
+   * Update RL agent execution status for display in the UI.
+   * Called during dual-RL mode to show active agent, module/step progress, and win statistics.
+   */
+  updateRLStatus(status: Partial<RLAgentStatus>): void {
+    this.renderer.updateRLStatus(status);
+  }
+
+  /**
+   * Clear RL agent status (e.g., when RL run completes).
+   */
+  clearRLStatus(): void {
+    this.renderer.clearRLStatus();
+  }
+
+  /**
+   * Get current RL status for external access.
+   */
+  getRLStatus(): Readonly<RLAgentStatus> {
+    return this.renderer.getRLStatus();
   }
 
   /**

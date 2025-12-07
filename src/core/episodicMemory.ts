@@ -137,6 +137,152 @@ export interface EpisodicMemoryConfig {
 }
 
 // ============================================================================
+// TASK-SPECIFIC OPTIMIZATION PROFILES
+// ============================================================================
+
+/**
+ * Optimization profile for task-specific settings.
+ * Used to configure RL tournament behavior, validation, and execution strategies
+ * based on learned patterns from successful episodes.
+ */
+export interface OptimizationProfile {
+  id: string;
+  /** Category this profile applies to */
+  category: EpisodeCategory;
+  /** Policy name for human reference */
+  policyName: string;
+  /** Preferred upgrade mode for this category */
+  preferredMode: 'single-continuous' | 'dual-rl-continuous' | 'dual-rl-tournament';
+  /** Whether to use git worktrees for isolation */
+  useGitWorktrees: boolean;
+  /** Custom reward weights for RL tournament */
+  rewardWeights: {
+    executionSuccess: number;
+    testsPassed: number;
+    staticAnalysis: number;
+    codeQuality: number;
+    blastRadius: number;
+    selfAssessment: number;
+    speedBonus: number;
+  };
+  /** Tools that perform well for this category */
+  preferredTools: string[];
+  /** Success rate threshold for auto-approval */
+  autoApprovalThreshold: number;
+  /** Number of successful executions */
+  successCount: number;
+  /** Number of failed executions */
+  failureCount: number;
+  /** Last update timestamp */
+  updatedAt: number;
+}
+
+/**
+ * Default reward weights for each category
+ */
+const DEFAULT_REWARD_WEIGHTS: Record<EpisodeCategory, OptimizationProfile['rewardWeights']> = {
+  bug_fix: {
+    executionSuccess: 0.30,
+    testsPassed: 0.35,
+    staticAnalysis: 0.10,
+    codeQuality: 0.05,
+    blastRadius: 0.15,
+    selfAssessment: 0.03,
+    speedBonus: 0.02,
+  },
+  feature_add: {
+    executionSuccess: 0.25,
+    testsPassed: 0.25,
+    staticAnalysis: 0.15,
+    codeQuality: 0.15,
+    blastRadius: 0.10,
+    selfAssessment: 0.05,
+    speedBonus: 0.05,
+  },
+  refactor: {
+    executionSuccess: 0.25,
+    testsPassed: 0.30,
+    staticAnalysis: 0.20,
+    codeQuality: 0.15,
+    blastRadius: 0.05,
+    selfAssessment: 0.03,
+    speedBonus: 0.02,
+  },
+  test_write: {
+    executionSuccess: 0.30,
+    testsPassed: 0.40,
+    staticAnalysis: 0.10,
+    codeQuality: 0.05,
+    blastRadius: 0.05,
+    selfAssessment: 0.05,
+    speedBonus: 0.05,
+  },
+  documentation: {
+    executionSuccess: 0.35,
+    testsPassed: 0.05,
+    staticAnalysis: 0.10,
+    codeQuality: 0.20,
+    blastRadius: 0.10,
+    selfAssessment: 0.10,
+    speedBonus: 0.10,
+  },
+  analysis: {
+    executionSuccess: 0.40,
+    testsPassed: 0.05,
+    staticAnalysis: 0.05,
+    codeQuality: 0.10,
+    blastRadius: 0.05,
+    selfAssessment: 0.20,
+    speedBonus: 0.15,
+  },
+  configuration: {
+    executionSuccess: 0.35,
+    testsPassed: 0.20,
+    staticAnalysis: 0.15,
+    codeQuality: 0.05,
+    blastRadius: 0.15,
+    selfAssessment: 0.05,
+    speedBonus: 0.05,
+  },
+  debugging: {
+    executionSuccess: 0.35,
+    testsPassed: 0.25,
+    staticAnalysis: 0.05,
+    codeQuality: 0.05,
+    blastRadius: 0.05,
+    selfAssessment: 0.15,
+    speedBonus: 0.10,
+  },
+  optimization: {
+    executionSuccess: 0.25,
+    testsPassed: 0.25,
+    staticAnalysis: 0.10,
+    codeQuality: 0.15,
+    blastRadius: 0.05,
+    selfAssessment: 0.05,
+    speedBonus: 0.15,
+  },
+  migration: {
+    executionSuccess: 0.30,
+    testsPassed: 0.30,
+    staticAnalysis: 0.15,
+    codeQuality: 0.05,
+    blastRadius: 0.10,
+    selfAssessment: 0.05,
+    speedBonus: 0.05,
+  },
+  unknown: {
+    executionSuccess: 0.25,
+    testsPassed: 0.30,
+    staticAnalysis: 0.15,
+    codeQuality: 0.10,
+    blastRadius: 0.10,
+    selfAssessment: 0.05,
+    speedBonus: 0.05,
+  },
+};
+
+// ============================================================================
 // DEFAULT EMBEDDING PROVIDER (Simple TF-IDF style, no external deps)
 // ============================================================================
 
@@ -196,6 +342,7 @@ export class EpisodicMemory {
   private config: EpisodicMemoryConfig;
   private episodes: Map<string, Episode> = new Map();
   private approaches: Map<string, LearnedApproach> = new Map();
+  private optimizationProfiles: Map<EpisodeCategory, OptimizationProfile> = new Map();
   private embeddingProvider: EmbeddingProvider;
   private dirty = false;
 
@@ -594,6 +741,183 @@ export class EpisodicMemory {
     }
 
     return matches / queryWords.size;
+  }
+
+  // ==========================================================================
+  // OPTIMIZATION PROFILES
+  // ==========================================================================
+
+  /**
+   * Get or create an optimization profile for a category.
+   * Used by the RL tournament system to get task-specific settings.
+   */
+  getOptimizationProfile(category: EpisodeCategory, policyName?: string): OptimizationProfile {
+    const existing = this.optimizationProfiles.get(category);
+    if (existing) {
+      return existing;
+    }
+
+    // Create default profile for this category
+    const profile: OptimizationProfile = {
+      id: `profile_${category}_${Date.now().toString(36)}`,
+      category,
+      policyName: policyName || `${category}_default`,
+      preferredMode: this.inferPreferredMode(category),
+      useGitWorktrees: category === 'migration' || category === 'refactor',
+      rewardWeights: { ...DEFAULT_REWARD_WEIGHTS[category] },
+      preferredTools: this.inferPreferredTools(category),
+      autoApprovalThreshold: 0.85,
+      successCount: 0,
+      failureCount: 0,
+      updatedAt: Date.now(),
+    };
+
+    this.optimizationProfiles.set(category, profile);
+    this.dirty = true;
+    return profile;
+  }
+
+  /**
+   * Update optimization profile based on episode outcome.
+   * Called after an episode completes to adjust learned settings.
+   */
+  updateOptimizationProfile(
+    category: EpisodeCategory,
+    success: boolean,
+    options?: {
+      toolsUsed?: string[];
+      mode?: 'single-continuous' | 'dual-rl-continuous' | 'dual-rl-tournament';
+      usedGitWorktrees?: boolean;
+    }
+  ): void {
+    const profile = this.getOptimizationProfile(category);
+
+    if (success) {
+      profile.successCount++;
+
+      // Update preferred tools based on successful episodes
+      if (options?.toolsUsed) {
+        for (const tool of options.toolsUsed) {
+          if (!profile.preferredTools.includes(tool)) {
+            profile.preferredTools.push(tool);
+          }
+        }
+        // Keep only top 10 preferred tools
+        profile.preferredTools = profile.preferredTools.slice(0, 10);
+      }
+
+      // Update mode preference if dual mode was successful
+      if (options?.mode && options.mode !== 'single-continuous') {
+        const successRate = profile.successCount / (profile.successCount + profile.failureCount);
+        if (successRate > 0.7 && profile.preferredMode === 'single-continuous') {
+          profile.preferredMode = 'dual-rl-continuous';
+        }
+      }
+
+      // Track git worktree success
+      if (options?.usedGitWorktrees && !profile.useGitWorktrees) {
+        profile.useGitWorktrees = true;
+      }
+    } else {
+      profile.failureCount++;
+
+      // If success rate drops, adjust auto-approval threshold
+      const successRate = profile.successCount / (profile.successCount + profile.failureCount);
+      if (successRate < profile.autoApprovalThreshold) {
+        profile.autoApprovalThreshold = Math.max(0.5, successRate - 0.05);
+      }
+    }
+
+    profile.updatedAt = Date.now();
+    this.dirty = true;
+    this.save();
+  }
+
+  /**
+   * Get reward weights for a category, adjusted based on learned patterns.
+   */
+  getRewardWeights(category: EpisodeCategory): OptimizationProfile['rewardWeights'] {
+    const profile = this.getOptimizationProfile(category);
+    return profile.rewardWeights;
+  }
+
+  /**
+   * Update reward weights based on tournament outcomes.
+   * Adjusts weights to favor signals that correlated with successful outcomes.
+   */
+  adjustRewardWeights(
+    category: EpisodeCategory,
+    winningSignals: Partial<OptimizationProfile['rewardWeights']>,
+    success: boolean
+  ): void {
+    const profile = this.getOptimizationProfile(category);
+    const learningRate = 0.1;
+
+    for (const [key, value] of Object.entries(winningSignals)) {
+      const k = key as keyof OptimizationProfile['rewardWeights'];
+      if (success) {
+        // Slightly increase weight for signals that contributed to success
+        profile.rewardWeights[k] = Math.min(0.5, profile.rewardWeights[k] + learningRate * (value as number));
+      } else {
+        // Slightly decrease weight for signals that didn't prevent failure
+        profile.rewardWeights[k] = Math.max(0.01, profile.rewardWeights[k] - learningRate * 0.5 * (value as number));
+      }
+    }
+
+    // Normalize weights to sum to 1
+    const total = Object.values(profile.rewardWeights).reduce((sum, v) => sum + v, 0);
+    for (const key of Object.keys(profile.rewardWeights)) {
+      const k = key as keyof OptimizationProfile['rewardWeights'];
+      profile.rewardWeights[k] /= total;
+    }
+
+    profile.updatedAt = Date.now();
+    this.dirty = true;
+  }
+
+  /**
+   * Get all optimization profiles for inspection.
+   */
+  getAllOptimizationProfiles(): OptimizationProfile[] {
+    return Array.from(this.optimizationProfiles.values());
+  }
+
+  private inferPreferredMode(
+    category: EpisodeCategory
+  ): 'single-continuous' | 'dual-rl-continuous' | 'dual-rl-tournament' {
+    // Categories that benefit from dual-agent comparison
+    switch (category) {
+      case 'refactor':
+      case 'optimization':
+      case 'migration':
+        return 'dual-rl-tournament';
+      case 'feature_add':
+      case 'bug_fix':
+        return 'dual-rl-continuous';
+      default:
+        return 'single-continuous';
+    }
+  }
+
+  private inferPreferredTools(category: EpisodeCategory): string[] {
+    switch (category) {
+      case 'bug_fix':
+        return ['Read', 'Grep', 'Edit', 'Bash'];
+      case 'feature_add':
+        return ['Read', 'Write', 'Edit', 'Bash'];
+      case 'refactor':
+        return ['Read', 'Edit', 'Grep', 'Bash'];
+      case 'test_write':
+        return ['Read', 'Write', 'Bash'];
+      case 'documentation':
+        return ['Read', 'Write', 'Edit'];
+      case 'analysis':
+        return ['Read', 'Grep', 'Glob'];
+      case 'debugging':
+        return ['Read', 'Grep', 'Bash', 'Edit'];
+      default:
+        return ['Read', 'Edit', 'Bash'];
+    }
   }
 
   // ==========================================================================
