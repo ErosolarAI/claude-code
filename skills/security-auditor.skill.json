@@ -1,0 +1,24 @@
+{
+  "id": "security-auditor",
+  "name": "Security Auditor",
+  "description": "Performs a quick, actionable security audit of the workspace: dependency audit summary, quick exploit search recommendations, and remediation guidance.",
+  "category": "Security",
+  "tags": ["security", "audit", "dependencies", "supply-chain"],
+  "version": "0.1.0",
+  "examples": [
+    {
+      "name": "Run dependency audit",
+      "description": "Request a dependency audit summary for the project.",
+      "code": "Please run a dependency audit and return the top findings."
+    },
+    {
+      "name": "Quick exploit search",
+      "description": "Ask for quick exploit search suggestions for a given package.",
+      "code": "Search for known exploits affecting package X."
+    }
+  ],
+  "implementation": {
+    "pattern": "\\b(security|audit|vulnerability|dependency|deps|exploit)\\b",
+    "template": "Security Auditor — high-level report\n\nInput: {{input}}\n\nAutomated checks to run (tools available in erosolar-cli):\n- `deps_audit` — run dependency vulnerability audit and surface top issues\n- `scan_dependency_health` — show dependency resolution problems and duplicates\n\nSuggested manual follow-ups:\n1. Run `deps_audit` and prioritize fixes for 'high' and 'critical' issues.\n2. Review advisories for flagged packages and plan remediation PRs.\n\nOutput placeholder (use tools to run checks):\n{{input}}\n\nNote: This skill provides guidance and names of built-in tools to run. To execute automated checks, call the corresponding erosolar-cli tools (e.g., `deps_audit`)."
+  }
+}

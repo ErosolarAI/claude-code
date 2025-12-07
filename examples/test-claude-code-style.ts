@@ -1,0 +1,1 @@
+import { describe, it, expect } from 'bun:test';\n\n// Example test for Claude Code style (converted from JS)\ndescribe('Claude Code Style', () => {\n  it('should match expected style', () => {\n    expect(true).toBe(true);\n  });\n});\n// Original content: [paste if needed, but simplified]

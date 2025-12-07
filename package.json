@@ -1,0 +1,85 @@
+{
+  "name": "erosolar-cli",
+  "version": "1.0.0",
+  "description": "Unified AI agent framework for coding tasks - Multi-provider support with schema-driven tools and transparent reasoning",
+  "erosolar": {
+    "rulebookSchema": "src/contracts/schemas/agent-rules.schema.json"
+  },
+  "main": "dist/bin/erosolar.js",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "agents",
+    "LICENSE"
+  ],
+  "bin": {
+    "erosolar": "dist/bin/erosolar.js",
+    "erosolar-cli": "dist/bin/erosolar.js",
+    "agi": "dist/bin/agi.js",
+    "agi-cli": "dist/bin/agi.js"
+  },
+  "scripts": {
+    "prebuild": "npm run clean",
+    "clean": "node -e \"const { rmSync } = require('fs'); for (const target of ['dist', '.tsbuildinfo']) { try { rmSync(target, { recursive: true, force: true, maxRetries: 5 }); } catch (error) { if (error && error.code !== 'ENOENT') throw error; } }\"",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "prepublishOnly": "npm run build",
+    "pretest": "npm run build",
+    "postbuild": "node scripts/postbuild.mjs",
+    "dev": "node --loader ts-node/esm src/bin/agi.ts",
+    "dev:watch": "node --watch --loader ts-node/esm src/bin/agi.ts",
+    "start": "node dist/bin/agi.js",
+    "test": "jest --config jest.config.cjs",
+    "test:watch": "jest --config jest.config.cjs --watch",
+    "test:coverage": "jest --config jest.config.cjs --coverage",
+    "lint": "eslint src/**/*.ts --max-warnings 200",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "cli",
+    "ai",
+    "agent",
+    "agi",
+    "llm",
+    "anthropic",
+    "openai",
+    "google",
+    "coding",
+    "code-assistant"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.5",
+    "@babel/preset-env": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
+    "@types/glob": "^8.1.0",
+    "@types/gradient-string": "^1.1.6",
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.11.24",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "babel-jest": "^30.2.0",
+    "eslint": "^8.45.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "@google/genai": "^1.29.1",
+    "boxen": "^5.1.2",
+    "chalk": "^4.1.2",
+    "cli-spinners": "^2.9.2",
+    "gradient-string": "^2.0.2",
+    "nanospinner": "^1.1.0",
+    "openai": "^6.9.1",
+    "ora": "^5.4.1",
+    "typescript": "^5.9.3"
+  }
+}

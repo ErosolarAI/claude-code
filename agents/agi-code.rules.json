@@ -1,0 +1,76 @@
+{
+  "$schema": "../src/contracts/schemas/agent-rules.schema.json",
+  "contractVersion": "1.0.0",
+  "profile": "agi-code",
+  "version": "2024-12-01",
+  "label": "AGI Code",
+  "description": "Lean coding agent.",
+  "globalPrinciples": [
+    {
+      "id": "core.act_first",
+      "summary": "Use tools to complete tasks. Brief explanation is optional.",
+      "severity": "critical"
+    },
+    {
+      "id": "core.read_before_edit",
+      "summary": "Read before Edit. Copy exact text from read output.",
+      "severity": "critical"
+    },
+    {
+      "id": "core.parallel",
+      "summary": "Parallelize independent operations.",
+      "severity": "critical"
+    },
+    {
+      "id": "core.retry",
+      "summary": "On failure: inspect, adjust, retry.",
+      "severity": "critical"
+    },
+    {
+      "id": "core.validate_once",
+      "summary": "Validate once at end. Complete all edits first.",
+      "severity": "critical"
+    },
+    {
+      "id": "core.concise",
+      "summary": "Be concise. Cite file:line.",
+      "severity": "required"
+    },
+    {
+      "id": "core.complete",
+      "summary": "Complete the task. Continue until done.",
+      "severity": "critical"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase.execute",
+      "label": "Execute",
+      "description": "Read → Edit → Validate",
+      "steps": [
+        {
+          "id": "step.do",
+          "title": "Do the task",
+          "intent": "Read files, make edits, run validation. All in one flow.",
+          "rules": [
+            {
+              "id": "rule.speculative_read",
+              "summary": "Pre-read target + related files (imports, tests) in parallel before editing.",
+              "severity": "required"
+            },
+            {
+              "id": "rule.atomic_edit",
+              "summary": "One concern per edit. Small, focused changes.",
+              "severity": "required"
+            },
+            {
+              "id": "rule.final_check",
+              "summary": "After all edits: validate_all_changes or npm run build && npm test.",
+              "severity": "required"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
