@@ -241,6 +241,7 @@ class InteractiveShell {
       profile: this.profile,
       directory: this.workingDir,
     });
+    this.promptController.setToolSummary('core + human-ops');
 
     // Show welcome message
     this.showWelcome();
@@ -330,22 +331,25 @@ class InteractiveShell {
           ? `message.complete → ${snippet} (${event.elapsedMs}ms)`
           : `message.complete (${event.elapsedMs}ms)`;
       }
-      case 'tool.start':
+      case 'tool.start': {
         return `tool.start ${event.toolName}`;
+      }
       case 'tool.complete': {
         const snippet = debugSnippet(event.result);
         return snippet
           ? `tool.complete ${event.toolName} → ${snippet}`
           : `tool.complete ${event.toolName}`;
       }
-      case 'tool.error':
+      case 'tool.error': {
         return `tool.error ${event.toolName} → ${event.error}`;
+      }
       case 'edit.explanation': {
         const snippet = debugSnippet(event.content);
         return snippet ? `edit.explanation → ${snippet}` : 'edit.explanation';
       }
-      case 'error':
+      case 'error': {
         return `error → ${event.error}`;
+      }
       case 'usage': {
         const parts = [];
         if (event.inputTokens != null) parts.push(`in:${event.inputTokens}`);
@@ -1183,17 +1187,19 @@ Any text response is a failure. Only tool calls are accepted.`;
         return { content: '', stepIncrement: 0, score };
       }
 
-      case 'tool.error':
+      case 'tool.error': {
         if (renderer) {
           renderer.addEvent('error', `${variantIcon} ${event.error}`);
         }
         return { content: '', stepIncrement: 0, score: null };
+      }
 
-      case 'error':
+      case 'error': {
         if (renderer) {
           renderer.addEvent('error', event.error);
         }
         return { content: '', stepIncrement: 0, score: null };
+      }
 
       case 'usage':
         this.promptController?.setMetaStatus({
@@ -1789,13 +1795,15 @@ Any text response is a failure. Only tool calls are accepted.`;
         break;
       }
 
-      case 'tool.error':
+      case 'tool.error': {
         renderer.addEvent('error', `${variantIcon} ${event.error}`);
         break;
+      }
 
-      case 'error':
+      case 'error': {
         renderer.addEvent('error', event.error);
         break;
+      }
 
       case 'usage':
         this.promptController?.setMetaStatus({
@@ -3112,7 +3120,7 @@ Any text response is a failure. Only tool calls are accepted.`;
             }
             break;
 
-          case 'reasoning':
+          case 'reasoning': {
             // Display model's reasoning/thought process and accumulate for fallback
             reasoningBuffer += event.content ?? '';
             if (renderer && event.content) {
@@ -3135,6 +3143,7 @@ Any text response is a failure. Only tool calls are accepted.`;
               reasoningTimedOut = true;
             }
             break;
+          }
 
           case 'message.complete':
             // Response complete - ensure final output includes required "Next steps"

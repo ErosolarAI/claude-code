@@ -4,13 +4,6 @@ import { join } from 'node:path';
 import { type ProviderToolDefinition, type ToolCallRequest, type JSONSchemaObject } from './types.js';
 import { ToolArgumentValidationError, coerceToolArguments, validateToolArguments } from './schemaValidator.js';
 import { ContextManager } from './contextManager.js';
-// Performance monitor stub (legacy module removed)
-const globalPerformanceMonitor = {
-  startOperation: (_name: string) => ({ end: () => {} }),
-  getMetrics: () => ({}),
-  recordToolError: (_call: unknown, _error: unknown) => {},
-  startToolCall: (_call: unknown) => () => {},
-};
 import { validateToolPreconditions, validateAIFlowPatterns, EDIT_WITHOUT_READ, type PreflightWarning } from './toolPreconditions.js';
 import { safeTruncate } from './resultVerification.js';
 import { logDebug } from '../utils/debugLogger.js';
@@ -246,7 +239,6 @@ export class ToolRuntime implements IToolRuntime {
     if (!record) {
       const message = `Tool "${call.name}" is not available.`;
       this.observer?.onToolError?.(augmentedCall, message);
-      globalPerformanceMonitor.recordToolError(call, message);
       return message;
     }
 
@@ -268,7 +260,6 @@ export class ToolRuntime implements IToolRuntime {
         this.observer?.onToolResult?.(augmentedCall, cached.result);
 
         // Record cache hit as successful execution with 0ms time
-        globalPerformanceMonitor.startToolCall(call)();
         this.recordToolHistory({
           toolName: call.name,
           args,
@@ -283,7 +274,16 @@ export class ToolRuntime implements IToolRuntime {
     this.observer?.onToolStart?.(augmentedCall);
 
     // Start performance monitoring
-    const finishToolCall = globalPerformanceMonitor.startToolCall(call);
+    const startTime = Date.now();
+    const finishToolCall = () => {
+      const duration = Date.now() - startTime;
+      if (duration > 1000) {
+        // Log long-running tools for debugging
+        if (process.env['DEBUG_TOOL_PERF']) {
+          logDebug(`[Tool Runtime] ${call.name} took ${duration}ms`);
+        }
+      }
+    };
 
     try {
       validateToolArguments(record.definition.name, record.definition.parameters, args);
@@ -386,7 +386,6 @@ export class ToolRuntime implements IToolRuntime {
       });
       
       // Record failed execution
-      globalPerformanceMonitor.recordToolError(call, formatted);
       return formatted;
     }
   }

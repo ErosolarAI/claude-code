@@ -4,3 +4,5 @@ export { BashCapabilityModule, type BashCapabilityOptions } from './bashCapabili
 export { SearchCapabilityModule, type SearchCapabilityOptions } from './searchCapability.js';
 export { GlobCapabilityModule } from './globCapability.js';
 export { WebCapabilityModule, type WebCapabilityOptions } from './webCapability.js';
+export { HumanCapabilityModule } from './humanCapability.js';
+export { GeneratorCapabilityModule } from './generatorCapability.js';

@@ -11,7 +11,7 @@ async function main() {
   console.log('🚀 AGI CLI - Ultimate Security Testing Demo\n');
   
   // Create TAO tools suite
-  const taoTools = createTaoTools(process.cwd());
+  const taoTools = createTaoTools();
   
   // Find specific tools
   const findTool = (name: string) => taoTools.tools.find(t => t.name === name);
