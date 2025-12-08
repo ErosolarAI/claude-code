@@ -330,7 +330,7 @@ describe('Tool Registry Integration', () => {
 });
 
 describe('Performance and Resource Usage', () => {
-  const cliBin = join(process.cwd(), 'dist/bin/erosolar.js');
+  const cliBin = join(process.cwd(), 'dist/bin/agi.js');
 
   test('CLI startup time is reasonable', () => {
     const start = Date.now();

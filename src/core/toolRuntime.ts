@@ -10,7 +10,6 @@ import { logDebug } from '../utils/debugLogger.js';
 import {
   type ToolDefinition,
   type ToolSuite,
-  type ToolHandler,
   type ToolExecutionContext,
   type ToolRuntimeObserver,
   type ToolRuntimeOptions,

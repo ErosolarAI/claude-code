@@ -303,6 +303,7 @@ export class PromptController {
     thinkingLabel?: string;
     autosave?: boolean;
     version?: string;
+    author?: string;
   }): void {
     this.renderer.updateStatusMeta(meta, { render: true });
   }

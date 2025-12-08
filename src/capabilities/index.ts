@@ -6,3 +6,4 @@ export { GlobCapabilityModule } from './globCapability.js';
 export { WebCapabilityModule, type WebCapabilityOptions } from './webCapability.js';
 export { HumanCapabilityModule } from './humanCapability.js';
 export { GeneratorCapabilityModule } from './generatorCapability.js';
+export { UnifiedOpsCapabilityModule } from './unifiedOpsCapability.js';

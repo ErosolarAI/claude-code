@@ -8,6 +8,7 @@ import {
   WebCapabilityModule,
   HumanCapabilityModule,
   GeneratorCapabilityModule,
+  UnifiedOpsCapabilityModule,
 } from '../capabilities/index.js';
 
 export interface NodeRuntimeOptions
@@ -27,6 +28,7 @@ function createNodeCapabilityModules(): CapabilityModule[] {
     new WebCapabilityModule(),
     new HumanCapabilityModule(),
     new GeneratorCapabilityModule(),
+    new UnifiedOpsCapabilityModule(),
     // Note: GlobCapabilityModule removed - it's deprecated and duplicates the Search tool from SearchCapabilityModule
   ];
 }

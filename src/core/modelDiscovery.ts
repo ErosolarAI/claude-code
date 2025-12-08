@@ -57,6 +57,33 @@ export interface DiscoveryResult {
 }
 
 /**
+ * Infer a provider from a model ID (best-effort).
+ * Used to auto-align provider/model pairs when users override models directly.
+ */
+export function inferProviderFromModelId(model: string | null | undefined): ProviderId | null {
+  if (!model) return null;
+
+  const normalized = model.trim().toLowerCase();
+  const patterns: Array<[RegExp, ProviderId]> = [
+    [/^(gpt|o1|o3|codex)/, 'openai'],
+    [/^(claude|opus|sonnet|haiku)/, 'anthropic'],
+    [/^gemini/, 'google'],
+    [/^deepseek/, 'deepseek'],
+    [/^grok/, 'xai'],
+    [/^(llama|mistral|qwen|phi)/, 'ollama'],
+    [/:/, 'ollama'], // Ollama models often include colons (e.g., llama3.2:3b)
+  ];
+
+  for (const [pattern, provider] of patterns) {
+    if (pattern.test(normalized)) {
+      return provider;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Get cached discovered models
  */
 export function getCachedDiscoveredModels(): ModelConfig[] {
@@ -559,12 +586,12 @@ const PROVIDER_CONFIGS: Array<{
   altEnvVars?: string[];
   defaultLatestModel: string;
 }> = [
-  { id: 'anthropic', name: 'Anthropic', envVar: 'ANTHROPIC_API_KEY', defaultLatestModel: 'claude-opus-4-5-20251101' },
-  { id: 'openai', name: 'OpenAI', envVar: 'OPENAI_API_KEY', defaultLatestModel: 'gpt-5.1-codex' },
-  { id: 'google', name: 'Google', envVar: 'GEMINI_API_KEY', altEnvVars: ['GOOGLE_API_KEY'], defaultLatestModel: 'gemini-3.0-pro' },
+  { id: 'anthropic', name: 'Anthropic', envVar: 'ANTHROPIC_API_KEY', defaultLatestModel: 'claude-3-5-sonnet-20241022' },
+  { id: 'openai', name: 'OpenAI', envVar: 'OPENAI_API_KEY', defaultLatestModel: 'gpt-4o' },
+  { id: 'google', name: 'Google', envVar: 'GEMINI_API_KEY', altEnvVars: ['GOOGLE_API_KEY'], defaultLatestModel: 'gemini-2.5-flash' },
   { id: 'deepseek', name: 'DeepSeek', envVar: 'DEEPSEEK_API_KEY', defaultLatestModel: 'deepseek-reasoner' },
   { id: 'xai', name: 'xAI', envVar: 'XAI_API_KEY', defaultLatestModel: 'grok-4-1-fast-reasoning' },
-  { id: 'ollama', name: 'Ollama', envVar: 'OLLAMA_BASE_URL', defaultLatestModel: 'llama3.3:70b' },
+ { id: 'ollama', name: 'Ollama', envVar: 'OLLAMA_BASE_URL', defaultLatestModel: 'llama3.2:3b' },
 ];
 
 /**
@@ -578,39 +605,41 @@ const MODEL_PRIORITIES: Record<string, Record<string, number>> = {
     'o1-pro': 110,
     'o1': 108,
     'o1-mini': 104,
-    'codex-max': 105,
     'gpt-5.1-codex-max': 105,
+    'codex-max': 105,
     'gpt-5.1-codex': 100,
     'gpt-5.1-codex-mini': 98,
     'gpt-5.1': 96,
     'gpt-5-pro': 94,
     'gpt-5-mini': 92,
     'gpt-5-nano': 90,
+    'gpt-4.1': 99,
+    'gpt-4o': 97,
+    'gpt-4o-mini': 94,
   },
   anthropic: {
-    'claude-opus-4-5': 100,
-    'claude-opus-4-5-20251101': 100,
-    'claude-sonnet-4-5': 98,
-    'claude-sonnet-4-5-20250929': 98,
-    'claude-opus-4-20250514': 95,
-    'claude-opus-4': 95,
-    'claude-sonnet-4': 92,
-    'claude-3-5-sonnet-20241022': 88,
-    'claude-3-5-haiku-20241022': 85,
-    'claude-3-opus-20240229': 80,
-    'claude-3-sonnet-20240229': 75,
-    'claude-3-haiku-20240307': 70,
+    'claude-opus-4-5': 105,
+    'claude-opus-4-5-20251101': 105,
+    'claude-sonnet-4-5': 100,
+    'claude-sonnet-4-5-20250929': 100,
+    'claude-opus-4-20250514': 96,
+    'claude-opus-4': 96,
+    'claude-sonnet-4': 94,
+    'claude-3-5-sonnet-20241022': 96,
+    'claude-3-5-haiku-20241022': 92,
+    'claude-3-opus-20240229': 90,
+    'claude-3-sonnet-20240229': 86,
+    'claude-3-haiku-20240307': 82,
   },
   google: {
-    'gemini-3.0-pro': 100,
-    'gemini-3.0-flash': 98,
-    'gemini-2.5-pro': 95,
-    'gemini-2.5-flash': 93,
+    'gemini-3.0-pro': 105,
+    'gemini-3.0-flash': 100,
+    'gemini-2.5-pro': 98,
+    'gemini-2.5-flash': 96,
     'gemini-2.0-flash': 90,
     'gemini-2.0': 88,
-    'gemini-1.5-pro': 80,
-    'gemini-1.5-flash': 75,
-    'gemini-1.0': 50,
+    'gemini-1.5-pro': 85,
+    'gemini-1.5-flash': 82,
   },
   deepseek: {
     'deepseek-reasoner': 100,
@@ -619,16 +648,25 @@ const MODEL_PRIORITIES: Record<string, Record<string, number>> = {
   },
   xai: {
     'grok-4-1-fast-reasoning': 100,
-    'grok-4-1-fast-non-reasoning': 98,
-    'grok-4-fast-reasoning': 95,
-    'grok-4-fast-non-reasoning': 93,
-    'grok-4': 90,
-    'grok-code-fast-1': 88,
-    'grok-3': 85,
-    'grok-3-mini': 80,
+    'grok-4-1-fast-non-reasoning': 95,
+    'grok-4-fast-reasoning': 93,
+    'grok-4-fast-non-reasoning': 90,
+    'grok-4': 88,
+    'grok-code-fast-1': 86,
+    'grok-3': 82,
+    'grok-3-mini': 78,
     'grok-2-vision-1212': 75,
-    'grok-2-1212': 70,
+    'grok-2-1212': 72,
     'grok-beta': 60,
+  },
+  ollama: {
+    'llama3.1:8b': 90,
+    'llama3.2:3b': 88,
+    'qwen2.5:14b': 86,
+    'qwen2.5:7b': 84,
+    'mistral:7b': 80,
+    'deepseek-coder:6.7b': 78,
+    'codellama:7b': 70,
   },
 };
 

@@ -353,7 +353,7 @@ function aggregateEvaluatorScores(
       .filter((entry) => typeof entry.score === 'number')
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
-    evaluatorBreakdown[evaluatorId] = ranked.map(({ candidateId, ...rest }) => rest as EvaluatorScore);
+    evaluatorBreakdown[evaluatorId] = ranked.map(({ candidateId: _candidateId, ...rest }) => rest as EvaluatorScore);
 
     ranked.forEach((entry, idx) => {
       const candidateId = (entry as unknown as { candidateId: string }).candidateId;

@@ -1,4 +1,4 @@
-import type { JSONSchemaObject, ProviderId, ProviderToolDefinition, ToolCallRequest } from './types.js';
+import type { JSONSchemaObject, ProviderId, ToolCallRequest } from './types.js';
 import type { ContextManager } from './contextManager.js';
 import type { PreflightWarning } from './toolPreconditions.js';
 

@@ -1,17 +1,18 @@
 /**
- * Unified Search Tools - Combines file pattern matching and content search
+ * Separate Search Tools for AI
  *
- * Provides a single, powerful Search tool that handles:
- * - File pattern matching (glob)
- * - Content search (regex/grep)
- * - Definition finding
+ * Provides individual, focused tools:
+ * - Glob: File pattern matching
+ * - Grep: Content search (regex)
+ * - FindDefinition: Code definition finding
+ *
+ * Each tool has a clear, single purpose for better AI comprehension.
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, extname } from 'node:path';
 import type { ToolDefinition } from '../core/toolRuntime.js';
 import { buildError } from '../core/errors.js';
-import { createGrepTools } from './grepTools.js';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -50,119 +51,237 @@ const FILE_TYPE_MAP: Record<string, string[]> = {
 };
 
 export function createSearchTools(workingDir: string): ToolDefinition[] {
-  const tools: ToolDefinition[] = [
-    {
-      name: 'Search',
-      description: 'Unified search tool for files and content. Use mode="files" for glob patterns, mode="content" for regex search, mode="definition" for code definitions.',
-      parameters: {
-        type: 'object',
-        properties: {
-          pattern: {
-            type: 'string',
-            description: 'Search pattern - glob pattern for files mode, regex for content/definition mode',
-          },
-          mode: {
-            type: 'string',
-            enum: ['files', 'content', 'definition'],
-            description: 'Search mode: "files" (glob), "content" (grep), "definition" (find functions/classes)',
-          },
-          path: {
-            type: 'string',
-            description: 'Directory to search in (defaults to working directory)',
-          },
-          type: {
-            type: 'string',
-            description: 'File type filter (js, ts, py, go, etc.) or definition type (function, class, interface)',
-          },
-          glob: {
-            type: 'string',
-            description: 'Glob pattern to filter files (e.g., "*.ts", "src/**/*.js")',
-          },
-          ignoreCase: {
-            type: 'boolean',
-            description: 'Case insensitive search (default: true for content, false for files)',
-          },
-          context: {
-            type: 'number',
-            description: 'Lines of context around matches (content mode only)',
-          },
-          limit: {
-            type: 'number',
-            description: 'Maximum results to return (default: 20)',
-          },
-        },
-        required: ['pattern'],
-        additionalProperties: true,
-      },
-      handler: async (args) => {
-        const pattern = args['pattern'];
-        if (typeof pattern !== 'string' || !pattern.trim()) {
-          return 'Error: pattern is required';
-        }
-
-        const mode = (args['mode'] as string) || inferMode(pattern);
-        const pathArg = args['path'];
-        const fileType = args['type'];
-        const globPattern = args['glob'];
-        const ignoreCase = args['ignoreCase'] === true || (args['ignoreCase'] !== false && mode === 'content');
-        const contextLines = typeof args['context'] === 'number' ? args['context'] : 0;
-        const limit = typeof args['limit'] === 'number' ? Math.min(args['limit'], 100) : 20;
-
-        const searchPath = pathArg && typeof pathArg === 'string'
-          ? resolvePath(workingDir, pathArg)
-          : workingDir;
-
-        try {
-          switch (mode) {
-            case 'files':
-              return searchFiles(searchPath, workingDir, pattern, { limit });
-
-            case 'definition':
-              return searchDefinitions(searchPath, workingDir, pattern, {
-                definitionType: typeof fileType === 'string' ? fileType : 'any',
-                limit,
-              });
-
-            case 'content':
-            default:
-              return searchContent(searchPath, workingDir, pattern, {
-                ignoreCase,
-                fileType: typeof fileType === 'string' ? fileType : undefined,
-                globPattern: typeof globPattern === 'string' ? globPattern : undefined,
-                contextLines,
-                limit,
-              });
-          }
-        } catch (error) {
-          return buildError('search', error, { pattern: String(pattern), mode: String(mode) });
-        }
-      },
-    },
+  return [
+    createGlobTool(workingDir),
+    createGrepTool(workingDir),
+    createFindDefinitionTool(workingDir),
   ];
-
-  // Add grep-style search as a complementary tool for backward compatibility
-  tools.push(...createGrepTools(workingDir));
-
-  return tools;
 }
 
-function inferMode(pattern: string): string {
-  // Glob patterns
-  if (pattern.includes('*') || pattern.includes('?') || pattern.includes('[')) {
-    if (pattern.includes('/') || pattern.startsWith('*.')) {
-      return 'files';
-    }
-  }
-  return 'content';
+// ============================================================================
+// GLOB TOOL - File pattern matching
+// ============================================================================
+
+function createGlobTool(workingDir: string): ToolDefinition {
+  return {
+    name: 'Glob',
+    description: 'Find files matching a glob pattern. Returns file paths sorted by modification time (newest first).',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'Glob pattern (e.g., "**/*.ts", "src/**/*.js", "*.json")',
+        },
+        path: {
+          type: 'string',
+          description: 'Directory to search in (defaults to working directory)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum files to return (default: 20, max: 100)',
+        },
+      },
+      required: ['pattern'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const pattern = args['pattern'];
+      if (typeof pattern !== 'string' || !pattern.trim()) {
+        return 'Error: pattern is required';
+      }
+
+      const pathArg = args['path'];
+      const limit = typeof args['limit'] === 'number' ? Math.min(args['limit'], 100) : 20;
+
+      const searchPath = pathArg && typeof pathArg === 'string'
+        ? resolvePath(workingDir, pathArg)
+        : workingDir;
+
+      try {
+        return searchFiles(searchPath, workingDir, pattern, { limit });
+      } catch (error) {
+        return buildError('Glob', error, { pattern: String(pattern) });
+      }
+    },
+  };
 }
+
+// ============================================================================
+// GREP TOOL - Content search
+// ============================================================================
+
+function createGrepTool(workingDir: string): ToolDefinition {
+  return {
+    name: 'Grep',
+    description: 'Search file contents for a regex pattern. Returns matching lines with file paths and line numbers.',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'Regex pattern to search for in file contents',
+        },
+        path: {
+          type: 'string',
+          description: 'Directory or file to search (defaults to working directory)',
+        },
+        type: {
+          type: 'string',
+          description: 'File type filter (js, ts, py, go, rust, java, cpp, etc.)',
+        },
+        glob: {
+          type: 'string',
+          description: 'Glob pattern to filter files (e.g., "*.ts", "src/**/*.js")',
+        },
+        ignoreCase: {
+          type: 'boolean',
+          description: 'Case insensitive search (default: true)',
+        },
+        context: {
+          type: 'number',
+          description: 'Lines of context around each match (default: 0)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum matches to return (default: 20, max: 100)',
+        },
+      },
+      required: ['pattern'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const pattern = args['pattern'];
+      if (typeof pattern !== 'string' || !pattern.trim()) {
+        return 'Error: pattern is required';
+      }
+
+      const pathArg = args['path'];
+      const fileType = args['type'];
+      const globPattern = args['glob'];
+      const ignoreCase = args['ignoreCase'] !== false; // default true
+      const contextLines = typeof args['context'] === 'number' ? args['context'] : 0;
+      const limit = typeof args['limit'] === 'number' ? Math.min(args['limit'], 100) : 20;
+
+      const searchPath = pathArg && typeof pathArg === 'string'
+        ? resolvePath(workingDir, pathArg)
+        : workingDir;
+
+      try {
+        return searchContent(searchPath, workingDir, pattern, {
+          ignoreCase,
+          fileType: typeof fileType === 'string' ? fileType : undefined,
+          globPattern: typeof globPattern === 'string' ? globPattern : undefined,
+          contextLines,
+          limit,
+        });
+      } catch (error) {
+        return buildError('Grep', error, { pattern: String(pattern) });
+      }
+    },
+  };
+}
+
+// ============================================================================
+// FIND DEFINITION TOOL - Code structure search
+// ============================================================================
+
+function createFindDefinitionTool(workingDir: string): ToolDefinition {
+  return {
+    name: 'FindDefinition',
+    description: 'Find code definitions (functions, classes, interfaces, types, constants) by name.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Name of the definition to find (function, class, interface, etc.)',
+        },
+        type: {
+          type: 'string',
+          enum: ['function', 'class', 'interface', 'type', 'const', 'any'],
+          description: 'Type of definition to find (default: "any")',
+        },
+        path: {
+          type: 'string',
+          description: 'Directory to search in (defaults to working directory)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum definitions to return (default: 10, max: 50)',
+        },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const name = args['name'];
+      if (typeof name !== 'string' || !name.trim()) {
+        return 'Error: name is required';
+      }
+
+      const pathArg = args['path'];
+      const defType = typeof args['type'] === 'string' ? args['type'] : 'any';
+      const limit = typeof args['limit'] === 'number' ? Math.min(args['limit'], 50) : 10;
+
+      const searchPath = pathArg && typeof pathArg === 'string'
+        ? resolvePath(workingDir, pathArg)
+        : workingDir;
+
+      try {
+        return searchDefinitions(searchPath, workingDir, name, {
+          definitionType: defType,
+          limit,
+        });
+      } catch (error) {
+        return buildError('FindDefinition', error, { name: String(name) });
+      }
+    },
+  };
+}
+
+// ============================================================================
+// Utility functions
+// ============================================================================
 
 function resolvePath(workingDir: string, path: string): string {
   const normalized = path.trim();
   return normalized.startsWith('/') ? normalized : join(workingDir, normalized);
 }
 
+function globToRegex(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '<!GLOBSTAR!>')
+    .replace(/\*/g, '[^/]*')
+    .replace(/<!GLOBSTAR!>/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(`${escaped}$`);
+}
+
+function matchesFileType(filePath: string, fileType: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  const extensions = FILE_TYPE_MAP[fileType.toLowerCase()];
+  return extensions ? extensions.includes(ext) : false;
+}
+
+function matchesGlob(filePath: string, pattern: string): boolean {
+  const regex = globToRegex(pattern);
+  return regex.test(filePath);
+}
+
+function isBinary(filePath: string): boolean {
+  return BINARY_EXTENSIONS.has(extname(filePath).toLowerCase());
+}
+
+function isCodeFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  const codeExts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.rb', '.swift', '.kt'];
+  return codeExts.includes(ext);
+}
+
 // ============================================================================
-// FILES MODE - Glob pattern matching
+// GLOB implementation
 // ============================================================================
 
 function searchFiles(
@@ -217,18 +336,8 @@ function searchFiles(
   return result;
 }
 
-function globToRegex(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '<!GLOBSTAR!>')
-    .replace(/\*/g, '[^/]*')
-    .replace(/<!GLOBSTAR!>/g, '.*')
-    .replace(/\?/g, '.');
-  return new RegExp(`${escaped}$`);
-}
-
 // ============================================================================
-// CONTENT MODE - Regex search in file contents
+// GREP implementation
 // ============================================================================
 
 interface ContentMatch {
@@ -321,7 +430,7 @@ function searchContent(
 }
 
 // ============================================================================
-// DEFINITION MODE - Find code definitions
+// FIND DEFINITION implementation
 // ============================================================================
 
 function searchDefinitions(
@@ -399,30 +508,5 @@ function searchDefinitions(
   return lines.join('\n');
 }
 
-// ============================================================================
-// Utility functions
-// ============================================================================
-
-function matchesFileType(filePath: string, fileType: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  const extensions = FILE_TYPE_MAP[fileType.toLowerCase()];
-  return extensions ? extensions.includes(ext) : false;
-}
-
-function matchesGlob(filePath: string, pattern: string): boolean {
-  const regex = globToRegex(pattern);
-  return regex.test(filePath);
-}
-
-function isBinary(filePath: string): boolean {
-  return BINARY_EXTENSIONS.has(extname(filePath).toLowerCase());
-}
-
-function isCodeFile(filePath: string): boolean {
-  const ext = extname(filePath).toLowerCase();
-  const codeExts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.rb', '.swift', '.kt'];
-  return codeExts.includes(ext);
-}
-
-// Legacy exports for backward compatibility
+// Legacy export for backward compatibility
 export { createSearchTools as createGrepTools };

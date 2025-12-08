@@ -9,7 +9,8 @@ import type {
   OrchestratorEvent,
 } from '../src/core/unifiedOrchestrator.js';
 
-class FakeDisplay {
+// Mock renderer that implements the interface expected by OrchestrationUIBridge
+class FakeRenderer {
   writes: string[] = [];
   writeRaw(text: string): void {
     this.writes.push(text);
@@ -92,13 +93,13 @@ class FakeOrchestrator extends EventEmitter {
 describe('OrchestrationUIBridge with external wiring', () => {
   test('reuses provided orchestrator and leaves shared coordinator active', async () => {
     const coordinator = new UIUpdateCoordinator();
-    const display = new FakeDisplay();
+    const renderer = new FakeRenderer();
     const orchestrator = new FakeOrchestrator([
       { success: true, output: 'ok', duration: 5, command: 'echo ok' },
     ]);
 
     const bridge = new OrchestrationUIBridge({
-      display,
+      renderer: renderer as any,
       updateCoordinator: coordinator,
       orchestrator,
       showRealTimeOutput: false,

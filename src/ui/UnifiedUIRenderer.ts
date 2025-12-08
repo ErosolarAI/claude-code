@@ -20,6 +20,7 @@ import { logDebug } from '../utils/debugLogger.js';
 import {
   clampPercentage,
   getContextColor,
+  UI_STRINGS,
 } from './uiConstants.js';
 
 export interface CommandSuggestion {
@@ -158,9 +159,11 @@ export class UnifiedUIRenderer extends EventEmitter {
   /** Track the last tool name for pairing with results */
   private lastToolName: string = '';
   private streamingStartTime: number | null = null;
-  private statusMessage: string | null = null;
+  private statusMessage: string | null = UI_STRINGS.LOADING;
   private statusOverride: string | null = null;
   private statusStreaming: string | null = null;
+  // Pinned status keeps the initial loading UI consistent across streaming/typing states
+  private pinnedStatus: { text: string; tone: 'success' | 'info' | 'warn' | 'error' } | null = null;
 
   // Animated UI components
   private streamingSpinner: AnimatedSpinner | null = null;
@@ -208,6 +211,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     thinkingLabel?: string;
     autosave?: boolean;
     version?: string;
+    author?: string;
     toolSummary?: string;
   } = {};
   private toggleState: ModeToggleState = {
@@ -318,6 +322,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   private hasRenderedPrompt = false;
   private hasEverRenderedOverlay = false;  // Track if we've ever rendered for inline clearing
   private lastOverlay: { lines: string[]; promptIndex: number } | null = null;
+  private lastOverlayRendered: { lines: string[]; promptIndex: number; promptCol: number } | null = null;
   private allowPromptRender = true;
   private promptRenderingSuspended = false;
   private secretMode = false;
@@ -1500,11 +1505,23 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (!content) return;
     const normalized = this.normalizeEventType(type);
     if (!normalized) return;
+    // Drop thinking/reasoning blocks entirely from scrollback
+    if (normalized === 'thought') {
+      return;
+    }
+
+    // When pinned loading UI is active, suppress all non-prompt events to keep the
+    // initial layout intact across streaming/typing/post-stream.
+    // Allow banner events even when pinned - they're part of the initial UI
+    if (this.pinnedStatus && normalized !== 'prompt' && type !== 'banner') {
+      // Transition out of the pinned welcome state on first real event
+      this.clearPinnedStatus();
+    }
+
     logDebug(`[DEBUG renderer] normalized type=${normalized}`);
     if (
       normalized === 'prompt' ||
       normalized === 'response' ||
-      normalized === 'thought' ||
       normalized === 'stream' ||
       normalized === 'tool' ||
       normalized === 'tool-result' ||
@@ -1701,6 +1718,14 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     // Clear the prompt area before writing new content
+    if (this.pinnedStatus) {
+      // Keep the loading overlay intact; skip rendering content to avoid clearing UI.
+      if (event.type === 'prompt' && this.output.isTTY && this.interactive && !this.disposed) {
+        this.renderPromptOverlay(true);
+      }
+      return;
+    }
+
     if (this.promptHeight > 0 || this.lastOverlay) {
       this.clearPromptArea();
     }
@@ -1726,7 +1751,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       case 'prompt':
         return 'prompt';
       case 'thought':
-        return 'thought';
+        return null; // suppress thinking blocks
       case 'stream':
       case 'streaming':
         return 'stream';
@@ -1769,6 +1794,10 @@ export class UnifiedUIRenderer extends EventEmitter {
         return `${theme.primary('>')} ${event.content}\n`;
 
       case 'thought': {
+        // Hide thinking/reasoning output unless debug mode is enabled
+        if (!this.toggleState.debugEnabled) {
+          return '';
+        }
         // Programmatic filter: reject content that looks like internal/garbage output
         if (this.isGarbageOutput(event.content)) {
           return '';
@@ -2775,9 +2804,15 @@ export class UnifiedUIRenderer extends EventEmitter {
       if (this.inlinePanel.length > 0) {
         this.inlinePanel = [];
       }
-      this.startSpinnerAnimation();
     } else if (mode === 'idle' && wasStreaming) {
       this.streamingStartTime = null;
+    }
+
+    // Keep spinner running while streaming or when pinned loading UI is active
+    const shouldSpin = this.mode === 'streaming' && !this.pinnedStatus;
+    if (shouldSpin) {
+      this.startSpinnerAnimation();
+    } else {
       this.stopSpinnerAnimation();
     }
 
@@ -2793,9 +2828,39 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   /**
+   * Keep the initial loading UI pinned regardless of streaming/user input state.
+   */
+  pinLoadingUI(text: string = UI_STRINGS.LOADING): void {
+    this.pinnedStatus = { text: text || UI_STRINGS.LOADING, tone: 'info' };
+    // Keep the loading UI static; don't start spinner in pinned mode
+    if (this.spinnerInterval) {
+      this.stopSpinnerAnimation();
+    }
+    if (!this.plainMode) {
+      this.renderPrompt();
+    }
+  }
+
+  /**
+   * Clear pinned loading UI and return to dynamic status rendering.
+   */
+  clearPinnedStatus(): void {
+    this.pinnedStatus = null;
+    if (this.mode === 'streaming') {
+      this.startSpinnerAnimation();
+    }
+    if (!this.plainMode) {
+      this.renderPrompt();
+    }
+  }
+
+  /**
    * Start the animated spinner for streaming status
    */
   private startSpinnerAnimation(): void {
+    if (this.pinnedStatus) {
+      return; // Keep loading UI static to avoid flicker
+    }
     if (this.spinnerInterval) return; // Already running
     this.spinnerFrame = 0;
     this.activityStarFrame = 0;
@@ -2919,6 +2984,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       thinkingLabel?: string;
       autosave?: boolean;
       version?: string;
+      author?: string;
       toolSummary?: string;
     },
     options: { render?: boolean } = {}
@@ -3001,6 +3067,99 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (!this.inlinePanel.length) return;
     this.inlinePanel = [];
     this.renderPrompt();
+  }
+
+  /**
+   * Reset overlay state (prompt height/cached overlay) when terminal is externally cleared.
+   * Prevents duplicate stacked overlays after manual clear/cls.
+   */
+  resetOverlayState(): void {
+    this.lastOverlay = null;
+    this.lastOverlayRendered = null;
+    this.lastOverlayHeight = 0;
+    this.promptHeight = 0;
+    this.hasRenderedPrompt = false;
+    this.hasEverRenderedOverlay = false;
+    this.pendingRender = false;
+    this.lastRenderTime = 0;
+  }
+
+  // ------------ Convenience methods (Display compatibility) ------------
+
+  /**
+   * Write raw content directly to output.
+   * Convenience method for simple output without event processing.
+   */
+  writeRaw(content: string): void {
+    if (!content) return;
+    this.addEvent('raw', content);
+  }
+
+  /**
+   * Show an error message with optional error details.
+   */
+  showError(message: string, error?: unknown): void {
+    const normalized = message?.trim() ?? '';
+    const details = this.formatErrorDetails(error);
+    const parts = [`${theme.error('✗')} ${normalized || 'Error'}`];
+    if (details) {
+      parts.push(`  ${details}`);
+    }
+    this.addEvent('response', `${parts.join('\n')}\n`);
+  }
+
+  /**
+   * Show a system message.
+   */
+  showSystemMessage(content: string): void {
+    const normalized = content?.trim();
+    if (!normalized) return;
+    this.addEvent('response', `${normalized}\n\n`);
+  }
+
+  /**
+   * Show a success message.
+   */
+  showSuccess(message: string): void {
+    const normalized = message?.trim();
+    if (!normalized) return;
+    this.addEvent('response', `${theme.success('✓')} ${normalized}\n`);
+  }
+
+  /**
+   * Show a warning message.
+   */
+  showWarning(message: string): void {
+    const normalized = message?.trim();
+    if (!normalized) return;
+    this.addEvent('response', `${theme.warning('!')} ${normalized}\n`);
+  }
+
+  /**
+   * Show an info message.
+   */
+  showInfo(message: string): void {
+    const normalized = message?.trim();
+    if (!normalized) return;
+    this.addEvent('response', `${theme.info('ℹ')} ${normalized}\n`);
+  }
+
+  /**
+   * Format error details for display.
+   */
+  private formatErrorDetails(error?: unknown): string | null {
+    if (!error) return null;
+    if (error instanceof Error) {
+      return error.stack || error.message;
+    }
+    if (typeof error === 'string') {
+      return error;
+    }
+    try {
+      return JSON.stringify(error, null, 2);
+    } catch {
+      return '[Unable to serialize error details]';
+    }
   }
 
   private limitInlinePanel(lines: string[]): string[] {
@@ -3092,88 +3251,103 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     const promptIndex = Math.max(0, Math.min(overlay.promptIndex, renderedLines.length - 1));
     const height = renderedLines.length;
+    const promptCol = Math.min(Math.max(1, 3 + this.cursor), this.cols || 80);
+
+    const overlayUnchanged =
+      this.lastOverlayRendered &&
+      this.arraysEqual(this.lastOverlayRendered.lines, renderedLines) &&
+      this.lastOverlayRendered.promptIndex === promptIndex &&
+      this.lastOverlayRendered.promptCol === promptCol;
+
+    // Fast path: overlay unchanged, just position cursor
+    if (overlayUnchanged) {
+      // Just ensure cursor is at prompt position - don't move around
+      this.write(`\x1b[?25l\x1b[${promptCol}G\x1b[?25h`);
+      this.isPromptActive = true;
+      this.promptHeight = height;
+      this.lastOverlayHeight = height;
+      this.cursorVisibleColumn = promptCol;
+      return;
+    }
 
     // Batch all ANSI operations into a single write to prevent flickering
-    // This eliminates the visual jitter caused by multiple sequential terminal writes
     const buffer: string[] = [];
 
-    // Hide cursor during render to prevent visual artifacts
+    // Hide cursor during render
     buffer.push('\x1b[?25l');
 
-    // Clear previous prompt and handle height changes
-    // Note: We check lastOverlayHeight > 0 to know if there's something to clear,
-    // but we use lastOverlay?.promptIndex for cursor positioning (defaulting to 0 if cleared)
-    if (this.hasEverRenderedOverlay && this.lastOverlayHeight > 0) {
-      // Move up from prompt row to top of overlay
-      const linesToTop = this.lastOverlay?.promptIndex ?? 0;
-      if (linesToTop > 0) {
-        buffer.push(`\x1b[${linesToTop}A`);
+    // STRATEGY: Use save/restore cursor position for reliability
+    // First, clear any existing overlay by moving up and clearing
+    const prevHeight = this.lastOverlayHeight || 0;
+    const prevPromptIdx = this.lastOverlay?.promptIndex ?? 0;
+
+    if (prevHeight > 0) {
+      // Move cursor up from current position (assumed to be at or below prompt row)
+      // to the TOP of the previous overlay
+      const upFromPrompt = prevPromptIdx;
+      if (upFromPrompt > 0) {
+        buffer.push(`\x1b[${upFromPrompt}A`);
       }
 
-      // Clear exactly the old overlay lines, then erase to end of screen
-      for (let i = 0; i < this.lastOverlayHeight; i++) {
-        buffer.push('\r');
-        buffer.push(ESC.CLEAR_LINE);
-        if (i < this.lastOverlayHeight - 1) {
-          buffer.push('\x1b[B');
+      // Clear all previous overlay lines going down
+      for (let i = 0; i < prevHeight; i++) {
+        buffer.push(`\r${ESC.CLEAR_LINE}`);
+        if (i < prevHeight - 1) {
+          buffer.push('\x1b[B'); // move down
         }
       }
 
-      // Clear anything below the old overlay (handles edge cases)
+      // Clear anything below (in case overlay shrunk)
       buffer.push('\x1b[J');
 
-      // After clearing, cursor is at last cleared line
-      // Move back up to the top where new overlay should start
-      const moveBackUp = this.lastOverlayHeight - 1;
-      if (moveBackUp > 0) {
-        buffer.push(`\x1b[${moveBackUp}A`);
+      // Move back up to top of overlay area
+      if (prevHeight > 1) {
+        buffer.push(`\x1b[${prevHeight - 1}A`);
       }
     }
 
-    // Write prompt lines (no trailing newline on last line)
+    // Now write the new overlay lines
     for (let i = 0; i < renderedLines.length; i++) {
-      buffer.push('\r');
-      buffer.push(ESC.CLEAR_LINE);
+      buffer.push(`\r${ESC.CLEAR_LINE}`);
       buffer.push(renderedLines[i] || '');
       if (i < renderedLines.length - 1) {
         buffer.push('\n');
       }
     }
 
-    // If old overlay was taller, clear any remaining stale lines below
-    // and use CSI J (erase from cursor to end of screen) to clean up
-    if (this.lastOverlayHeight > height) {
-      buffer.push('\n'); // Move to line below last content
-      buffer.push('\x1b[J'); // Clear from cursor to end of screen
-      buffer.push('\x1b[A'); // Move back up to last content line
-    }
-
-    // Position cursor at prompt input line
-    const promptCol = Math.min(Math.max(1, 3 + this.cursor), this.cols || 80);
-    // Cursor is now at the last line. Move up to the prompt row.
-    const linesToMoveUp = height - 1 - promptIndex;
-    if (linesToMoveUp > 0) {
-      buffer.push(`\x1b[${linesToMoveUp}A`);
+    // Position cursor at prompt input position
+    // Cursor is now at the last line of the overlay
+    // Move up to the prompt row
+    const upToPrompt = height - 1 - promptIndex;
+    if (upToPrompt > 0) {
+      buffer.push(`\x1b[${upToPrompt}A`);
     }
     buffer.push(`\x1b[${promptCol}G`);
 
-    // Show cursor again after positioning
+    // Show cursor
     buffer.push('\x1b[?25h');
 
-    // Single atomic write to prevent flickering
+    // Single atomic write
     this.write(buffer.join(''));
 
+    // Update state
     this.cursorVisibleColumn = promptCol;
     this.hasRenderedPrompt = true;
     this.hasEverRenderedOverlay = true;
     this.isPromptActive = true;
     this.lastOverlayHeight = height;
     this.lastOverlay = { lines: renderedLines, promptIndex };
+    this.lastOverlayRendered = { lines: renderedLines, promptIndex, promptCol };
     this.lastOutputEndedWithNewline = false;
     this.promptHeight = height;
   }
 
   private buildOverlayLines(): { lines: string[]; promptIndex: number } {
+    // When pinned status is active, keep the initial loading UI layout regardless of state.
+    if (this.pinnedStatus) {
+      return this.buildPinnedLoadingOverlay();
+    }
+
     const lines: string[] = [];
     const maxWidth = this.safeWidth();
     // Simple horizontal divider - clean and reliable
@@ -3306,6 +3480,74 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   /**
+   * Render a minimal, stable overlay matching the initial loading UI.
+   * This suppresses dynamic overlays (activity, inline panels, suggestions, toggles)
+   * to avoid flicker during streaming/typing and keeps the banner-like chrome visible.
+   */
+  private buildPinnedLoadingOverlay(): { lines: string[]; promptIndex: number } {
+    const lines: string[] = [];
+    const maxWidth = this.safeWidth();
+    const divider = theme.ui.muted('─'.repeat(maxWidth));
+
+    // Status line with spinner when pinned
+    // Static status line: show loading text
+    const statusText = this.pinnedStatus?.text || UI_STRINGS.LOADING;
+    lines.push(this.truncateLine(`  ${theme.info('⠋')} ${theme.info(statusText)}`, maxWidth));
+
+    // Header line for version/author
+    const headerParts: string[] = [];
+    if (this.statusMeta.version) {
+      headerParts.push(theme.info(`v${this.statusMeta.version}`));
+    }
+    if (this.statusMeta.author) {
+      if (headerParts.length) headerParts.push(theme.ui.muted('•'));
+      headerParts.push(theme.ui.muted(this.statusMeta.author));
+    }
+    if (headerParts.length) {
+      lines.push(this.truncateLine(`  ${headerParts.join(' ')}`, maxWidth));
+    }
+
+    // Profile line
+    const profileParts: string[] = [];
+    if (this.statusMeta.profile) {
+      profileParts.push(theme.warning(this.statusMeta.profile));
+    }
+    if (profileParts.length) {
+      lines.push(this.truncateLine(`  ${profileParts.join(' ')}`, maxWidth));
+    }
+
+    // Model/provider line (static)
+    const model = this.statusMeta.model ? theme.info(this.statusMeta.model) : null;
+    const provider = this.statusMeta.provider ? theme.ui.muted(this.statusMeta.provider) : null;
+    const modelLine = [model, provider].filter(Boolean).join(theme.ui.muted('  ·  '));
+    if (modelLine) {
+      lines.push(this.truncateLine(`  ${modelLine}`, maxWidth));
+    }
+
+    // Quick commands and hint (static to mirror first-load UI)
+    lines.push(this.truncateLine(`  ${theme.ui.muted('💡 /model    🔑 /secrets    ❓ /help    🐛 /debug')}`, maxWidth));
+    lines.push(this.truncateLine(`  ${theme.ui.muted('hint: type a prompt to start, /help for commands, or -q for headless runs')}`, maxWidth));
+
+    // Divider and prompt line
+    lines.push(divider);
+
+    const inputLine = this.buildInputLine();
+    const inputLines = inputLine.split('\n').filter((line, idx, arr) => {
+      if (line.trim() === '' && (idx === 0 || idx === arr.length - 1)) return false;
+      return true;
+    });
+    const promptIndex = lines.length;
+    for (const line of inputLines) {
+      lines.push(this.truncateLine(line, maxWidth));
+    }
+
+    // Bottom divider to preserve spacing
+    lines.push(divider);
+
+    return { lines, promptIndex };
+  }
+
+  /**
    * Build model name and context usage line with mini progress bar
    * Format: gpt-4 · ████░░ 85% context
    */
@@ -3433,10 +3675,16 @@ export class UnifiedUIRenderer extends EventEmitter {
       return [];
     }
 
+    // Pinned mode uses a minimal, static status line to avoid flicker.
+    if (this.pinnedStatus) {
+      return [this.truncateLine(`${theme.info('⠋')} ${this.applyTone(statusLabel.text, statusLabel.tone)}`, maxWidth)];
+    }
+
     const segments: string[] = [];
 
-    // Add animated spinner when streaming for dynamic visual feedback
-    if (this.mode === 'streaming') {
+    // Add animated spinner when streaming
+    const showSpinner = this.mode === 'streaming';
+    if (showSpinner) {
       const spinnerChars = spinnerFrames.braille;
       const spinnerChar = spinnerChars[this.spinnerFrame % spinnerChars.length] ?? '⠋';
       segments.push(`${theme.info(spinnerChar)} ${this.applyTone(statusLabel.text, statusLabel.tone)}`);
@@ -3624,6 +3872,10 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private composeStatusLabel(): { text: string; tone: 'success' | 'info' | 'warn' | 'error' } | null {
+    if (this.pinnedStatus) {
+      return { text: this.pinnedStatus.text, tone: this.pinnedStatus.tone };
+    }
+
     const statuses = [this.statusStreaming, this.statusOverride, this.statusMessage].filter(
       (value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index
     );
@@ -3694,6 +3946,14 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     return lines;
+  }
+
+  private arraysEqual(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
   }
 
   private buildControlLines(): string[] {
@@ -4269,36 +4529,44 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private clearPromptArea(): void {
-    const height = this.lastOverlay?.lines.length ?? this.promptHeight ?? 0;
+    if (this.pinnedStatus) {
+      return; // Never clear overlay while loading UI is pinned
+    }
+    const height = this.lastOverlayHeight || this.promptHeight || 0;
     if (height === 0) return;
 
-    // Cursor is at prompt row. Move up to top of overlay first.
-    if (this.lastOverlay) {
-      const linesToTop = this.lastOverlay.promptIndex;
-      if (linesToTop > 0) {
-        this.write(`\x1b[${linesToTop}A`);
-      }
+    // Cursor should be at prompt row within the overlay.
+    // Move up to top of overlay first.
+    const promptIdx = this.lastOverlay?.promptIndex ?? 0;
+    if (promptIdx > 0) {
+      this.write(`\x1b[${promptIdx}A`);
     }
 
     // Now at top, clear each line downward
     for (let i = 0; i < height; i++) {
-      this.write('\r');
-      this.write(ESC.CLEAR_LINE);
+      this.write(`\r${ESC.CLEAR_LINE}`);
       if (i < height - 1) {
-        this.write('\x1b[B');
+        this.write('\x1b[B'); // Move down
       }
     }
 
-    // Move back to top (where content should continue from)
+    // Clear anything that might be below
+    this.write('\x1b[J');
+
+    // After clearing, cursor is at the last cleared line.
+    // Move back up to the top (where new content should start).
     if (height > 1) {
       this.write(`\x1b[${height - 1}A`);
     }
     this.write('\r');
 
+    // Reset overlay state completely
     this.lastOverlay = null;
+    this.lastOverlayRendered = null;
     this.promptHeight = 0;
     this.lastOverlayHeight = 0;
     this.isPromptActive = false;
+    this.hasEverRenderedOverlay = false;
   }
 
   private updateTerminalSize(): void {

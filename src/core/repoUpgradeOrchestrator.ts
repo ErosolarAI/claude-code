@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { UnifiedOrchestrator, type ExecutionResult, type Finding, type OperationReport } from './unifiedOrchestrator.js';
 import {
-  DEFAULT_HUMAN_REWARD_WEIGHTS,
   runDualTournament,
   type RankedCandidate,
   type TournamentCandidate,
@@ -14,7 +13,7 @@ import { executeVariants } from './variantExecution.js';
 import { resolveWinner as resolveWinnerStrategy } from './winnerStrategy.js';
 import { buildEvaluatorConfig } from './tournamentStrategy.js';
 import { ParallelCoordinator } from './parallelCoordinator.js';
-export { buildRepoWidePlan, buildDefaultSteps, detectWorkspaceModules, expandWorkspacePattern, parseWorkspaceField } from './upgradePlan.js';
+export { buildRepoWidePlan, detectWorkspaceModules, expandWorkspacePattern, parseWorkspaceField } from './upgradePlan.js';
 
 export type RepoUpgradeMode = 'single-continuous' | 'dual-rl-continuous' | 'dual-rl-tournament';
 export type UpgradeVariant = 'primary' | 'refiner';
@@ -984,28 +983,7 @@ function persistTelemetry(): void {
   }
 }
 
-function buildDefaultSteps(moduleId: string): RepoUpgradeStep[] {
-  return [
-    {
-      id: `${moduleId}-analyze`,
-      intent: 'analyze',
-      description: `Map the upgrade surface for ${moduleId}. Identify risky files and coupling.`,
-      prompt: 'Inventory files, dependencies, and breaking-change areas before upgrading.',
-    },
-    {
-      id: `${moduleId}-upgrade`,
-      intent: 'upgrade',
-      description: `Apply modular upgrades for ${moduleId} with minimal blast radius.`,
-      prompt: 'Execute codemods or targeted edits. Keep edits small, atomic, and well scoped.',
-    },
-    {
-      id: `${moduleId}-verify`,
-      intent: 'verify',
-      description: `Validate ${moduleId} after the upgrade.`,
-      prompt: 'Run tests/lint/health checks relevant to this scope. Summarize residual risks.',
-    },
-  ];
-}
+
 
 function getModeDefinition(mode: RepoUpgradeMode): RepoUpgradeModeDefinition {
   return REPO_UPGRADE_MODE_DEFINITIONS[mode] ?? REPO_UPGRADE_MODE_DEFINITIONS['single-continuous'];

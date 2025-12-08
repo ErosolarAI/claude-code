@@ -26,9 +26,9 @@ import { resolveProfileConfig } from '../config.js';
 import { hasAgentProfile, listAgentProfiles } from '../core/agentProfiles.js';
 import { createAgentController, type AgentController } from '../runtime/agentController.js';
 import { resolveWorkspaceCaptureOptions, buildWorkspaceContext } from '../workspace.js';
-import { loadAllSecrets, listSecretDefinitions, setSecretValue, getSecretValue, type SecretName } from '../core/secretStore.js';
+import { loadAllSecrets, listSecretDefinitions, setSecretValue, getSecretValue, getSecretDefinitionForProvider, type SecretName } from '../core/secretStore.js';
 import { PromptController } from '../ui/PromptController.js';
-import { getConfiguredProviders, quickCheckProviders, type QuickProviderStatus } from '../core/modelDiscovery.js';
+import { getConfiguredProviders, inferProviderFromModelId, quickCheckProviders, type QuickProviderStatus } from '../core/modelDiscovery.js';
 import { saveModelPreference } from '../core/preferences.js';
 import { setDebugMode, debugSnippet, logDebug } from '../utils/debugLogger.js';
 import type { AgentEventUnion } from '../contracts/v1/agent.js';
@@ -185,6 +185,8 @@ class InteractiveShell {
   private isProcessing = false;
   private shouldExit = false;
   private pendingPrompts: string[] = [];
+  private inlinePanelCleared = false;
+  private welcomeShown = false;
   private debugEnabled = false;
   private ctrlCCount = 0;
   private lastCtrlCTime = 0;
@@ -219,6 +221,8 @@ class InteractiveShell {
   }
 
   async run(): Promise<void> {
+    const version = getVersion();
+
     this.promptController = new PromptController(
       stdin as NodeJS.ReadStream,
       stdout as NodeJS.WriteStream,
@@ -229,6 +233,7 @@ class InteractiveShell {
         onExit: () => this.handleExit(),
         onCtrlC: (info) => this.handleCtrlC(info),
         onToggleDualRl: () => this.handleDualRlToggle(),
+        onChange: () => this.handleInlinePanelDismiss(),
       }
     );
 
@@ -240,8 +245,10 @@ class InteractiveShell {
     this.promptController.setChromeMeta({
       profile: this.profile,
       directory: this.workingDir,
+      toolSummary: 'UnifiedOps (all core tools + human/generator)',
+      version,
+      author: 'Bo Shang',
     });
-    this.promptController.setToolSummary('core + human-ops');
 
     // Show welcome message
     this.showWelcome();
@@ -258,14 +265,16 @@ class InteractiveShell {
     await this.waitForExit();
   }
 
-  private showWelcome(): void {
+  private showWelcome(force: boolean = false): void {
     const renderer = this.promptController?.getRenderer();
     if (!renderer) return;
+    if (this.welcomeShown && !force) {
+      return;
+    }
+    this.welcomeShown = true;
+    this.inlinePanelCleared = false;
 
     const version = getVersion();
-
-    // Clear screen - this needs to be direct for terminal control
-    stdout.write('\x1b[2J\x1b[H'); // Clear screen and move to top
 
     const header = chalk.bold.hex('#8B5CF6')(`v${version}`) +
       chalk.dim(' • ') + chalk.bold.hex('#EC4899')('Bo Shang');
@@ -298,12 +307,28 @@ class InteractiveShell {
 
     // Use renderer event system instead of direct stdout writes
     renderer.addEvent('banner', welcomeContent);
-
-    // Update renderer meta with model info
+    
+    // Update renderer meta with model info using setModelContext for model/provider
     this.promptController?.setModelContext({
       model: this.profileConfig.model,
       provider: this.profileConfig.provider,
     });
+    
+    // Set additional metadata using setChromeMeta
+    this.promptController?.setChromeMeta({
+      version: 'v1.0.0',
+      author: 'Bo Shang',
+    });
+
+    // Hint panel is now opt-in via /ops to avoid stacking overlays on startup
+  }
+
+  private handleInlinePanelDismiss(): void {
+    if (this.inlinePanelCleared) return;
+    this.inlinePanelCleared = true;
+    // Clear pinned welcome overlay as soon as user starts typing
+    this.promptController?.getRenderer()?.clearPinnedStatus();
+    this.promptController?.clearInlinePanel();
   }
 
   private applyDebugState(enabled: boolean, statusMessage?: string): void {
@@ -1083,12 +1108,12 @@ class InteractiveShell {
 
   private async buildAttackPrompt(target: string, variant: 'primary' | 'refiner', primaryFindings?: string): Promise<string> {
     // Load learned weights to inform strategy
-    const weights = await this.loadAttackWeights();
-    const strategy = weights.aggressive > 0.6 ? 'Comprehensive (thorough scans)' :
-                     weights.stealth > 0.6 ? 'Lightweight (quick checks)' :
-                     'Balanced (adaptive)';
+    await this.loadAttackWeights();
+    // const strategy = weights.aggressive > 0.6 ? 'Comprehensive (thorough scans)' :
+    //                  weights.stealth > 0.6 ? 'Lightweight (quick checks)' :
+    //                  'Balanced (adaptive)';
 
-    const targetDesc = target === 'network' ? 'Home lab network (192.168.1.0/24)' : target;
+    // const targetDesc = target === 'network' ? 'Home lab network (192.168.1.0/24)' : target;
 
     if (variant === 'refiner' && primaryFindings) {
       return `[SYSTEM OVERRIDE] Execute command NOW.
@@ -1140,7 +1165,8 @@ Any text response is a failure. Only tool calls are accepted.`;
         return { content: event.content ?? '', stepIncrement: 0, score: null };
 
       case 'reasoning':
-        if (renderer && event.content) {
+        // Suppress reasoning stream in normal mode
+        if (renderer && event.content && this.debugEnabled) {
           renderer.addEvent('thought', event.content);
         }
         return { content: '', stepIncrement: 0, score: null };
@@ -1364,8 +1390,8 @@ Any text response is a failure. Only tool calls are accepted.`;
       const newStealth = 1 - newAggressive;
 
       // Determine best technique from recent scores
-      const lastPrimaryScore = typeof existing.lastPrimaryScore === 'number' ? existing.lastPrimaryScore : 0;
-      const lastRefinerScore = typeof existing.lastRefinerScore === 'number' ? existing.lastRefinerScore : 0;
+      // const lastPrimaryScore = typeof existing.lastPrimaryScore === 'number' ? existing.lastPrimaryScore : 0;
+      // const lastRefinerScore = typeof existing.lastRefinerScore === 'number' ? existing.lastRefinerScore : 0;
 
       // Write updated weights with full history (self-modification for RL)
       const weights = {
@@ -1750,11 +1776,11 @@ Any text response is a failure. Only tool calls are accepted.`;
 
       case 'reasoning':
         // Display model's reasoning/thought process
-        if (event.content) {
+        // Suppress reasoning stream and activity in normal mode
+        if (this.debugEnabled && event.content) {
           renderer.addEvent('thought', event.content);
+          this.promptController?.setActivityMessage(`${variantLabel || ''} Reasoning`);
         }
-        // Update status to show reasoning is actively streaming
-        this.promptController?.setActivityMessage(`${variantLabel || ''} Reasoning`);
         break;
 
       case 'message.complete':
@@ -2248,7 +2274,9 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     if (lower === '/clear' || lower === '/c') {
       stdout.write('\x1b[2J\x1b[H');
-      this.showWelcome();
+      this.promptController?.getRenderer()?.resetOverlayState();
+      this.welcomeShown = false;
+      this.showWelcome(true);
       return true;
     }
 
@@ -2276,6 +2304,24 @@ Any text response is a failure. Only tool calls are accepted.`;
         this.promptController?.setStatusMessage(lines.join(' · '));
       }
       setTimeout(() => this.promptController?.setStatusMessage(null), 4000);
+      return true;
+    }
+
+    if (lower === '/ops') {
+      if (this.promptController?.supportsInlinePanel()) {
+        this.promptController.setInlinePanel([
+          chalk.bold('UnifiedOps meta-tool'),
+          chalk.dim('Single entry for all tools (filesystem/edit/bash/search/web/human/generator).'),
+          'List: {"tool":"UnifiedOps","args":{"tool":"list"}}',
+          'Human: {"tool":"UnifiedOps","args":{"tool":"HumanIntegration","args":{...}}}',
+          'Update: {"tool":"UnifiedOps","args":{"tool":"HumanIntegration","args":{"taskPath":"...","update":"..."}}}',
+          'Generate: {"tool":"UnifiedOps","args":{"tool":"GenerateTool","args":{...}}}',
+        ]);
+        setTimeout(() => this.promptController?.clearInlinePanel(), 12000);
+      } else {
+        this.promptController?.setStatusMessage('UnifiedOps: use tool="UnifiedOps" with tool="list" or HumanIntegration/GenerateTool');
+        setTimeout(() => this.promptController?.setStatusMessage(null), 5000);
+      }
       return true;
     }
 
@@ -2421,7 +2467,7 @@ Any text response is a failure. Only tool calls are accepted.`;
         targetModel = parts.slice(1).join('/'); // Rest is model (handle models with slashes)
       } else {
         // First part isn't a provider, treat whole arg as model name
-        const inferredProvider = this.inferProviderFromModel(arg.replace(/\s+/g, '-'));
+        const inferredProvider = inferProviderFromModelId(arg.replace(/\s+/g, '-'));
         if (inferredProvider) {
           targetProvider = inferredProvider;
           targetModel = arg.replace(/\s+/g, '-');
@@ -2437,11 +2483,19 @@ Any text response is a failure. Only tool calls are accepted.`;
         targetModel = providerStatus?.latestModel || null;
       } else {
         // Assume it's a model name - try to infer provider from model prefix
-        const inferredProvider = this.inferProviderFromModel(arg);
+        const inferredProvider = inferProviderFromModelId(arg);
         if (inferredProvider) {
           targetProvider = inferredProvider;
           targetModel = arg;
         }
+      }
+    }
+
+    // Align provider with model if inference shows a clear mismatch
+    if (targetModel) {
+      const inferred = inferProviderFromModelId(targetModel);
+      if (inferred && inferred !== targetProvider) {
+        targetProvider = inferred;
       }
     }
 
@@ -2532,34 +2586,6 @@ Any text response is a failure. Only tool calls are accepted.`;
     if (aliases[lower]) {
       const aliased = providers.find(p => p.id === aliases[lower]);
       if (aliased) return aliased.id;
-    }
-
-    return null;
-  }
-
-  /**
-   * Infer provider from model name
-   */
-  private inferProviderFromModel(model: string): ProviderId | null {
-    const lower = model.toLowerCase();
-
-    if (lower.startsWith('claude') || lower.startsWith('opus') || lower.startsWith('sonnet') || lower.startsWith('haiku')) {
-      return 'anthropic';
-    }
-    if (lower.startsWith('gpt') || lower.startsWith('o1') || lower.startsWith('o3') || lower.startsWith('codex')) {
-      return 'openai';
-    }
-    if (lower.startsWith('gemini')) {
-      return 'google';
-    }
-    if (lower.startsWith('deepseek')) {
-      return 'deepseek';
-    }
-    if (lower.startsWith('grok')) {
-      return 'xai';
-    }
-    if (lower.startsWith('llama') || lower.startsWith('mistral') || lower.startsWith('qwen')) {
-      return 'ollama';
     }
 
     return null;
@@ -3011,6 +3037,9 @@ Any text response is a failure. Only tool calls are accepted.`;
       return;
     }
 
+    // Clear the initial pinned loading UI once the user submits anything so streaming can render
+    this.promptController?.getRenderer()?.clearPinnedStatus();
+
     // Handle slash commands first - these don't go to the AI
     if (trimmed.startsWith('/')) {
       logDebug('[DEBUG] Detected slash command, calling handleSlashCommand');
@@ -3052,6 +3081,21 @@ Any text response is a failure. Only tool calls are accepted.`;
       return;
     }
 
+    // Fail fast if the active provider is missing its required secret
+    const missingSecret = this.getMissingProviderSecret();
+    if (missingSecret) {
+      this.promptController?.setStreaming(false);
+      this.promptController?.setStatusMessage(null);
+      this.promptController?.getRenderer()?.addEvent(
+        'error',
+        `Missing ${missingSecret.label} (${missingSecret.envVar}) for provider "${this.profileConfig.provider}". Run /secrets to set it.`
+      );
+      return;
+    }
+
+    // Ensure any pinned welcome UI is cleared before streaming starts
+    this.promptController?.getRenderer()?.clearPinnedStatus();
+
     const { stepTimeoutMs, reasoningTimeoutMs } = this.getPromptTimeouts(prompt);
     this.isProcessing = true;
     this.currentResponseBuffer = '';
@@ -3059,6 +3103,9 @@ Any text response is a failure. Only tool calls are accepted.`;
     this.promptController?.setStatusMessage('Processing...');
 
     const renderer = this.promptController?.getRenderer();
+    const suppressedToolCalls = new Set<string>(); // ignore noisy helper tools (e.g., "thinking")
+    const isNoisyHelperTool = (name?: string | null) =>
+      Boolean(name && /\b(thinking|think|reason|reflection)\b/i.test(name));
 
     // Start episodic memory tracking
     const memory = getEpisodicMemory();
@@ -3066,6 +3113,7 @@ Any text response is a failure. Only tool calls are accepted.`;
     let episodeSuccess = false;
     const toolsUsed: string[] = [];
     const filesModified: string[] = [];
+    let toolOutputShown = false;
 
     // Track reasoning content for fallback when response is empty
     let reasoningBuffer = '';
@@ -3123,11 +3171,7 @@ Any text response is a failure. Only tool calls are accepted.`;
           case 'reasoning': {
             // Display model's reasoning/thought process and accumulate for fallback
             reasoningBuffer += event.content ?? '';
-            if (renderer && event.content) {
-              renderer.addEvent('thought', event.content);
-            }
-            // Update status to show reasoning is actively streaming (prevents "stuck at 34s" appearance)
-            this.promptController?.setActivityMessage('Reasoning');
+            // Suppress reasoning stream entirely in normal mode
 
             // Track reasoning-only time - abort if reasoning too long without action
             if (!reasoningOnlyStartTime) {
@@ -3172,7 +3216,8 @@ Any text response is a failure. Only tool calls are accepted.`;
 
               // Only add "Next steps" if tools were actually used (real work done)
               // This prevents showing "Next steps" after reasoning-only responses
-              if (toolsUsed.length > 0) {
+              const hasAction = toolOutputShown || filesModified.length > 0;
+              if (hasAction) {
                 const { appended } = ensureNextSteps(sourceText);
                 // Only stream the newly appended content (e.g., "Next steps:")
                 // The main response was already streamed via message.delta events
@@ -3189,6 +3234,13 @@ Any text response is a failure. Only tool calls are accepted.`;
             const toolName = event.toolName;
             const args = event.parameters;
             let toolDisplay = `[${toolName}]`;
+
+            // Skip noise-only helper tools that some models emit (e.g., DeepSeek "thinking")
+            if (isNoisyHelperTool(toolName)) {
+              if (event.toolCallId) suppressedToolCalls.add(event.toolCallId);
+              reasoningOnlyStartTime = null;
+              break;
+            }
 
             // Reset reasoning timer when tools are being called (model is taking action)
             reasoningOnlyStartTime = null;
@@ -3230,6 +3282,10 @@ Any text response is a failure. Only tool calls are accepted.`;
           }
 
           case 'tool.complete': {
+            if ((event.toolCallId && suppressedToolCalls.has(event.toolCallId)) || isNoisyHelperTool(event.toolName)) {
+              if (event.toolCallId) suppressedToolCalls.delete(event.toolCallId);
+              break;
+            }
             // Clear the "Running X..." status since tool is complete
             this.promptController?.setStatusMessage('Thinking...');
             // Reset reasoning timer after tool completes
@@ -3238,11 +3294,16 @@ Any text response is a failure. Only tool calls are accepted.`;
             // and stores full content for Ctrl+O expansion
             if (event.result && typeof event.result === 'string' && event.result.trim() && renderer) {
               renderer.addEvent('tool-result', event.result);
+              toolOutputShown = true;
             }
             break;
           }
 
           case 'tool.error':
+            if ((event.toolCallId && suppressedToolCalls.has(event.toolCallId)) || isNoisyHelperTool(event.toolName)) {
+              if (event.toolCallId) suppressedToolCalls.delete(event.toolCallId);
+              break;
+            }
             // Clear the "Running X..." status since tool errored
             this.promptController?.setStatusMessage('Thinking...');
             if (renderer) {
@@ -3313,7 +3374,8 @@ Any text response is a failure. Only tool calls are accepted.`;
         if (synthesized && renderer) {
           renderer.addEvent('stream', '\n' + synthesized);
           // Only add "Next steps" if tools were actually used (real work done)
-          if (toolsUsed.length > 0) {
+          const hasAction = toolOutputShown || filesModified.length > 0;
+          if (hasAction) {
             const { appended } = ensureNextSteps(synthesized);
             if (appended?.trim()) {
               renderer.addEvent('stream', appended);
@@ -3348,7 +3410,8 @@ Any text response is a failure. Only tool calls are accepted.`;
         if (synthesized && renderer) {
           renderer.addEvent('stream', '\n' + synthesized);
           // Only add "Next steps" if tools were actually used (real work done)
-          if (toolsUsed.length > 0) {
+          const hasAction = toolOutputShown || filesModified.length > 0;
+          if (hasAction) {
             const { appended } = ensureNextSteps(synthesized);
             if (appended?.trim()) {
               renderer.addEvent('stream', appended);
@@ -3448,6 +3511,13 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     this.promptController?.stop();
     exit(0);
+  }
+
+  private getMissingProviderSecret(): ReturnType<typeof getSecretDefinitionForProvider> | null {
+    const def = getSecretDefinitionForProvider(this.profileConfig.provider);
+    if (!def) return null;
+    const value = getSecretValue(def.id);
+    return value ? null : def;
   }
 
   private waitForExit(): Promise<void> {
