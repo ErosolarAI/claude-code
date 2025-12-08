@@ -1,7 +1,16 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { UnifiedOrchestrator, type ExecutionResult, type Finding, type OperationReport } from './unifiedOrchestrator.js';
 import { ParallelExecutor, createTask, type ParallelTask } from './parallelExecutor.js';
+import {
+  DEFAULT_HUMAN_REWARD_WEIGHTS,
+  runDualTournament,
+  type RankedCandidate,
+  type TournamentCandidate,
+  type TournamentOutcome,
+  type TournamentTask,
+} from './dualTournament.js';
 
 export type RepoUpgradeMode = 'single-continuous' | 'dual-rl-continuous' | 'dual-rl-tournament';
 export type UpgradeVariant = 'primary' | 'refiner';
@@ -82,6 +91,7 @@ export function extractRewardSignals(
 ): Partial<RewardSignals> {
   const lower = output.toLowerCase();
   const signals: Partial<RewardSignals> = {};
+  const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
   // Execution success - no error keywords
   const hasErrors = /\b(error|exception|failed|failure|fatal)\b/i.test(output);
@@ -106,6 +116,23 @@ export function extractRewardSignals(
     signals.staticAnalysis = 0.7;
   } else if (/lint.*error|type.*error|eslint.*error/i.test(lower)) {
     signals.staticAnalysis = 0.3;
+  }
+
+  // Code quality heuristics (TODO/HACK penalties vs cleanup/refactor bonuses)
+  if (/todo|hack|workaround|temporary fix/i.test(lower)) {
+    signals.codeQuality = 0.45;
+  } else if (/refactor|cleanup|simplif|reducing complexity|streamlined/i.test(lower)) {
+    signals.codeQuality = Math.max(signals.codeQuality ?? 0, 0.65);
+  }
+
+  // Blast radius approximation from diff summaries / dependency adds
+  const diffMatch = output.match(/(\d+)\s+files?\s+changed/i);
+  if (diffMatch) {
+    const filesChanged = parseInt(diffMatch[1] ?? '0', 10);
+    signals.blastRadius = clamp(1 - Math.min(1, filesChanged / 8));
+  }
+  if (/npm install|yarn add|pnpm add|pip install|go get|cargo add/i.test(lower)) {
+    signals.blastRadius = clamp((signals.blastRadius ?? 0.6) - 0.15);
   }
 
   // Self-assessment from confidence keywords
@@ -221,6 +248,11 @@ export interface UpgradeStepResult {
   summary: string;
   detail?: string;
   score?: number;
+  /** Tournament-derived human accuracy (1=best, 0=worst across variants) */
+  humanAccuracy?: number;
+  rewardSignals?: Partial<RewardSignals>;
+  /** Tournament breakdown for dual competitions */
+  tournament?: RankedCandidate;
   durationMs?: number;
   execution?: ExecutionResult;
   findings?: Finding[];
@@ -514,6 +546,10 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
   private variantWorkspaceRoots: Partial<Record<UpgradeVariant, string>> | undefined;
   private repoPolicy: string | undefined;
   private parallelExecutor: ParallelExecutor | null = null;
+  private objective: string | undefined;
+  static repoTypeTelemetry: Map<string, { winsPrimary: number; winsRefiner: number }> = new Map();
+  /** Disable persisted telemetry via env or flag */
+  static disableTelemetryPersistence = process.env.AGI_DISABLE_RL_TELEMETRY === '1';
 
   constructor(executor: UpgradeStepExecutor) {
     super();
@@ -549,6 +585,7 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     const continueOnFailure = options.continueOnFailure ?? true;
     const objective = options.objective ?? 'Repository-wide source code upgrade';
     const modeDefinition = getModeDefinition(mode);
+    this.objective = objective;
     const parallelModules = options.parallelModules ?? false;
     const parallelModuleConcurrency = options.parallelModuleConcurrency ?? 3;
     const parallelVariants = options.parallelVariants ?? true;
@@ -844,8 +881,36 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     const primary = variantResults.primary as UpgradeStepResult;
     const refiner = variantResults.refiner;
 
-    const { winner, winnerVariant } = this.pickWinner(modeDefinition, primary, refiner);
+    const tournamentOutcome = this.evaluateTournamentOutcome(module, step, modeDefinition, primary, refiner);
+    if (tournamentOutcome) {
+      this.attachTournamentBreakdown(variantResults, tournamentOutcome);
+    }
+
+    let winner: UpgradeStepResult;
+    let winnerVariant: UpgradeVariant;
+
+    if (tournamentOutcome?.ranked?.length) {
+      const top = tournamentOutcome.ranked[0];
+      const topVariant = top.candidateId === 'refiner' && refiner ? 'refiner' : 'primary';
+      winnerVariant = topVariant;
+      winner = topVariant === 'refiner' && refiner ? refiner : primary;
+      this.attachTournamentBreakdown(variantResults, tournamentOutcome);
+      primary.humanAccuracy = primary.tournament?.humanAccuracy ?? primary.humanAccuracy;
+      if (refiner) {
+        refiner.humanAccuracy = refiner.tournament?.humanAccuracy ?? refiner.humanAccuracy;
+      }
+    } else {
+      const fallback = this.pickWinner(modeDefinition, primary, refiner);
+      winner = fallback.winner;
+      winnerVariant = fallback.winnerVariant;
+    }
+
     this.recordOutcomeArtifacts(module, step, winner, winnerVariant);
+
+    const primaryScore = primary.tournament?.aggregateScore ?? primary.score;
+    const refinerScore = refiner?.tournament?.aggregateScore ?? refiner?.score;
+    const primaryAccuracy = primary.tournament?.humanAccuracy ?? primary.humanAccuracy;
+    const refinerAccuracy = refiner?.tournament?.humanAccuracy ?? refiner?.humanAccuracy;
 
     this.emit({
       type: 'upgrade.step.complete',
@@ -856,11 +921,14 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
         variant: winnerVariant,
         success: winner.success,
         // Include outcome details for UI scoring
-        primaryScore: primary.score,
+        primaryScore,
         primarySuccess: primary.success,
-        refinerScore: refiner?.score,
+        refinerScore,
         refinerSuccess: refiner?.success,
         winnerVariant,
+        primaryAccuracy,
+        refinerAccuracy,
+        tournamentRankings: tournamentOutcome?.ranked,
       },
     });
 
@@ -874,6 +942,138 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
       winnerVariant,
       status: winner.success ? 'completed' : 'failed',
     };
+  }
+
+  private evaluateTournamentOutcome(
+    module: RepoUpgradeModule,
+    step: RepoUpgradeStep,
+    modeDefinition: RepoUpgradeModeDefinition,
+    primary: UpgradeStepResult,
+    refiner?: UpgradeStepResult
+  ): TournamentOutcome | null {
+    // Fast exits: if only one variant succeeded, avoid tournament overhead
+    if (primary.success && (!refiner || !refiner.success)) {
+      primary.humanAccuracy = 1;
+      if (refiner) refiner.humanAccuracy = 0;
+      this.updateRepoTypeTelemetry(getRepoTypeFromModule(module), 'primary');
+      return null;
+    }
+    if (refiner?.success && !primary.success) {
+      refiner.humanAccuracy = 1;
+      primary.humanAccuracy = 0;
+      this.updateRepoTypeTelemetry(getRepoTypeFromModule(module), 'refiner');
+      return null;
+    }
+
+    // If neither variant succeeded, skip tournament aggregation for efficiency
+    if (!primary.success && (!refiner || !refiner.success)) {
+      return null;
+    }
+
+    const candidates: TournamentCandidate[] = [
+      this.buildTournamentCandidate('primary', primary, modeDefinition),
+    ];
+
+    if (refiner) {
+      candidates.push(this.buildTournamentCandidate('refiner', refiner, modeDefinition));
+    }
+
+    const task: TournamentTask = {
+      id: `${module.id}:${step.id}`,
+      goal: step.description,
+      constraints: module.scope,
+      metadata: {
+        module: module.label,
+        objective: this.objective,
+        repoPolicy: this.repoPolicy,
+        intent: step.intent,
+      },
+    };
+
+    const evaluatorConfig = buildEvaluatorConfig(module);
+
+    try {
+      return runDualTournament(task, candidates, {
+        rewardWeights: evaluatorConfig.rewardWeights,
+        evaluators: evaluatorConfig.evaluators,
+        maxCandidates: 8,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private buildTournamentCandidate(
+    variant: UpgradeVariant,
+    result: UpgradeStepResult,
+    modeDefinition: RepoUpgradeModeDefinition
+  ): TournamentCandidate {
+    const signals = result.rewardSignals ?? {};
+    const rawReward = typeof result.score === 'number' ? clampScore(result.score) : 0;
+    const adjustedReward =
+      variant === 'refiner' ? clampScore(rawReward + (modeDefinition.refinerBias ?? 0)) : rawReward;
+
+    const evaluatorScores: TournamentCandidate['evaluatorScores'] = [
+      { evaluatorId: 'reward-signal', score: adjustedReward, weight: 1 },
+      { evaluatorId: 'hard-metrics', score: signals.executionSuccess ?? (result.success ? 1 : 0), weight: 1.1 },
+    ];
+
+    if (typeof signals.testsPassed === 'number') {
+      evaluatorScores.push({ evaluatorId: 'tests', score: signals.testsPassed, weight: 0.8 });
+    }
+    if (typeof signals.staticAnalysis === 'number') {
+      evaluatorScores.push({ evaluatorId: 'static-analysis', score: signals.staticAnalysis, weight: 0.6 });
+    }
+    if (typeof signals.codeQuality === 'number' || typeof signals.blastRadius === 'number') {
+      const qualityScore = averageDefined([
+        signals.codeQuality,
+        signals.blastRadius,
+        signals.staticAnalysis,
+      ]);
+      if (!Number.isNaN(qualityScore)) {
+        evaluatorScores.push({ evaluatorId: 'quality', score: qualityScore, weight: 0.9 });
+      }
+    }
+
+    return {
+      id: variant,
+      policyId: variant,
+      patchSummary: result.summary,
+      metrics: {
+        executionSuccess: signals.executionSuccess ?? (result.success ? 1 : 0),
+        testsPassed: signals.testsPassed,
+        staticAnalysis: signals.staticAnalysis,
+        codeQuality: signals.codeQuality,
+        blastRadius: signals.blastRadius,
+        speedBonus: signals.speedBonus,
+      },
+      signals: {
+        rewardModelScore: adjustedReward,
+        selfAssessment: signals.selfAssessment,
+      },
+      evaluatorScores: evaluatorScores ?? [],
+      rawOutput: result.detail,
+    };
+  }
+
+  private attachTournamentBreakdown(
+    variantResults: Partial<Record<UpgradeVariant, UpgradeStepResult>>,
+    outcome: TournamentOutcome
+  ): void {
+    for (const entry of outcome.ranked) {
+      const variant = entry.candidateId as UpgradeVariant;
+      const target = variantResults[variant];
+      if (target) {
+        target.tournament = entry;
+        target.humanAccuracy = entry.humanAccuracy;
+      }
+    }
+    // Update telemetry based on winner to auto-tune per repo type
+    const top = outcome.ranked[0];
+    if (top) {
+      const repoType = getRepoTypeFromOutcomeMetadata(outcome.task);
+      this.updateRepoTypeTelemetry(repoType, top.candidateId as UpgradeVariant);
+    }
   }
 
   private async safeExecuteVariant(input: UpgradeStepExecutionInput): Promise<UpgradeStepResult> {
@@ -917,11 +1117,21 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
 
     const primaryScore = typeof primary.score === 'number' ? primary.score : 0;
     const refinerScore = (typeof refiner.score === 'number' ? refiner.score : 0) + (definition.refinerBias ?? 0);
+    const primaryAccuracy = typeof primary.humanAccuracy === 'number' ? primary.humanAccuracy : 0;
+    const refinerAccuracy = typeof refiner.humanAccuracy === 'number' ? refiner.humanAccuracy : 0;
 
     if (refinerScore > primaryScore) {
       return { winner: refiner, winnerVariant: 'refiner' };
     }
     if (primaryScore > refinerScore) {
+      return { winner: primary, winnerVariant: 'primary' };
+    }
+
+    // Accuracy-aware tie break
+    if (refinerAccuracy > primaryAccuracy + 1e-6) {
+      return { winner: refiner, winnerVariant: 'refiner' };
+    }
+    if (primaryAccuracy > refinerAccuracy + 1e-6) {
       return { winner: primary, winnerVariant: 'primary' };
     }
 
@@ -949,6 +1159,14 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
 
     // Ensure we only track a single winner record per step to keep reports clean
     this.results.push(execution);
+
+    // Update telemetry after each recorded outcome
+    const repoType = getRepoTypeFromModule(module);
+    this.updateRepoTypeTelemetry(repoType, variant);
+  }
+
+  private updateRepoTypeTelemetry(repoType: string, winner: UpgradeVariant): void {
+    updateRepoTypeTelemetryMap(repoType, winner);
   }
 
   private updateVariantStats(
@@ -968,13 +1186,174 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     }
 
     const primaryScore = typeof outcome.primary.score === 'number' ? outcome.primary.score : 0;
-    const refinerScoreRaw = typeof outcome.refiner.score === 'number' ? outcome.refiner.score : 0;
+    const primaryTournamentScore =
+      typeof outcome.primary.tournament?.aggregateScore === 'number'
+        ? outcome.primary.tournament.aggregateScore
+        : primaryScore;
+    const refinerScoreRaw = typeof outcome.refiner.tournament?.aggregateScore === 'number'
+      ? outcome.refiner.tournament.aggregateScore
+      : typeof outcome.refiner.score === 'number'
+        ? outcome.refiner.score
+        : 0;
     const refinerScore = refinerScoreRaw + (modeDefinition.refinerBias ?? 0);
-    const scoresClose = Math.abs(primaryScore - refinerScore) < 1e-6;
+    const scoresClose = Math.abs(primaryTournamentScore - refinerScore) < 1e-6;
     const bothSucceeded = outcome.primary.success && outcome.refiner.success;
     if (bothSucceeded && scoresClose) {
       stats.ties += 1;
     }
+  }
+}
+
+function clampScore(value: number, min = 0, max = 1): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function averageDefined(values: Array<number | undefined>): number {
+  const nums = values.filter((v): v is number => typeof v === 'number');
+  if (!nums.length) return NaN;
+  const total = nums.reduce((sum, val) => sum + val, 0);
+  return total / nums.length;
+}
+
+function buildEvaluatorConfig(module: RepoUpgradeModule): {
+  rewardWeights: import('./dualTournament.js').HumanRewardWeights;
+  evaluators: Array<{
+    id: string;
+    label: string;
+    weight: number;
+    kind: 'hard' | 'soft' | 'hybrid';
+    elo?: number;
+  }>;
+} {
+  const repoType = getRepoTypeFromModule(module);
+
+  // Default: balanced weights
+  let rewardWeights = DEFAULT_HUMAN_REWARD_WEIGHTS;
+  let hardWeight = 1.35;
+  let qualityWeight = 1.0;
+  let rewardWeight = 0.9;
+
+  if (repoType === 'tests') {
+    rewardWeights = { alpha: 0.7, beta: 0.15, gamma: 0.15 };
+    hardWeight = 1.55;
+    qualityWeight = 0.9;
+    rewardWeight = 0.85;
+  } else if (repoType === 'docs') {
+    rewardWeights = { alpha: 0.45, beta: 0.3, gamma: 0.25 };
+    hardWeight = 1.0;
+    qualityWeight = 1.2;
+    rewardWeight = 1.0;
+  } else if (repoType === 'refactor') {
+    rewardWeights = { alpha: 0.55, beta: 0.25, gamma: 0.2 };
+    hardWeight = 1.25;
+    qualityWeight = 1.15;
+    rewardWeight = 0.95;
+  }
+
+  // Telemetry-based nudges per repo type
+  const telemetry = RepoUpgradeOrchestrator.repoTypeTelemetry.get(repoType);
+    if (telemetry) {
+      const total = Math.max(1, telemetry.winsPrimary + telemetry.winsRefiner);
+      const bias = (telemetry.winsPrimary - telemetry.winsRefiner) / total;
+      if (bias > 0.1) {
+        hardWeight = clampScore(hardWeight + 0.1, 0.8, 2);
+        rewardWeights = {
+          alpha: clampScore((rewardWeights.alpha ?? 0.6) + 0.05, 0, 1),
+          beta: rewardWeights.beta,
+          gamma: clampScore((rewardWeights.gamma ?? 0.2) - 0.02, 0, 1),
+        };
+      } else if (bias < -0.1) {
+        qualityWeight = clampScore(qualityWeight + 0.1, 0.8, 2);
+        rewardWeight = clampScore(rewardWeight + 0.05, 0.5, 1.5);
+        rewardWeights = {
+          alpha: clampScore((rewardWeights.alpha ?? 0.6) - 0.05, 0, 1),
+          beta: clampScore((rewardWeights.beta ?? 0.25) + 0.05, 0, 1),
+          gamma: clampScore((rewardWeights.gamma ?? 0.2) + 0.02, 0, 1),
+        };
+      }
+    }
+
+  return {
+    rewardWeights,
+    evaluators: [
+      { id: 'hard-metrics', label: 'Hard metrics', weight: hardWeight, kind: 'hard' },
+      { id: 'quality', label: 'Quality', weight: qualityWeight, kind: 'hybrid' },
+      { id: 'reward-signal', label: 'Reward signal', weight: rewardWeight, kind: 'hybrid' },
+    ],
+  };
+}
+
+function getRepoTypeFromModule(module: RepoUpgradeModule): string {
+  const scope = (module.scope || []).join(' ').toLowerCase();
+  const label = (module.label || '').toLowerCase();
+  if (/\btest|__tests__|spec\b/i.test(scope) || /\btest\b/i.test(label)) return 'tests';
+  if (/\bdocs?\b/i.test(scope) || /\bdoc\b/i.test(label)) return 'docs';
+  if (/\brefactor|cleanup|source\b/i.test(scope + ' ' + label)) return 'refactor';
+  return 'general';
+}
+
+function getRepoTypeFromOutcomeMetadata(task: TournamentTask): string {
+  const scopeText = Array.isArray(task.constraints) ? task.constraints.join(' ').toLowerCase() : '';
+  const intent = typeof task.metadata?.intent === 'string' ? task.metadata.intent.toLowerCase() : '';
+  if (/\btest|__tests__|spec\b/i.test(scopeText) || /\btest\b/i.test(intent)) return 'tests';
+  if (/\bdoc\b/i.test(scopeText) || /\bdoc\b/i.test(intent)) return 'docs';
+  if (/\brefactor|cleanup\b/i.test(scopeText + ' ' + intent)) return 'refactor';
+  return 'general';
+}
+
+function updateRepoTypeTelemetryMap(repoType: string, winner: UpgradeVariant): void {
+  if (RepoUpgradeOrchestrator.disableTelemetryPersistence) {
+    return;
+  }
+  ensureTelemetryLoaded();
+  const current = RepoUpgradeOrchestrator.repoTypeTelemetry.get(repoType) ?? { winsPrimary: 0, winsRefiner: 0 };
+  const updated =
+    winner === 'primary'
+      ? { ...current, winsPrimary: current.winsPrimary + 1 }
+      : { ...current, winsRefiner: current.winsRefiner + 1 };
+  RepoUpgradeOrchestrator.repoTypeTelemetry.set(repoType, updated);
+  persistTelemetry();
+}
+
+// Simple persistence of repo-type telemetry to inform future runs
+const TELEMETRY_DIR = join(homedir(), '.agi');
+const TELEMETRY_FILE = join(TELEMETRY_DIR, 'rl-telemetry.json');
+let telemetryLoaded = false;
+
+function ensureTelemetryLoaded(): void {
+  if (RepoUpgradeOrchestrator.disableTelemetryPersistence) return;
+  if (telemetryLoaded) return;
+  telemetryLoaded = true;
+  try {
+    if (!existsSync(TELEMETRY_FILE)) return;
+    const data = JSON.parse(readFileSync(TELEMETRY_FILE, 'utf-8'));
+    if (data && typeof data === 'object') {
+      for (const [key, value] of Object.entries(data)) {
+        if (value && typeof value === 'object' && 'winsPrimary' in value && 'winsRefiner' in value) {
+          RepoUpgradeOrchestrator.repoTypeTelemetry.set(key, {
+            winsPrimary: Number((value as any).winsPrimary) || 0,
+            winsRefiner: Number((value as any).winsRefiner) || 0,
+          });
+        }
+      }
+    }
+  } catch {
+    // ignore load errors
+  }
+}
+
+function persistTelemetry(): void {
+  if (RepoUpgradeOrchestrator.disableTelemetryPersistence) return;
+  try {
+    mkdirSync(TELEMETRY_DIR, { recursive: true });
+    const payload: Record<string, { winsPrimary: number; winsRefiner: number }> = {};
+    for (const [key, value] of RepoUpgradeOrchestrator.repoTypeTelemetry.entries()) {
+      payload[key] = value;
+    }
+    writeFileSync(TELEMETRY_FILE, JSON.stringify(payload, null, 2), 'utf-8');
+  } catch {
+    // ignore persistence errors
   }
 }
 

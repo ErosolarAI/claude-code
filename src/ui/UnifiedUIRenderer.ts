@@ -85,6 +85,8 @@ export interface RLAgentStatus {
   wins?: { primary: number; refiner: number; ties: number };
   /** Current reward scores if available */
   scores?: { primary?: number; refiner?: number };
+  /** Human-accuracy style scores (0-1) */
+  accuracy?: { primary?: number; refiner?: number };
   /** Whether variants are running in parallel */
   parallelExecution?: boolean;
   /** Total steps completed */
@@ -3596,6 +3598,18 @@ export class UnifiedUIRenderer extends EventEmitter {
       const pDisplay = pVal > rVal ? theme.success(pScore) : theme.info(pScore);
       const rDisplay = rVal > pVal ? theme.success(rScore) : theme.warning(rScore);
       segments.push(`${pDisplay}${theme.ui.muted('/')}${rDisplay}`);
+    }
+
+    // Human accuracy indicator (relative ranking quality)
+    if (rl.accuracy && (typeof rl.accuracy.primary === 'number' || typeof rl.accuracy.refiner === 'number')) {
+      const pAcc = rl.accuracy.primary !== undefined ? Math.round(rl.accuracy.primary * 100) : null;
+      const rAcc = rl.accuracy.refiner !== undefined ? Math.round(rl.accuracy.refiner * 100) : null;
+      const pDisplay = pAcc !== null ? theme.info(`P${pAcc}%`) : null;
+      const rDisplay = rAcc !== null ? theme.warning(`R${rAcc}%`) : null;
+      const parts = [pDisplay, rDisplay].filter(Boolean).join(theme.ui.muted('|'));
+      if (parts) {
+        segments.push(parts);
+      }
     }
 
     return segments;

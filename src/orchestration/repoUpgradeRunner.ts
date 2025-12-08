@@ -288,19 +288,21 @@ async function executeUpgradeStep(
 
   // Enhanced scoring using multi-signal reward system
   const allOutput = [content, ...toolOutputs].join('\n');
-  const signals = extractRewardSignals(allOutput, durationMs);
+  const noOutput = !content.trim() && toolOutputs.length === 0;
+  const signals = noOutput ? { executionSuccess: 0, testsPassed: 0, staticAnalysis: 0, codeQuality: 0 } : extractRewardSignals(allOutput, durationMs);
 
   // Override execution success based on actual success
-  signals.executionSuccess = success ? 1 : 0;
+  signals.executionSuccess = success && !noOutput ? 1 : 0;
 
   // Calculate composite score
-  const score = success ? calculateRewardScore(signals, rewardWeights) : 0;
+  const score = success && !noOutput ? calculateRewardScore(signals, rewardWeights) : 0;
 
   return {
     success,
     summary,
     detail,
     score,
+    rewardSignals: signals,
     durationMs,
     execution: {
       success,

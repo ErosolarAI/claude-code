@@ -36,20 +36,22 @@ import type { ProviderId } from '../core/types.js';
 import type { RepoUpgradeMode, RepoUpgradeReport, UpgradeStepOutcome } from '../core/repoUpgradeOrchestrator.js';
 import { runRepoUpgradeFlow } from '../orchestration/repoUpgradeRunner.js';
 import { getEpisodicMemory } from '../core/episodicMemory.js';
+import { runDualTournament, type TournamentCandidate, type TournamentOutcome } from '../core/dualTournament.js';
+import { getRepoTelemetrySnapshot } from '../tools/telemetryTools.js';
 
 const exec = promisify(childExec);
 import { ensureNextSteps } from '../core/finalResponseFormatter.js';
 
-// Timeout constants for attack tournament - very short to prevent stuck states
-const ATTACK_AGENT_STEP_TIMEOUT_MS = 4_000; // 4s per agent step - very short to prevent hanging
-const ATTACK_REASONING_TIMEOUT_MS = 2_000; // 2s max for reasoning-only - force action immediately
+// Timeout constants for attack tournament - balanced for model response time
+const ATTACK_AGENT_STEP_TIMEOUT_MS = 15_000; // 15s per agent step
+const ATTACK_REASONING_TIMEOUT_MS = 10_000; // 10s max for reasoning-only before forcing action
 // No tournament timeout - continues until success
 const MIN_SUCCESS_SCORE = 5; // Minimum score to consider tournament successful
+const MAX_TOURNAMENT_ROUNDS = 8; // Safety cap to avoid runaway loops
 
 // Timeout constants for regular prompt processing (reasoning models like DeepSeek)
-// Very short timeouts to force action instead of endless deliberation
-const PROMPT_REASONING_TIMEOUT_MS = 2_000; // 2s max for reasoning-only without action
-const PROMPT_STEP_TIMEOUT_MS = 4_000; // 4s per event - very short to prevent hanging
+const PROMPT_REASONING_TIMEOUT_MS = 10_000; // 10s max for reasoning-only without action
+const PROMPT_STEP_TIMEOUT_MS = 15_000; // 15s per event
 
 /**
  * Iterate over an async iterator with a timeout per iteration.
@@ -559,8 +561,13 @@ class InteractiveShell {
 
       // ==================== CONTINUOUS TOURNAMENT LOOP ====================
       // Continue until we achieve minimum success score
-      while (!checkSuccess(primaryWins + refinerWins)) {
+      while (!checkSuccess(primaryWins + refinerWins) && roundNumber < MAX_TOURNAMENT_ROUNDS) {
         roundNumber++;
+        let primaryRoundScore = 0;
+        let primaryRoundActions = 0;
+        let refinerRoundScore = 0;
+        let refinerRoundActions = 0;
+        let refinerTimedOut = false;
         if (renderer) {
           renderer.addEvent('banner', chalk.bold.hex('#A855F7')(`🔄 Round ${roundNumber} (Score: ${primaryWins + refinerWins}/${MIN_SUCCESS_SCORE}, ${getElapsedTime()}s)`));
         }
@@ -656,13 +663,11 @@ class InteractiveShell {
           totalSteps += result.stepIncrement;
 
           if (result.score !== null) {
-            if (result.score > 0.5) {
-              primaryWins++;
-            } else {
-              refinerWins++;
-            }
+            primaryRoundScore += result.score;
+            primaryRoundActions += 1;
             this.promptController?.updateRLStatus({
               wins: { primary: primaryWins, refiner: refinerWins, ties: 0 },
+              scores: { primary: Math.min(1, primaryRoundScore / Math.max(1, primaryRoundActions)) },
               totalSteps,
             });
           }
@@ -712,7 +717,9 @@ class InteractiveShell {
                 renderer.addEvent('tool-result', output.slice(0, 2000));
                 primaryResponse += output + '\n';
               }
-              primaryWins++;
+              const fallbackScore = this.scoreAttackResult(output || '');
+              primaryRoundScore += fallbackScore;
+              primaryRoundActions += 1;
               totalSteps++;
             } catch (e) {
               // Silently skip failed commands - don't clutter output
@@ -741,7 +748,8 @@ class InteractiveShell {
       // Show primary summary
       if (renderer) {
         const statusSuffix = primaryTimedOut ? ' (direct execution)' : '';
-        renderer.addEvent('response', chalk.hex('#0EA5E9')(`\n🔵 Primary complete - Score: ${primaryWins}${statusSuffix}\n\n`));
+        const primaryAvg = primaryRoundActions > 0 ? primaryRoundScore / primaryRoundActions : 0;
+        renderer.addEvent('response', chalk.hex('#0EA5E9')(`\n🔵 Primary complete - Score: ${primaryAvg.toFixed(2)}${statusSuffix}\n\n`));
       }
 
       // If primary did direct execution, skip refiner (controller may still be processing)
@@ -757,7 +765,6 @@ class InteractiveShell {
 
         // Run refiner agent with continuation loop
         let refinerAttempts = 0;
-        let refinerTimedOut = false;
         while (refinerAttempts < MAX_CONTINUATION_ATTEMPTS && !refinerTimedOut) {
           const refinerPrompt = refinerAttempts === 0
             ? await this.buildAttackPrompt(targetArg, 'refiner', primaryResponse)
@@ -834,11 +841,11 @@ class InteractiveShell {
             totalSteps += result.stepIncrement;
 
             if (result.score !== null) {
-              if (result.score > 0.5) {
-                refinerWins++;
-              }
+              refinerRoundScore += result.score;
+              refinerRoundActions += 1;
               this.promptController?.updateRLStatus({
                 wins: { primary: primaryWins, refiner: refinerWins, ties: 0 },
+                scores: { refiner: Math.min(1, refinerRoundScore / Math.max(1, refinerRoundActions)) },
                 totalSteps,
               });
             }
@@ -873,17 +880,19 @@ class InteractiveShell {
               if (renderer) renderer.addEvent('tool', chalk.hex('#F97316')(`[Bash] $ ${cmd}`));
               try {
                 const { stdout, stderr } = await exec(cmd, { timeout: 10000, shell: '/bin/bash' });
-                const output = (stdout || stderr || '').trim();
-                if (output && renderer) {
-                  renderer.addEvent('tool-result', output.slice(0, 2000));
-                  refinerResponse += output + '\n';
-                }
-                refinerWins++;
-                totalSteps++;
-              } catch (e) {
-                // Silently skip failed commands
-                logDebug(`[ATTACK] Refiner fallback command failed: ${e instanceof Error ? e.message : String(e)}`);
+              const output = (stdout || stderr || '').trim();
+              if (output && renderer) {
+                renderer.addEvent('tool-result', output.slice(0, 2000));
+                refinerResponse += output + '\n';
               }
+              const fallbackScore = this.scoreAttackResult(output || '');
+              refinerRoundScore += fallbackScore;
+              refinerRoundActions += 1;
+              totalSteps++;
+            } catch (e) {
+              // Silently skip failed commands
+              logDebug(`[ATTACK] Refiner fallback command failed: ${e instanceof Error ? e.message : String(e)}`);
+            }
             }
             break;
           }
@@ -907,7 +916,8 @@ class InteractiveShell {
         // Show refiner summary
         if (renderer) {
           const statusSuffix = refinerTimedOut ? ' (direct execution)' : '';
-          renderer.addEvent('response', chalk.hex('#F97316')(`\n🟠 Refiner complete - Score: ${refinerWins}${statusSuffix}\n\n`));
+          const refinerAvg = refinerRoundActions > 0 ? refinerRoundScore / refinerRoundActions : 0;
+          renderer.addEvent('response', chalk.hex('#F97316')(`\n🟠 Refiner complete - Score: ${refinerAvg.toFixed(2)}${statusSuffix}\n\n`));
         }
       }
 
@@ -941,16 +951,74 @@ class InteractiveShell {
               renderer.addEvent('tool-result', output.slice(0, 2000));
               refinerResponse += output + '\n';
             }
-            refinerWins++;
+            const fallbackScore = this.scoreAttackResult(output || '');
+            refinerRoundScore += fallbackScore;
+            refinerRoundActions += 1;
             totalSteps++;
           } catch (e) {
             logDebug(`[ATTACK] Refiner fallback command failed: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
         if (renderer) {
-          renderer.addEvent('response', chalk.hex('#F97316')(`\n🟠 Refiner complete - Score: ${refinerWins} (direct execution)\n\n`));
+          const refinerAvg = refinerRoundActions > 0 ? refinerRoundScore / refinerRoundActions : 0;
+          renderer.addEvent('response', chalk.hex('#F97316')(`\n🟠 Refiner complete - Score: ${refinerAvg.toFixed(2)} (direct execution)\n\n`));
         }
       }
+
+        // Evaluate round via dual tournament scoring (policies vs evaluators)
+        const roundTournament = this.evaluateAttackTournamentRound({
+          target: targetArg,
+          roundNumber,
+          primary: {
+            scoreSum: primaryRoundScore,
+            actions: primaryRoundActions,
+            response: primaryResponse,
+            timedOut: primaryTimedOut,
+          },
+          refiner: {
+            scoreSum: refinerRoundScore,
+            actions: refinerRoundActions,
+            response: refinerResponse,
+            timedOut: refinerTimedOut || skipRefinerLLM,
+          },
+        });
+
+        if (roundTournament?.ranked?.length) {
+          const top = roundTournament.ranked[0];
+          const winnerVariant = top.candidateId === 'refiner' ? 'refiner' : 'primary';
+          if (winnerVariant === 'refiner') {
+            refinerWins++;
+          } else {
+            primaryWins++;
+          }
+
+          const scores: { primary?: number; refiner?: number } = {};
+          const accuracy: { primary?: number; refiner?: number } = {};
+          for (const entry of roundTournament.ranked) {
+            if (entry.candidateId === 'primary') scores.primary = entry.aggregateScore;
+            if (entry.candidateId === 'refiner') scores.refiner = entry.aggregateScore;
+            if (entry.candidateId === 'primary') accuracy.primary = entry.humanAccuracy;
+            if (entry.candidateId === 'refiner') accuracy.refiner = entry.humanAccuracy;
+          }
+
+          if (renderer) {
+            const pScore = scores.primary ?? 0;
+            const rScore = scores.refiner ?? 0;
+            const winnerIcon = winnerVariant === 'refiner' ? '🟠' : '🔵';
+            renderer.addEvent(
+              'response',
+              chalk.dim(`Round ${roundNumber}: 🔵${pScore.toFixed(2)} vs 🟠${rScore.toFixed(2)} → ${winnerIcon}\n`)
+            );
+          }
+
+          this.promptController?.updateRLStatus({
+            wins: { primary: primaryWins, refiner: refinerWins, ties: 0 },
+            scores,
+            accuracy,
+            totalSteps,
+            currentModule: `round-${roundNumber}`,
+          });
+        }
 
         // Show round summary
         if (renderer) {
@@ -1156,6 +1224,73 @@ Any text response is a failure. Only tool calls are accepted.`;
     return Math.max(0, Math.min(1, score));
   }
 
+  private evaluateAttackTournamentRound(params: {
+    target: string;
+    roundNumber: number;
+    primary: { scoreSum: number; actions: number; response: string; timedOut: boolean };
+    refiner: { scoreSum: number; actions: number; response: string; timedOut: boolean };
+  }): TournamentOutcome | null {
+    // If neither agent produced actions/output, skip heavy scoring
+    if ((params.primary.actions === 0 || params.primary.timedOut) && (params.refiner.actions === 0 || params.refiner.timedOut)) {
+      return null;
+    }
+    if (params.primary.scoreSum === 0 && params.refiner.scoreSum === 0) {
+      return null;
+    }
+
+    const primaryCandidate = this.buildAttackTournamentCandidate('primary', params.primary);
+    const refinerCandidate = this.buildAttackTournamentCandidate('refiner', params.refiner);
+
+    const task = {
+      id: `attack-${params.roundNumber}`,
+      goal: `Attack ${params.target}`,
+      constraints: ['dual tournament', 'self-modifying reward'],
+      metadata: { round: params.roundNumber },
+    };
+
+    try {
+      return runDualTournament(task, [primaryCandidate, refinerCandidate], {
+        rewardWeights: { alpha: 0.65, beta: 0.10, gamma: 0.25 },
+        evaluators: [
+          { id: 'attack-hard', label: 'Objective checks', weight: 1.35, kind: 'hard' },
+          { id: 'attack-soft', label: 'Learned reward', weight: 0.95, kind: 'hybrid' },
+        ],
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private buildAttackTournamentCandidate(
+    variant: 'primary' | 'refiner',
+    data: { scoreSum: number; actions: number; response: string; timedOut: boolean }
+  ): TournamentCandidate {
+    const avgScore = data.actions > 0 ? data.scoreSum / data.actions : 0;
+    const actionScore = Math.min(1, data.actions / 3);
+
+    return {
+      id: variant,
+      policyId: variant,
+      patchSummary: this.truncateInline(data.response.trim(), 160),
+      metrics: {
+        executionSuccess: avgScore > 0 ? 1 : 0,
+        toolSuccesses: data.actions,
+        toolFailures: data.timedOut ? 1 : 0,
+        codeQuality: data.timedOut ? 0.35 : 0.55,
+        warnings: data.timedOut ? 1 : 0,
+      },
+      signals: {
+        rewardModelScore: avgScore,
+        selfAssessment: data.timedOut ? 0.25 : 0.6,
+      },
+      evaluatorScores: [
+        { evaluatorId: 'attack-soft', score: avgScore, weight: 1 },
+        { evaluatorId: 'attack-hard', score: actionScore, weight: 0.6 },
+      ],
+      rawOutput: data.response,
+    };
+  }
+
   private async recordAttackReward(
     target: string,
     response: string,
@@ -1315,6 +1450,8 @@ Any text response is a failure. Only tool calls are accepted.`;
       const primarySuccess = data?.['primarySuccess'] as boolean | undefined;
       const refinerScore = data?.['refinerScore'] as number | undefined;
       const refinerSuccess = data?.['refinerSuccess'] as boolean | undefined;
+      const primaryAccuracy = data?.['primaryAccuracy'] as number | undefined;
+      const refinerAccuracy = data?.['refinerAccuracy'] as number | undefined;
 
       // Update win stats if we have outcome data
       if (winnerVariant && primarySuccess !== undefined) {
@@ -1324,6 +1461,8 @@ Any text response is a failure. Only tool calls are accepted.`;
           primarySuccess,
           refinerScore,
           refinerSuccess,
+          primaryAccuracy,
+          refinerAccuracy,
         });
       }
 
@@ -1414,8 +1553,14 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Check for ties first (both succeeded with similar scores)
     if (outcome.primary.success && outcome.refiner?.success) {
-      const pScore = outcome.primary.score ?? 0;
-      const rScore = outcome.refiner?.score ?? 0;
+      const pScore =
+        typeof outcome.primary.tournament?.aggregateScore === 'number'
+          ? outcome.primary.tournament.aggregateScore
+          : outcome.primary.score ?? 0;
+      const rScore =
+        typeof outcome.refiner?.tournament?.aggregateScore === 'number'
+          ? outcome.refiner.tournament.aggregateScore
+          : outcome.refiner?.score ?? 0;
       if (Math.abs(pScore - rScore) < 0.01) {
         isTie = true;
         lastWinner = 'tie';
@@ -1448,11 +1593,27 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Update scores
     const scores: { primary?: number; refiner?: number } = {};
-    if (typeof outcome.primary.score === 'number') {
+    if (typeof outcome.primary.tournament?.aggregateScore === 'number') {
+      scores.primary = outcome.primary.tournament.aggregateScore;
+    } else if (typeof outcome.primary.score === 'number') {
       scores.primary = outcome.primary.score;
     }
-    if (typeof outcome.refiner?.score === 'number') {
+    if (typeof outcome.refiner?.tournament?.aggregateScore === 'number') {
+      scores.refiner = outcome.refiner.tournament.aggregateScore;
+    } else if (typeof outcome.refiner?.score === 'number') {
       scores.refiner = outcome.refiner.score;
+    }
+
+    const accuracy: { primary?: number; refiner?: number } = {};
+    if (typeof outcome.primary.humanAccuracy === 'number') {
+      accuracy.primary = outcome.primary.humanAccuracy;
+    } else if (typeof outcome.primary.tournament?.humanAccuracy === 'number') {
+      accuracy.primary = outcome.primary.tournament.humanAccuracy;
+    }
+    if (typeof outcome.refiner?.humanAccuracy === 'number') {
+      accuracy.refiner = outcome.refiner.humanAccuracy;
+    } else if (typeof outcome.refiner?.tournament?.humanAccuracy === 'number') {
+      accuracy.refiner = outcome.refiner.tournament.humanAccuracy;
     }
 
     // Update steps completed count
@@ -1461,6 +1622,7 @@ Any text response is a failure. Only tool calls are accepted.`;
     this.promptController.updateRLStatus({
       wins,
       scores,
+      accuracy: Object.keys(accuracy).length ? accuracy : currentStatus.accuracy,
       stepsCompleted,
       lastWinner,
       streak,
@@ -1477,6 +1639,8 @@ Any text response is a failure. Only tool calls are accepted.`;
     primarySuccess?: boolean;
     refinerScore?: number;
     refinerSuccess?: boolean;
+    primaryAccuracy?: number;
+    refinerAccuracy?: number;
   }): void {
     if (!this.promptController) return;
     const currentStatus = this.promptController.getRLStatus();
@@ -1531,12 +1695,21 @@ Any text response is a failure. Only tool calls are accepted.`;
       scores.refiner = eventData.refinerScore;
     }
 
+    const accuracy: { primary?: number; refiner?: number } = {};
+    if (typeof eventData.primaryAccuracy === 'number') {
+      accuracy.primary = eventData.primaryAccuracy;
+    }
+    if (typeof eventData.refinerAccuracy === 'number') {
+      accuracy.refiner = eventData.refinerAccuracy;
+    }
+
     // Update steps completed count
     const stepsCompleted = (currentStatus.stepsCompleted ?? 0) + 1;
 
     this.promptController.updateRLStatus({
       wins,
       scores,
+      accuracy: Object.keys(accuracy).length ? accuracy : currentStatus.accuracy,
       stepsCompleted,
       lastWinner,
       streak,
@@ -1732,8 +1905,18 @@ Any text response is a failure. Only tool calls are accepted.`;
           stats.primaryWins += 1;
         }
         if (step.refiner && step.primary.success && step.refiner.success) {
-          const primaryScore = typeof step.primary.score === 'number' ? step.primary.score : 0;
-          const refinerScore = typeof step.refiner.score === 'number' ? step.refiner.score : 0;
+          const primaryScore =
+            typeof step.primary.tournament?.aggregateScore === 'number'
+              ? step.primary.tournament.aggregateScore
+              : typeof step.primary.score === 'number'
+                ? step.primary.score
+                : 0;
+          const refinerScore =
+            typeof step.refiner.tournament?.aggregateScore === 'number'
+              ? step.refiner.tournament.aggregateScore
+              : typeof step.refiner.score === 'number'
+                ? step.refiner.score
+                : 0;
           if (Math.abs(primaryScore - refinerScore) < 1e-6) {
             stats.ties += 1;
           }
@@ -1752,15 +1935,44 @@ Any text response is a failure. Only tool calls are accepted.`;
   }
 
   private formatRewardLine(step: UpgradeStepOutcome): string {
-    const winnerScore = typeof step.winner.score === 'number' ? step.winner.score : null;
-    const primaryScore = typeof step.primary.score === 'number' ? step.primary.score : null;
-    const refinerScore = typeof step.refiner?.score === 'number' ? step.refiner.score : null;
+    const winnerScore =
+      typeof step.winner.tournament?.aggregateScore === 'number'
+        ? step.winner.tournament.aggregateScore
+        : typeof step.winner.score === 'number'
+          ? step.winner.score
+          : null;
+    const primaryScore =
+      typeof step.primary.tournament?.aggregateScore === 'number'
+        ? step.primary.tournament.aggregateScore
+        : typeof step.primary.score === 'number'
+          ? step.primary.score
+          : null;
+    const refinerScore =
+      typeof step.refiner?.tournament?.aggregateScore === 'number'
+        ? step.refiner.tournament.aggregateScore
+        : typeof step.refiner?.score === 'number'
+          ? step.refiner.score
+          : null;
+    const primaryAccuracy =
+      typeof step.primary.humanAccuracy === 'number'
+        ? step.primary.humanAccuracy
+        : step.primary.tournament?.humanAccuracy;
+    const refinerAccuracy =
+      typeof step.refiner?.humanAccuracy === 'number'
+        ? step.refiner.humanAccuracy
+        : step.refiner?.tournament?.humanAccuracy;
 
     const rewards: string[] = [];
     if (primaryScore !== null) rewards.push(`P:${primaryScore.toFixed(2)}`);
     if (refinerScore !== null) rewards.push(`R:${refinerScore.toFixed(2)}`);
     if (winnerScore !== null && rewards.length === 0) {
       rewards.push(`reward:${winnerScore.toFixed(2)}`);
+    }
+    if (primaryAccuracy !== undefined || refinerAccuracy !== undefined) {
+      const acc: string[] = [];
+      if (typeof primaryAccuracy === 'number') acc.push(`Pha:${primaryAccuracy.toFixed(2)}`);
+      if (typeof refinerAccuracy === 'number') acc.push(`Rha:${refinerAccuracy.toFixed(2)}`);
+      if (acc.length) rewards.push(acc.join(' '));
     }
 
     return rewards.length ? `  ${chalk.dim(`[${rewards.join(' ')}]`)}` : '';
@@ -2001,6 +2213,21 @@ Any text response is a failure. Only tool calls are accepted.`;
     if (lower.startsWith('/upgrade') || lower === '/up' || lower.startsWith('/up ')) {
       const args = trimmed.split(/\s+/).slice(1);
       void this.runRepoUpgradeCommand(args);
+      return true;
+    }
+
+    if (lower === '/telemetry') {
+      const snapshot = getRepoTelemetrySnapshot();
+      const renderer = this.promptController?.getRenderer();
+      const lines: string[] = ['Repo-type telemetry (wins)', ...Object.entries(snapshot).map(([type, stats]) =>
+        `${type}: P ${stats.winsPrimary} | R ${stats.winsRefiner}`
+      )];
+      if (renderer) {
+        renderer.addEvent('response', lines.join('\n'));
+      } else {
+        this.promptController?.setStatusMessage(lines.join(' · '));
+      }
+      setTimeout(() => this.promptController?.setStatusMessage(null), 4000);
       return true;
     }
 
