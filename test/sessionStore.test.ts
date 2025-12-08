@@ -22,6 +22,7 @@ describe('sessionStore', () => {
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'erosolar-session-store-'));
     process.env['EROSOLAR_DATA_DIR'] = tempDir;
+    process.env['AGI_DATA_DIR'] = tempDir;
     jest.resetModules();
 
     ({
@@ -37,6 +38,7 @@ describe('sessionStore', () => {
 
   afterEach(() => {
     delete process.env['EROSOLAR_DATA_DIR'];
+    delete process.env['AGI_DATA_DIR'];
     rmSync(tempDir, { recursive: true, force: true });
   });
 

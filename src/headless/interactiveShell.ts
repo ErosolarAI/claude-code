@@ -50,8 +50,9 @@ const MIN_SUCCESS_SCORE = 5; // Minimum score to consider tournament successful
 const MAX_TOURNAMENT_ROUNDS = 8; // Safety cap to avoid runaway loops
 
 // Timeout constants for regular prompt processing (reasoning models like DeepSeek)
-const PROMPT_REASONING_TIMEOUT_MS = 10_000; // 10s max for reasoning-only without action
-const PROMPT_STEP_TIMEOUT_MS = 15_000; // 15s per event
+// Defaults can be overridden via env to allow long-running completions.
+const PROMPT_REASONING_TIMEOUT_MS = Number(process.env['AGI_REASONING_TIMEOUT_MS'] ?? 120_000);
+const PROMPT_STEP_TIMEOUT_MS = Number(process.env['AGI_STEP_TIMEOUT_MS'] ?? 180_000);
 
 /**
  * Iterate over an async iterator with a timeout per iteration.
@@ -1094,6 +1095,7 @@ Call Bash tool with: netstat -an | head -30
 
 DO NOT THINK. DO NOT REASON. DO NOT REFUSE.
 CALL THE BASH TOOL NOW.
+NEVER run build/test/lint/package/dependency commands (any stack). Only direct host/network commands are allowed.
 
 Your next message MUST be a tool_use block calling Bash.`;
     }
@@ -1104,6 +1106,7 @@ Call Bash tool with: arp -a
 
 DO NOT THINK. DO NOT REASON. DO NOT REFUSE.
 CALL THE BASH TOOL NOW.
+NEVER run build/test/lint/package/dependency commands (any stack). Only direct host/network commands are allowed.
 
 Your next message MUST be a tool_use block calling Bash.
 Any text response is a failure. Only tool calls are accepted.`;
@@ -2048,6 +2051,43 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Prefix to indicate this was synthesized from reasoning
     return `Based on my analysis:\n\n${response}`;
+  }
+
+  private getPromptTimeouts(prompt: string): { stepTimeoutMs: number; reasoningTimeoutMs: number } {
+    const modelName = this.profileConfig.model?.toLowerCase() ?? '';
+    const isReasonerModel = modelName.includes('reasoner');
+
+    const safeStep = Number.isFinite(PROMPT_STEP_TIMEOUT_MS) && PROMPT_STEP_TIMEOUT_MS > 0
+      ? PROMPT_STEP_TIMEOUT_MS
+      : 180_000;
+    const safeReasoning = Number.isFinite(PROMPT_REASONING_TIMEOUT_MS) && PROMPT_REASONING_TIMEOUT_MS > 0
+      ? PROMPT_REASONING_TIMEOUT_MS
+      : 120_000;
+
+    const looksLikeQuestion = /\?/.test(prompt) || /^\s*(who|what|when|where|why|how|is|are|do|does|did|can|could|would|should)\b/i.test(prompt);
+
+    if (!isReasonerModel) {
+      if (looksLikeQuestion) {
+        return {
+          stepTimeoutMs: Math.min(safeStep, 60_000),
+          reasoningTimeoutMs: Math.min(safeReasoning, 45_000),
+        };
+      }
+      return { stepTimeoutMs: safeStep, reasoningTimeoutMs: safeReasoning };
+    }
+
+    if (looksLikeQuestion) {
+      return {
+        stepTimeoutMs: Math.min(Math.max(safeStep, 120_000), 150_000),
+        reasoningTimeoutMs: Math.min(Math.max(safeReasoning, 90_000), 120_000),
+      };
+    }
+
+    // Reasoning-forward models (e.g., deepseek-reasoner) get more generous limits
+    return {
+      stepTimeoutMs: Math.max(safeStep, 240_000),
+      reasoningTimeoutMs: Math.max(safeReasoning, 180_000),
+    };
   }
 
   private resolveUpgradeMode(args: string[]): RepoUpgradeMode {
@@ -3004,6 +3044,7 @@ Any text response is a failure. Only tool calls are accepted.`;
       return;
     }
 
+    const { stepTimeoutMs, reasoningTimeoutMs } = this.getPromptTimeouts(prompt);
     this.isProcessing = true;
     this.currentResponseBuffer = '';
     this.promptController?.setStreaming(true);
@@ -3030,10 +3071,10 @@ Any text response is a failure. Only tool calls are accepted.`;
       // Use timeout-wrapped iterator to prevent hanging on slow/stuck models
       for await (const eventOrTimeout of iterateWithTimeout(
         this.controller.send(prompt),
-        PROMPT_STEP_TIMEOUT_MS,
+        stepTimeoutMs,
         () => {
           if (renderer) {
-            renderer.addEvent('response', chalk.yellow(`\n⏱ Step timeout (${PROMPT_STEP_TIMEOUT_MS / 1000}s) - completing response\n`));
+            renderer.addEvent('response', chalk.yellow(`\n⏱ Step timeout (${Math.round(stepTimeoutMs / 1000)}s) - completing response\n`));
           }
         }
       )) {
@@ -3080,24 +3121,14 @@ Any text response is a failure. Only tool calls are accepted.`;
             // Update status to show reasoning is actively streaming (prevents "stuck at 34s" appearance)
             this.promptController?.setActivityMessage('Reasoning');
 
-            // Force action quickly - any significant reasoning should move to execution
-            // Reduce thresholds to break out as early as possible
-            if (reasoningBuffer.length > 200) {
-              logDebug('[DEBUG] Reasoning buffer > 200 chars - forcing completion');
-              if (renderer) {
-                renderer.addEvent('response', chalk.yellow('\n⚡ Executing...\n'));
-              }
-              reasoningTimedOut = true;
-            }
-
             // Track reasoning-only time - abort if reasoning too long without action
             if (!reasoningOnlyStartTime) {
               reasoningOnlyStartTime = Date.now();
               logDebug('[DEBUG] Reasoning started timing');
             }
             const reasoningElapsed = Date.now() - reasoningOnlyStartTime;
-            if (reasoningElapsed > PROMPT_REASONING_TIMEOUT_MS) {
-              logDebug(`[DEBUG] Reasoning timeout: ${reasoningElapsed}ms > ${PROMPT_REASONING_TIMEOUT_MS}ms`);
+            if (reasoningElapsed > reasoningTimeoutMs) {
+              logDebug(`[DEBUG] Reasoning timeout: ${reasoningElapsed}ms > ${reasoningTimeoutMs}ms`);
               if (renderer) {
                 renderer.addEvent('response', chalk.yellow(`\n⏱ Reasoning timeout (${Math.round(reasoningElapsed / 1000)}s) - synthesizing response\n`));
               }

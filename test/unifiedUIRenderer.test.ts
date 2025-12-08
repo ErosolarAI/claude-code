@@ -137,6 +137,25 @@ describe('UnifiedUIRenderer slash menu', () => {
     }
   });
 
+  it('submits a captured paste when Enter is pressed after collapse', () => {
+    const { renderer } = createRenderer();
+    try {
+      const submissions: string[] = [];
+      renderer.on('submit', (text: string) => submissions.push(text));
+
+      (renderer as any).handleKeypress('', { sequence: '\x1b[200~' } as any);
+      (renderer as any).handleKeypress('hello\nworld', { sequence: 'hello\nworld' } as any);
+      (renderer as any).handleKeypress('', { sequence: '\x1b[201~' } as any);
+
+      (renderer as any).handleKeypress('', { name: 'enter' } as any);
+
+      expect(submissions).toEqual(['hello\nworld']);
+      expect(renderer.getBuffer()).toBe('');
+    } finally {
+      renderer.cleanup();
+    }
+  });
+
   it('renders mode toggles when provided', () => {
     const { renderer, output } = createRenderer();
     try {

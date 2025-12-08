@@ -1,16 +1,8 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import {
-  type JSONSchemaObject,
-  type ProviderId,
-  type ProviderToolDefinition,
-  type ToolCallRequest,
-} from './types.js';
-import {
-  ToolArgumentValidationError,
-  coerceToolArguments,
-  validateToolArguments,
-} from './schemaValidator.js';
+import { join } from 'node:path';
+import { type ProviderToolDefinition, type ToolCallRequest, type JSONSchemaObject } from './types.js';
+import { ToolArgumentValidationError, coerceToolArguments, validateToolArguments } from './schemaValidator.js';
 import { ContextManager } from './contextManager.js';
 // Performance monitor stub (legacy module removed)
 const globalPerformanceMonitor = {
@@ -22,125 +14,39 @@ const globalPerformanceMonitor = {
 import { validateToolPreconditions, validateAIFlowPatterns, EDIT_WITHOUT_READ, type PreflightWarning } from './toolPreconditions.js';
 import { safeTruncate } from './resultVerification.js';
 import { logDebug } from '../utils/debugLogger.js';
-
-/**
- * Execution context for tool operations with strict TypeScript typing
- */
-export interface ToolExecutionContext {
-  readonly profileName: string;
-  readonly provider: ProviderId;
-  readonly model: string;
-  readonly workspaceContext?: string | null;
-}
-
-/**
- * Type-safe tool observer with generic parameter inference for AI flow monitoring
- */
-export interface ToolRuntimeObserver<T extends Record<string, unknown> = Record<string, unknown>> {
-  /** Called when tool execution begins */
-  onToolStart?(call: ToolCallRequest & { args: T }): void;
-  
-  /** Called when tool execution completes successfully */
-  onToolResult?(call: ToolCallRequest & { args: T }, output: string): void;
-  
-  /** Called when tool execution fails */
-  onToolError?(call: ToolCallRequest & { args: T }, error: string): void;
-  
-  /** Called when cached result is used instead of execution */
-  onCacheHit?(call: ToolCallRequest & { args: T }): void;
-  
-  /** Called for progress updates during long-running operations */
-  onToolProgress?(call: ToolCallRequest & { args: T }, progress: ToolProgressUpdate): void;
-  
-  /** Called for pre-flight warnings before tool execution */
-  onToolWarning?(call: ToolCallRequest & { args: T }, warning: PreflightWarning | string): void;
-}
-
-interface ToolRuntimeOptions {
-  readonly observer?: ToolRuntimeObserver;
-  readonly contextManager?: ContextManager;
-  readonly enableCache?: boolean;
-  readonly cacheTTLMs?: number;
-}
-
-/**
- * Generic tool handler with parameter type inference for AI flow execution
- */
-type ToolHandler<T extends Record<string, unknown> = Record<string, unknown>> = (
-  args: T
-) => Promise<string> | string;
-
-/**
- * Enhanced tool definition with parameter type safety for AI software engineering
- */
-export interface ToolDefinition<T extends Record<string, unknown> = Record<string, unknown>> {
-  /** Unique identifier for the tool */
-  readonly name: string;
-  
-  /** Human-readable description for AI understanding */
-  readonly description: string;
-  
-  /** JSON Schema defining the tool's parameter structure */
-  readonly parameters?: JSONSchemaObject;
-  
-  /** Function that implements the tool's behavior */
-  readonly handler: ToolHandler<T>;
-  
-  /** Whether results can be cached for performance optimization */
-  readonly cacheable?: boolean;
-
-  /** Optional per-tool cache TTL in milliseconds (falls back to runtime default) */
-  readonly cacheTtlMs?: number;
-}
-
-/**
- * Collection of related tools grouped by functionality
- */
-export interface ToolSuite {
-  /** Unique identifier for the tool suite */
-  readonly id: string;
-  
-  /** Human-readable description of the suite's purpose */
-  readonly description?: string;
-  
-  /** Array of tool definitions in this suite */
-  readonly tools: readonly ToolDefinition[];
-}
+import {
+  type ToolDefinition,
+  type ToolSuite,
+  type ToolHandler,
+  type ToolExecutionContext,
+  type ToolRuntimeObserver,
+  type ToolRuntimeOptions,
+  type ToolExecutionStore,
+  type CacheEntry,
+  type ToolHistoryEntry,
+  type DiffSnapshotRecord,
+  type ToolProgressUpdate,
+  type ToolExecutionIO,
+} from './toolRuntimeTypes.js';
+import { defaultToolIO } from './toolExecutionIO.js';
+export type {
+  ToolDefinition,
+  ToolSuite,
+  ToolHandler,
+  ToolExecutionContext,
+  ToolRuntimeObserver,
+  ToolRuntimeOptions,
+  ToolExecutionStore,
+  CacheEntry,
+  ToolHistoryEntry,
+  DiffSnapshotRecord,
+  ToolProgressUpdate,
+  ToolExecutionIO,
+} from './toolRuntimeTypes.js';
 
 interface ToolRecord {
   suiteId: string;
   definition: ToolDefinition;
-}
-
-interface CacheEntry {
-  result: string;
-  timestamp: number;
-}
-
-export interface ToolHistoryEntry {
-  toolName: string;
-  args: Record<string, unknown>;
-  timestamp: number;
-  success: boolean;
-  hasOutput: boolean;
-  error?: string;
-}
-
-export interface DiffSnapshotRecord {
-  command: string;
-  output: string;
-  timestamp: number;
-}
-
-export interface ToolProgressUpdate {
-  current: number;
-  total?: number;
-  message?: string;
-}
-
-interface ToolExecutionStore {
-  call: ToolCallRequest & { args: Record<string, unknown> };
-  observer?: ToolRuntimeObserver;
 }
 
 const toolExecutionContext = new AsyncLocalStorage<ToolExecutionStore>();
@@ -271,6 +177,8 @@ export class ToolRuntime implements IToolRuntime {
   private readonly registrationOrder: string[] = [];
   private readonly observer: ToolRuntimeObserver | null;
   private readonly contextManager: ContextManager | null;
+  private readonly io: ToolExecutionIO;
+  private readonly snapshotDir: string | null;
   private readonly cache = new Map<string, CacheEntry>();
   private readonly enableCache: boolean;
   private readonly cacheTTLMs: number;
@@ -280,9 +188,11 @@ export class ToolRuntime implements IToolRuntime {
   private readonly maxDiffSnapshots = 5; // Keep only the most recent git diff outputs
   private readonly maxDiffSnapshotLength = 4000;
 
-  constructor(baseTools: ToolDefinition[] = [], options: ToolRuntimeOptions = {}) {
+  constructor(baseTools: ToolDefinition[] = [], options: ToolRuntimeOptions = {}, io: ToolExecutionIO = defaultToolIO) {
     this.observer = options.observer ?? null;
     this.contextManager = options.contextManager ?? null;
+    this.io = options.io ?? io;
+    this.snapshotDir = options.snapshotDir ?? join(process.cwd(), '.agi', 'tool-snapshots');
     this.enableCache = options.enableCache ?? true;
     this.cacheTTLMs = options.cacheTTLMs ?? 5 * 60 * 1000; // 5 minutes default
     if (baseTools.length) {
@@ -557,6 +467,20 @@ export class ToolRuntime implements IToolRuntime {
       timestamp: Date.now(),
     });
 
+    if (this.snapshotDir && this.io.writeFile) {
+      const dir = this.snapshotDir;
+      const filename = `diff-${Date.now()}-${Math.abs(hashString(command))}.txt`;
+      const fullPath = join(dir, filename);
+      try {
+        if (this.io.ensureDir) {
+          this.io.ensureDir(dir);
+        }
+        this.io.writeFile(fullPath, output);
+      } catch {
+        // best-effort persistence; ignore errors
+      }
+    }
+
     if (this.diffSnapshots.length > this.maxDiffSnapshots) {
       this.diffSnapshots.shift();
     }
@@ -643,4 +567,13 @@ function normalizeToolArguments(value: unknown): Record<string, unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
 }

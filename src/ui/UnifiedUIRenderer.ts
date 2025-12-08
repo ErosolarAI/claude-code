@@ -143,7 +143,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   private suggestionIndex = -1;
   private availableCommands: typeof this.suggestions = [];
   private hotkeysInToggleLine: Set<string> = new Set();
-  private collapsedPaste: { text: string; lines: number; chars: number } | null = null;
+  private collapsedPaste: { text: string; lines: number; charDisplay: string; truncated: boolean } | null = null;
 
   private mode: 'idle' | 'streaming' = 'idle';
   private lastToolResult: string | null = null;
@@ -1116,25 +1116,33 @@ export class UnifiedUIRenderer extends EventEmitter {
     return true;
   }
 
+  private captureCollapsedPaste(content: string, lineCount: number, wasTruncated: boolean): void {
+    const charDisplay = wasTruncated ? `${content.length}+` : `${content.length}`;
+    this.collapsedPaste = {
+      text: content,
+      lines: lineCount,
+      charDisplay,
+      truncated: wasTruncated,
+    };
+    this.buffer = '';
+    this.cursor = 0;
+    this.updateSuggestions();
+    this.emitInputChange();
+    const hint = `Paste captured: ${lineCount} line${lineCount === 1 ? '' : 's'}${wasTruncated ? ' (truncated)' : ''}. Enter to send, Ctrl+L to edit, Backspace to discard.`;
+    this.updateStatusBundle({ main: hint });
+    this.renderPrompt();
+  }
+
   private commitPasteBuffer(): void {
     if (!this.inBracketedPaste) return;
     // Sanitize to remove any injected escape sequences, then normalize line endings
     const sanitized = this.sanitizePasteContent(this.pasteBuffer);
     const content = sanitized.replace(/\r\n?/g, '\n');
     if (content) {
-      const lines = content.split('\n');
+      const lineCount = content.split('\n').length;
       const wasTruncated = this.pasteBufferOverflow;
-      if (lines.length > 1 || content.length > 200) {
-        this.collapsedPaste = {
-          text: content,
-          lines: lines.length,
-          chars: content.length + (wasTruncated ? '+' as unknown as number : 0), // Indicate truncation
-        };
-        this.buffer = '';
-        this.cursor = 0;
-        this.updateSuggestions();
-        this.renderPrompt();
-        this.emitInputChange();
+      if (lineCount > 1 || content.length > 200) {
+        this.captureCollapsedPaste(content, lineCount, wasTruncated);
       } else {
         this.insertText(content);
       }
@@ -1308,18 +1316,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (!content) return;
-    const lines = content.split('\n');
-    if (lines.length > 1 || content.length > 200) {
-      this.collapsedPaste = {
-        text: content,
-        lines: lines.length,
-        chars: content.length + (wasTruncated ? '+' as unknown as number : 0),
-      };
-      this.buffer = '';
-      this.cursor = 0;
-      this.updateSuggestions();
-      this.renderPrompt();
-      this.emitInputChange();
+    const lineCount = content.split('\n').length;
+    if (lineCount > 1 || content.length > 200) {
+      this.captureCollapsedPaste(content, lineCount, wasTruncated);
       return;
     }
 
@@ -3851,7 +3850,7 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   private buildInputLine(): string {
     if (this.collapsedPaste) {
-      const summary = `[pasted ${this.collapsedPaste.lines} lines, ${this.collapsedPaste.chars} chars] (Enter/Ctrl+L insert, Backspace discard)`;
+      const summary = `[pasted ${this.collapsedPaste.lines} lines, ${this.collapsedPaste.charDisplay} chars] (Enter/Ctrl+L insert, Backspace discard)`;
       return this.truncateLine(`${theme.primary('> ')}${theme.ui.muted(summary)}`, this.safeWidth());
     }
 

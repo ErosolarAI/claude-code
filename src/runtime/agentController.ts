@@ -212,6 +212,11 @@ export class AgentController implements IAgentController {
   private failedProviders: Set<ProviderId> = new Set();
   /** Maximum fallback attempts per send() call */
   private static readonly MAX_FALLBACK_ATTEMPTS = 3;
+  /** Optional timeout for a single agent run (ms); 0 disables */
+  private readonly runTimeoutMs: number =
+    Number.parseInt(process.env.AGI_AGENT_RUN_TIMEOUT_MS ?? '', 10) || 0;
+  /** Cancel hook for an in-flight run */
+  private cancelActiveRunFn: (() => void) | null = null;
 
   constructor(dependencies: AgentControllerDependencies) {
     this.session = dependencies.runtime.session;
@@ -423,10 +428,86 @@ export class AgentController implements IAgentController {
     }
   }
 
+  private createSink(): EventStream<AgentEventUnion> {
+    const sink = new EventStream<AgentEventUnion>();
+    this.activeSink = sink;
+    this.sinkRef.current = sink;
+    return sink;
+  }
+
+  private clearSink(): void {
+    if (this.activeSink) {
+      this.activeSink = null;
+      this.sinkRef.current = null;
+    }
+  }
+
+  private startAgentRun(
+    agent: ReturnType<AgentSession['createAgent']>,
+    message: string,
+    sink: EventStream<AgentEventUnion>
+  ): Promise<void> {
+    sink.push({ type: 'message.start', timestamp: Date.now() });
+    const runPromise = agent.send(message, true);
+
+    let timer: NodeJS.Timeout | null = null;
+    const timeoutPromise =
+      this.runTimeoutMs > 0
+        ? new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              reject(new Error(`Agent run timed out after ${this.runTimeoutMs}ms`));
+            }, this.runTimeoutMs);
+            timer.unref?.();
+          })
+        : null;
+
+    let cancelled = false;
+    const cancelPromise = new Promise<never>((_, reject) => {
+      this.cancelActiveRunFn = () => {
+        cancelled = true;
+        reject(new Error('Agent run cancelled'));
+      };
+    });
+
+    return Promise.race([runPromise, cancelPromise, timeoutPromise].filter(Boolean) as Promise<unknown>[])
+      .then(() => {
+        this.updateCachedHistory();
+        sink.close();
+      })
+      .catch((error) => {
+        const errorObj = error instanceof Error ? error : new Error(String(error));
+        // Let caller decide on fallback; propagate error after marking sink failed
+        if (cancelled) {
+          sink.fail(errorObj);
+        } else {
+          sink.fail(errorObj);
+        }
+        throw errorObj;
+      })
+      .finally(() => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        this.cancelActiveRunFn = null;
+        if (this.sinkRef.current === sink) {
+          this.clearSink();
+        }
+      });
+  }
+
+  private async attemptFallbackWithError(errorObj: Error, attempts: number): Promise<boolean> {
+    if (!isFallbackEligibleError(errorObj)) return false;
+    if (attempts >= AgentController.MAX_FALLBACK_ATTEMPTS) return false;
+    logDebug(`[AgentController] Fallback-eligible error detected: ${errorObj.message}`);
+    return this.attemptFallback(errorObj);
+  }
+
   async *send(message: string): AsyncIterableIterator<AgentEventUnion> {
     if (this.activeSink) {
       throw new Error('Agent runtime is already processing a message. Please wait for the current run to finish.');
     }
+    let cancelledByUser = false;
 
     // Reset failed providers at the start of each new message
     // (providers might have recovered, quotas might have reset, etc.)
@@ -437,45 +518,16 @@ export class AgentController implements IAgentController {
     // Retry loop for fallback handling
     while (fallbackAttempts < AgentController.MAX_FALLBACK_ATTEMPTS) {
       const agent = this.ensureAgent();
-      const sink = new EventStream<AgentEventUnion>();
-      this.activeSink = sink;
-      this.sinkRef.current = sink;
-      sink.push({ type: 'message.start', timestamp: Date.now() });
-
+      const sink = this.createSink();
       let caughtError: Error | null = null;
       let fallbackSucceeded = false;
 
-      const run = agent
-        .send(message, true)
-        .then(() => {
-          this.updateCachedHistory();
-          sink.close();
-        })
-        .catch(async (error) => {
-          const errorObj = error instanceof Error ? error : new Error(String(error));
-          caughtError = errorObj;
-
-          // Check if this error is eligible for fallback
-          if (isFallbackEligibleError(error) && fallbackAttempts < AgentController.MAX_FALLBACK_ATTEMPTS - 1) {
-            logDebug(`[AgentController] Fallback-eligible error detected: ${errorObj.message}`);
-            fallbackSucceeded = await this.attemptFallback(errorObj);
-            if (fallbackSucceeded) {
-              // Close this sink without error - we'll retry with new provider
-              sink.close();
-              return;
-            }
-          }
-
-          // Not fallback-eligible or no fallback available - emit error and fail
-          this.emitError(errorObj.message);
-          sink.fail(errorObj);
-        })
-        .finally(() => {
-          if (this.activeSink === sink) {
-            this.activeSink = null;
-            this.sinkRef.current = null;
-          }
-        });
+      const run = this.startAgentRun(agent, message, sink).catch((error) => {
+        caughtError = error instanceof Error ? error : new Error(String(error));
+        if (/cancelled/i.test(caughtError.message)) {
+          cancelledByUser = true;
+        }
+      });
 
       try {
         for await (const event of sink) {
@@ -485,16 +537,37 @@ export class AgentController implements IAgentController {
         await run;
       }
 
-      // If we successfully fell back, increment counter and continue loop
-      if (fallbackSucceeded && caughtError) {
+      // Decide on fallback after run completion
+      if (caughtError) {
+        if (cancelledByUser) {
+          this.emitError(caughtError.message);
+          break;
+        }
+        fallbackSucceeded = await this.attemptFallbackWithError(caughtError, fallbackAttempts + 1);
+        if (!fallbackSucceeded) {
+          this.emitError(caughtError.message);
+          break;
+        }
         fallbackAttempts++;
-        logDebug(`[AgentController] Retrying with fallback provider (attempt ${fallbackAttempts}/${AgentController.MAX_FALLBACK_ATTEMPTS})`);
+        logDebug(
+          `[AgentController] Retrying with fallback provider (attempt ${fallbackAttempts}/${AgentController.MAX_FALLBACK_ATTEMPTS})`
+        );
         continue;
       }
 
-      // No fallback happened or it failed - exit loop
+      // Successful run, exit loop
       break;
     }
+  }
+
+  /**
+   * Cancel an in-flight agent run, if any. This triggers a controlled failure on the stream.
+   */
+  cancel(reason = 'Cancelled by user'): void {
+    if (!this.activeSink) return;
+    this.cancelActiveRunFn?.();
+    this.activeSink.fail(new Error(reason));
+    this.clearSink();
   }
 
   async switchModel(config: ModelConfig): Promise<void> {

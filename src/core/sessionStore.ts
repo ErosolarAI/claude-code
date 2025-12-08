@@ -1,13 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import type { ConversationMessage, ProviderId } from './types.js';
 import type { ProfileName } from '../config.js';
-
-const dataRoot = process.env['AGI_DATA_DIR']?.trim() || join(homedir(), '.agi');
-const sessionsDir = join(dataRoot, 'sessions');
-const indexPath = join(sessionsDir, 'index.json');
+import { getSessionStorage } from './sessionStorage.js';
 
 export interface SessionSummary {
   id: string;
@@ -83,7 +79,7 @@ export function saveSessionSnapshot(options: SaveSessionOptions): SessionSummary
     ...(options.scrollbackBuffer && { scrollbackBuffer: options.scrollbackBuffer }),
   };
 
-  writeFileSync(getSessionPath(summaryId), JSON.stringify(payload, null, 2), 'utf8');
+  writeFile(getSessionPath(summaryId), JSON.stringify(payload, null, 2));
   index.entries[summaryId] = summary;
   writeIndex(index);
   return summary;
@@ -93,8 +89,9 @@ export function loadSessionById(id: string): StoredSession | null {
   if (!id) {
     return null;
   }
+  const raw = readFile(getSessionPath(id));
+  if (!raw) return null;
   try {
-    const raw = readFileSync(getSessionPath(id), 'utf8');
     const parsed = JSON.parse(raw) as StoredSession;
     return parsed;
   } catch {
@@ -110,11 +107,7 @@ export function deleteSession(id: string): boolean {
   if (!index.entries[id]) {
     return false;
   }
-  try {
-    rmSync(getSessionPath(id), { force: true });
-  } catch {
-    // ignore
-  }
+  getSessionStorage().deleteFile(getSessionPath(id));
   delete index.entries[id];
   writeIndex(index);
   return true;
@@ -137,12 +130,13 @@ export function saveAutosaveSnapshot(
     messageCount: options.messages.length,
     messages: options.messages,
   };
-  writeFileSync(getAutosavePath(profile), JSON.stringify(payload, null, 2), 'utf8');
+  writeFile(getAutosavePath(profile), JSON.stringify(payload, null, 2));
 }
 
 export function loadAutosaveSnapshot(profile: ProfileName): StoredSession | null {
+  const raw = readFile(getAutosavePath(profile));
+  if (!raw) return null;
   try {
-    const raw = readFileSync(getAutosavePath(profile), 'utf8');
     return JSON.parse(raw) as StoredSession;
   } catch {
     return null;
@@ -150,17 +144,13 @@ export function loadAutosaveSnapshot(profile: ProfileName): StoredSession | null
 }
 
 export function clearAutosaveSnapshot(profile: ProfileName): void {
-  try {
-    rmSync(getAutosavePath(profile), { force: true });
-  } catch {
-    // ignore
-  }
+  getSessionStorage().deleteFile(getAutosavePath(profile));
 }
 
 function readIndex(): SessionIndex {
   ensureDirectory();
   try {
-    const raw = readFileSync(indexPath, 'utf8');
+    const raw = readFile(getIndexPath());
     const parsed = JSON.parse(raw) as SessionIndex;
     if (!parsed || typeof parsed !== 'object' || typeof parsed.entries !== 'object') {
       return { entries: {} };
@@ -173,19 +163,35 @@ function readIndex(): SessionIndex {
 
 function writeIndex(index: SessionIndex): void {
   ensureDirectory();
-  writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf8');
+  writeFile(getIndexPath(), JSON.stringify(index, null, 2));
 }
 
 function ensureDirectory(): void {
-  mkdirSync(sessionsDir, { recursive: true });
+  getSessionStorage().ensureDir(getSessionsDir());
 }
 
 function getSessionPath(id: string): string {
-  return join(sessionsDir, `${id}.json`);
+  return join(getSessionsDir(), `${id}.json`);
 }
 
 function getAutosavePath(profile: ProfileName): string {
-  return join(sessionsDir, `${profile}-autosave.json`);
+  return join(getSessionsDir(), `${profile}-autosave.json`);
+}
+
+function getSessionsDir(): string {
+  return join(getSessionStorage().root, 'sessions');
+}
+
+function getIndexPath(): string {
+  return join(getSessionsDir(), 'index.json');
+}
+
+function readFile(path: string): string | null {
+  return getSessionStorage().readFile(path);
+}
+
+function writeFile(path: string, content: string): void {
+  return getSessionStorage().writeFile(path, content);
 }
 
 function sanitizeTitle(value: string | null | undefined): string | null {
@@ -217,7 +223,8 @@ function pruneOrphans(): void {
     ensureDirectory();
     const index = readIndex();
     const known = new Set(Object.keys(index.entries));
-    for (const file of readdirSync(sessionsDir)) {
+    const dir = getSessionsDir();
+    for (const file of readdirSync(dir)) {
       if (!file.endsWith('.json')) {
         continue;
       }
@@ -226,10 +233,10 @@ function pruneOrphans(): void {
       }
       const id = file.slice(0, -5);
       if (!known.has(id)) {
-        const candidate = join(sessionsDir, file);
+        const candidate = join(dir, file);
         const stats = statSync(candidate);
         if (stats.isFile()) {
-          rmSync(candidate, { force: true });
+          getSessionStorage().deleteFile(candidate);
         }
       }
     }
