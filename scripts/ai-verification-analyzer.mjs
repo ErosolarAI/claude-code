@@ -11,8 +11,8 @@
  * 5. Identify security verification blind spots
  */
 
-import { readFileSync, existsSync, readdirSync } from 'fs';
-import { spawnSync } from 'child_process';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 
 class AIVerificationAnalyzer {
   constructor() {

@@ -41,9 +41,11 @@ module.exports = {
   extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
     '^(\.{1,2}/.*)\.js$': '$1',
+    '^chalk$': '<rootDir>/__mocks__/chalk.js',
+    '^gradient-string$': '<rootDir>/__mocks__/gradient-string.js',
   },
   transformIgnorePatterns: [
-    '/node_modules/(?!chalk|gradient-string|ora|boxen)/',
+    '/node_modules/(?!chalk|gradient-string|ora|boxen)',
     '/dist/'
   ],
   setupFilesAfterEnv: ['<rootDir>/test/jest-setup.cjs'],

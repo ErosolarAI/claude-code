@@ -1,12 +1,12 @@
 # Unified Orchestration Playbook
 
-Concrete runbook for operating the Erosolar CLI in a controlled, repeatable way. This keeps single/dual-agent orchestration, automation, and evidence collection aligned with the repo defaults.
+Concrete runbook for operating the AGI CLI in a controlled, repeatable way. This keeps single/dual-agent orchestration, automation, and evidence collection aligned with the repo defaults.
 
 ## 1) Readiness
 - Node 20+, `npm install`, then `npm run build` and `npm test` (or `npm run quality-gate` for lint + type + health + tests).
 - **Module System**: Uses ES Modules (ESM) with `.js` extensions; model/agent configuration loads asynchronously.
-- Launch interactive shell: `npm run start` (uses `dist/bin/erosolar.js`).
-- Headless auto-run: `erosolar --eval "task"` or `erosolar --json --provider <p> --model <m> --prompt "..."` for pipeline use.
+- Launch interactive shell: `npm run start` (uses `dist/bin/agi.js`).
+- Headless auto-run: `agi --eval "task"` or `agi --json --provider <p> --model <m> --prompt "..."` for pipeline use.
 - Toggle orchestration mode: default single-agent; enable dual-agent RL with `/features alphazerodual on` (restart) or per-session `Ctrl+Shift+D`.
 
 ## 2) Scope & authorization (must-do before any offensive exercise)
@@ -19,7 +19,7 @@ Concrete runbook for operating the Erosolar CLI in a controlled, repeatable way.
 
 ## 3) Unified execution pattern
 - **Pre-flight**: `npm run build && npm test` → `npm run quality-gate` for longer runs. Capture versions with `node -v && git rev-parse --short HEAD`.
-- **Task kickoff**: prefer headless for repeatability: `erosolar --eval "Objective + constraints + success criteria"`; in interactive mode, start with `/features alphazerodual on` if refinement is desired.
+- **Task kickoff**: prefer headless for repeatability: `agi --eval "Objective + constraints + success criteria"`; in interactive mode, start with `/features alphazerodual on` if refinement is desired.
 - **Tooling guardrails**: run high-impact TAO/Kinetic tools only against in-scope targets; log the prompt, scope, and console output to `artifacts/.../evidence.log`.
 - **Completion**: Require a final status summary and next-step checklist from the agent; store JSON output when using `--json` for post-processing.
 
@@ -33,5 +33,5 @@ Concrete runbook for operating the Erosolar CLI in a controlled, repeatable way.
 - Latest build/test pass locally.
 - Orchestration mode chosen (single vs dual) and documented.
 - Evidence path prepared; logging turned on.
-- Run initiated via `erosolar --eval` or interactive shell with clear success criteria.
+- Run initiated via `agi --eval` or interactive shell with clear success criteria.
 - Debrief captured: final response, tools used, issues, and follow-up tasks.

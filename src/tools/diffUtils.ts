@@ -501,7 +501,7 @@ function splitLines(value: string): string[] {
 }
 
 /**
- * Build a diff with context lines around changes (Erosolar-CLI style).
+ * Build a diff with context lines around changes (AGI CLI style).
  * Shows N lines before and after each change, with ... truncation for gaps.
  */
 export function buildDiffWithContext(

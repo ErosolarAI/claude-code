@@ -2,7 +2,7 @@
 import { existsSync, lstatSync, readFileSync, readlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-const BIN_NAMES = ['erosolar', 'erosolar-cli', 'erosolar-ts'];
+const BIN_NAMES = ['erosolar', 'erosolar-cli', 'erosolar-ts', 'agi', 'agi-cli'];
 const OWNERSHIP_MARKERS = ['erosolar', 'codex runtime ready', 'launchCli'];
 
 const isGlobalInstall = process.env.npm_config_global === 'true';
@@ -47,7 +47,7 @@ function cleanCandidate(path) {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[erosolar] Unable to clean conflicting binary at ${path}: ${message}`);
+    console.warn(`[AGI] Unable to clean conflicting binary at ${path}: ${message}`);
   }
 }
 

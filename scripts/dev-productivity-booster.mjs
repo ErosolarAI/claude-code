@@ -14,9 +14,9 @@
  * - Project template management
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join, dirname, basename } from 'path';
-import { fileURLToPath } from 'url';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

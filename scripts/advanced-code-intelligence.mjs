@@ -7,9 +7,9 @@
  * security scanning, and architectural recommendations.
  */
 
-import { readFileSync, existsSync, readdirSync } from 'fs';
-import { join, dirname, extname } from 'path';
-import { fileURLToPath } from 'url';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { join, dirname, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

@@ -1,6 +1,6 @@
 /**
  * Ultimate Security Testing Example
- * Demonstrates offensive security capabilities of Erosolar CLI
+ * Demonstrates offensive security capabilities of AGI CLI
  * 
  * Run with: npm run security-example
  */
@@ -8,7 +8,7 @@
 import { createTaoTools } from '../src/tools/taoTools'; // NOTE: Depends on taoTools API
 
 async function main() {
-  console.log('🚀 Erosolar CLI - Ultimate Security Testing Demo\n');
+  console.log('🚀 AGI CLI - Ultimate Security Testing Demo\n');
   
   // Create TAO tools suite
   const taoTools = createTaoTools(process.cwd());

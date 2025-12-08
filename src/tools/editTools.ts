@@ -219,7 +219,7 @@ export async function performSurgicalEdit(
       ? currentContent.split(targetString).join(replacementString)
       : currentContent.replace(targetString, replacementString);
 
-    // Generate diff with context lines (Erosolar-CLI style)
+    // Generate diff with context lines (AGI CLI style)
     const diffResult = buildDiffWithContext(currentContent, newContent, 2);
 
     // Check for repeated edit attempts on same file (detect linter/hook reversion loops)
@@ -281,19 +281,19 @@ export async function performSurgicalEdit(
       ].join('\n');
     }
 
-    // Build summary (Erosolar-CLI style)
+    // Build summary (AGI CLI style)
     const relativePath = relative(workingDir, filePath);
     const displayPath = relativePath && !relativePath.startsWith('..') ? relativePath : filePath;
     const { additions, removals } = diffResult;
     const occurrencesText = replaceAll ? ` (${occurrences} occurrence${occurrences > 1 ? 's' : ''})` : '';
     const noteText = matchNote ? ` [${matchNote}]` : '';
 
-    // Format diff with colors for terminal display (Erosolar-CLI style)
+    // Format diff with colors for terminal display (AGI CLI style)
     const diffLines = formatDiffClaudeStyle(diffResult.segments, true);
     const diffBlock =
       diffLines.length > 0 ? diffLines.join('\n') : '      (No visual diff - whitespace or formatting changes only)';
 
-    // Build Erosolar-CLI style output:
+    // Build AGI CLI style output:
     // ⏺ Update(filepath)
     //   ⎿  Updated filepath with N additions and M removals
     //       41    }

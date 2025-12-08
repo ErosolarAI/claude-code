@@ -1,5 +1,5 @@
 /**
- * Error Formatter - Erosolar-CLI style
+ * Error Formatter - AGI CLI style
  * Enhanced error message and stack trace formatting
  */
 

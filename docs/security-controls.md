@@ -8,7 +8,7 @@ Hardening checklist to keep offensive tooling safe, auditable, and confined to a
 - [ ] Define `defaultScope.targets/techniques/durationHours` for every exercise; store copies with the evidence pack.
 
 ## Execution controls
-- [ ] Run headless tasks with explicit prompts and scope (e.g., `erosolar --json --provider <p> --model <m> --prompt "...in-scope..."`).
+- [ ] Run headless tasks with explicit prompts and scope (e.g., `agi --json --provider <p> --model <m> --prompt "...in-scope..."`).
 - [ ] Enforce dual review for high-impact steps (persistence, lateral movement) before execution.
 - [ ] Rate-limit scans and exploitation attempts; prefer staged rollouts in lab first.
 - [ ] Keep a blocklist/denylist of out-of-scope hosts and monitor for accidental contact.
@@ -21,7 +21,7 @@ Hardening checklist to keep offensive tooling safe, auditable, and confined to a
 ## Identity & access
 - [ ] Use dedicated operator accounts; no shared credentials. Rotate tokens post-engagement.
 - [ ] Restrict file permissions on `config/*` and `artifacts/*`; encrypt evidence at rest when sensitive.
-- [ ] MFA required for CI/CD runners that can invoke erosolar.
+- [ ] MFA required for CI/CD runners that can invoke agi.
 
 ## Network/infra isolation
 - [ ] Execute from segmented networks; isolate lab targets from production.

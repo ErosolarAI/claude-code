@@ -246,7 +246,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
   }
 
-  /** Strip ANSI escape sequences from text to prevent injection */
+  /** Strip ANSI escape sequences and special formatting from text to get clean plaintext */
   private sanitizePasteContent(text: string): string {
     // Remove all ANSI escape sequences (CSI, OSC, etc.)
     // Including bracketed paste markers (\x1b[200~ and \x1b[201~) which end with ~
@@ -257,6 +257,24 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Remove any stray escape character at start/end
     // eslint-disable-next-line no-control-regex
     sanitized = sanitized.replace(/^\x1b+|\x1b+$/g, '');
+
+    // Strip special formatting characters for clean plaintext:
+    // - Zero-width characters (ZWSP, ZWNJ, ZWJ, BOM/ZWNBSP)
+    // - Word joiner, invisible separator, invisible times/plus
+    // - Directional formatting (LRM, RLM, LRE, RLE, LRO, RLO, PDF, LRI, RLI, FSI, PDI)
+    // - Object replacement character
+    // - Soft hyphen
+    // - Non-breaking space variants (NBSP, narrow NBSP, figure space, etc.)
+    sanitized = sanitized.replace(/[\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF\u00AD\uFFFC]/g, '');
+
+    // Normalize various space characters to regular space
+    // Includes: NBSP, en/em space, thin space, hair space, figure space, etc.
+    sanitized = sanitized.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, ' ');
+
+    // Remove control characters except tab, newline, carriage return
+    // eslint-disable-next-line no-control-regex
+    sanitized = sanitized.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+
     return sanitized;
   }
 
@@ -1316,10 +1334,13 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (this.collapsedPaste) {
       this.expandCollapsedPasteToBuffer();
     }
+    // Sanitize input to remove special formatting characters
+    const sanitized = this.sanitizePasteContent(text);
+    if (!sanitized) return;
     // Ensure cursor is valid before slicing
     this.clampCursor();
-    this.buffer = this.buffer.slice(0, this.cursor) + text + this.buffer.slice(this.cursor);
-    this.cursor += text.length;
+    this.buffer = this.buffer.slice(0, this.cursor) + sanitized + this.buffer.slice(this.cursor);
+    this.cursor += sanitized.length;
     this.clampCursor(); // Ensure cursor remains valid after modification
     this.updateSuggestions();
     this.renderPrompt();
@@ -1579,12 +1600,12 @@ export class UnifiedUIRenderer extends EventEmitter {
         // Check disposed before continuing
         if (this.disposed) break;
 
-        // For prompt events, ensure the overlay is rendered immediately
-        // This guarantees prompts are visible before async processing continues
+        // Note: For prompt events, the overlay is already rendered in renderEvent()
+        // via renderPromptOverlay(true). No need to render again here.
         if (event.type === 'prompt') {
+          // Ensure prompt rendering is allowed for subsequent events
           if (this.output.isTTY) {
             this.allowPromptRender = true;
-            this.renderPrompt();
           }
           // No delay for prompt events - render immediately
         } else {
@@ -3209,7 +3230,20 @@ export class UnifiedUIRenderer extends EventEmitter {
     const promptIndex = lines.length;
     const inputLine = this.buildInputLine();
     // Handle multi-line input by splitting on newlines
-    const inputLines = inputLine.split('\n');
+    // Filter out empty lines to prevent duplicate divider appearance from leading/trailing newlines
+    const inputLines = inputLine.split('\n').filter((line, idx, arr) => {
+      // Keep non-empty lines, but preserve single empty line if it's intentional (e.g., between content)
+      // Only filter leading/trailing empty lines
+      if (line.trim() === '') {
+        // Filter if it's the first line (leading empty) or last line (trailing empty)
+        if (idx === 0 || idx === arr.length - 1) return false;
+      }
+      return true;
+    });
+    // Ensure at least one line for the prompt
+    if (inputLines.length === 0) {
+      inputLines.push(theme.primary('> '));
+    }
     for (const line of inputLines) {
       lines.push(this.truncateLine(line, maxWidth));
     }
@@ -4183,7 +4217,11 @@ export class UnifiedUIRenderer extends EventEmitter {
     const normalized = text?.trim();
     if (!normalized) return;
 
+    // Prevent duplicate prompt display within 1.5 seconds
     const now = Date.now();
+    if (this.lastPromptEvent && this.lastPromptEvent.text === normalized && now - this.lastPromptEvent.at < 1500) {
+      return;
+    }
     this.lastPromptEvent = { text: normalized, at: now };
 
     // Add to event queue instead of writing directly to ensure proper rendering

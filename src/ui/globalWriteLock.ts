@@ -26,9 +26,7 @@ export function isStreamingMode(): boolean {
  * Enter streaming mode - blocks all non-streaming output
  */
 export function enterStreamingMode(): void {
-  if (streamingActive) {
-    console.warn('[StreamingMode] enterStreamingMode() called while already in streaming mode');
-  }
+  // Silently handle re-entry - no console output to avoid polluting chat
   streamingActive = true;
 }
 

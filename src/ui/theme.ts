@@ -293,8 +293,8 @@ export const theme = {
 };
 
 /**
- * Erosolar-CLI style icons
- * Following the official Erosolar-CLI UI conventions:
+ * AGI CLI style icons
+ * Following the official AGI CLI UI conventions:
  * - ⏺ (action): Used for tool calls, actions, and thinking/reasoning
  * - ⎿ (subaction): Used for results, details, and nested information
  * - ─ (separator): Horizontal lines for dividing sections (not in this object)
@@ -320,13 +320,13 @@ export const icons = {
   // Tool indicators
   thinking: '◐',
   tool: '⚙',
-  action: '⏺',      // Erosolar-CLI: tool actions and thoughts
-  subaction: '⎿',   // Erosolar-CLI: results and details
+  action: '⏺',      // AGI CLI: tool actions and thoughts
+  subaction: '⎿',   // AGI CLI: results and details
 
   // User/assistant
   user: '❯',
   assistant: '◆',
-  sparkle: '✨',     // Erosolar branding
+  sparkle: '✨',     // AGI branding
 
   // Progress & loading
   loading: '⣾',

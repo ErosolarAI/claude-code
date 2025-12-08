@@ -16,8 +16,8 @@
  * - Verification result persistence
  */
 
-import { readFileSync, existsSync, writeFileSync, appendFileSync } from 'fs';
-import { spawnSync } from 'child_process';
+import { readFileSync, existsSync, writeFileSync, appendFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 
 class ContinuousVerification {
   constructor() {

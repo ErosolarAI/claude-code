@@ -119,7 +119,7 @@ function checkToolAvailability() {
 }
 
 function main() {
-  console.log('🚀 Deploying Erosolar CLI Security Capabilities\n');
+  console.log('🚀 Deploying AGI CLI Security Capabilities\n');
 
   // Load configuration
   console.log('📄 Loading configuration...');

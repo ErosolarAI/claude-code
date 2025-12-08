@@ -5,7 +5,7 @@ Modular training tracks to produce tangible outputs (labs, detections, playbooks
 ## Module 1: Orchestrator Fundamentals
 - Audience: operators and automation engineers.
 - Objectives: build/test the CLI, run single vs dual-agent modes, capture evidence.
-- Lab: `npm install && npm run build && npm test`; run `erosolar --eval "Summarize system info within scope"`; toggle `/features alphazerodual on` and compare outputs.
+- Lab: `npm install && npm run build && npm test`; run `agi --eval "Summarize system info within scope"`; toggle `/features alphazerodual on` and compare outputs.
 - Deliverables: run logs, mode comparison notes, checklist updates in `docs/unified-orchestration.md`.
 
 ## Module 2: Full-Stack Kill Chain (Lab)
@@ -23,7 +23,7 @@ Modular training tracks to produce tangible outputs (labs, detections, playbooks
 ## Module 4: Automation & Guardrails
 - Audience: platform/security engineering.
 - Objectives: script headless runs, enforce scope tokens, and centralize evidence.
-- Lab: run `erosolar --json --provider <p> --model <m> --prompt "Scoped task"` with `SECURITY_AUTHORIZATION_TOKEN` set; store output to `artifacts/.../`.
+- Lab: run `agi --json --provider <p> --model <m> --prompt "Scoped task"` with `SECURITY_AUTHORIZATION_TOKEN` set; store output to `artifacts/.../`.
 - Deliverables: CI-ready command snippets, evidence storage conventions, guardrail configuration diffs.
 
 ## Module 5: Tabletop (Leadership + Ops)

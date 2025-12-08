@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Shared full-flow runner for erosolar CLI.
+ * Shared full-flow runner for AGI CLI.
  *
  * - Enforces REAL mode (RUN_REAL_LLM_TESTS=1 + provider key)
  * - Spawns the built CLI in JSON/headless mode
@@ -17,10 +17,10 @@ import readline from 'node:readline';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const projectRoot = join(__dirname, '..');
-const distCliPath = join(projectRoot, 'dist', 'bin', 'erosolar.js');
+const distCliPath = join(projectRoot, 'dist', 'bin', 'agi.js');
 
 export const DEFAULT_PROMPTS = [
-  'You are the erosolar CLI AGI. Give a situational-awareness summary of this workspace, then list three concrete follow-up actions you would take to validate it end-to-end.',
+  'You are the AGI CLI. Give a situational-awareness summary of this workspace, then list three concrete follow-up actions you would take to validate it end-to-end.',
   'Without running destructive commands, lay out the exact build/lint/test/type-check commands you would execute here and the success criteria for each.',
   'Propose a full, human-auditable AI work cycle inside this CLI: how you gather context, plan, run tools, and prove completion with evidence.',
   'Confirm there is no simulation or placeholder behavior: describe how you will verify real provider/tool execution is engaged for this session.',
@@ -53,7 +53,7 @@ function requireRealMode(requireReal) {
 
 function ensureBuiltCli() {
   if (!fs.existsSync(distCliPath)) {
-    throw new Error('dist/bin/erosolar.js not found. Run `npm run build` before executing full-flow tests.');
+    throw new Error('dist/bin/agi.js not found. Run `npm run build` before executing full-flow tests.');
   }
 }
 
@@ -93,7 +93,7 @@ export async function runFullFlow(options = {}) {
   requireRealMode(requireReal);
 
   const args = [
-    'dist/bin/erosolar.js',
+    'dist/bin/agi.js',
     '--json',
     '--profile',
     profile,

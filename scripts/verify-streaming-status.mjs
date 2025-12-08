@@ -51,7 +51,7 @@ async function verifyStreamingStatus() {
   let output = '';
   let rawOutput = ''; // With ANSI codes
 
-  const child = spawn('node', ['dist/bin/erosolar.js', '--plain'], {
+  const child = spawn('node', ['dist/bin/agi.js', '--plain'], {
     cwd: process.cwd(),
     env: { ...process.env },
     stdio: ['pipe', 'pipe', 'pipe']

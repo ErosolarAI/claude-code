@@ -12,8 +12,8 @@
  */
 
 import { getRealAGI, resetRealAGI } from '../dist/core/realAGI.js';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 // Representative prompts for full demo
 const DEMO_PROMPTS = [

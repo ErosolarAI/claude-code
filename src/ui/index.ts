@@ -1,5 +1,5 @@
 /**
- * UI Layer - Erosolar CLI User Interface System
+ * UI Layer - AGI CLI User Interface System
  *
  * Architecture Overview:
  * ═══════════════════════════════════════════════════════════════════════════════

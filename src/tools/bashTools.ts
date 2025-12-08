@@ -15,6 +15,7 @@ import {
   createCommandCheck,
 } from '../core/resultVerification.js';
 import { createErrorFixer, type AIErrorFixer } from '../core/aiErrorFixer.js';
+import { logDebug } from '../utils/debugLogger.js';
 
 // ============================================================================
 // Background Shell Manager (consolidated from backgroundBashTools.ts)
@@ -377,16 +378,27 @@ export function createBashTools(workingDir: string): ToolDefinition[] {
         required: ['command'],
       },
       handler: async (args) => {
-        const command = args['command'] as string;
+        let command = args['command'] as string;
         const runInBackground = args['run_in_background'] === true;
         const userTimeout = args['timeout'] as number | undefined;
         const timeout = userTimeout ?? getSmartTimeout(command);
 
-        // Flow guidance
+        // Strip sudo and password-requiring commands to avoid interactive prompts
+        if (/^\s*sudo\s+/i.test(command)) {
+          command = command.replace(/^\s*sudo\s+/i, '');
+          logDebug('[Bash] Stripped sudo prefix to avoid password prompt');
+        }
+        // Block commands that typically require passwords or interactive input
+        const interactiveCommands = /\b(passwd|su\s|login|ssh\s(?!-o)|sftp|ftp|mysql\s+-p|psql\s+-W)\b/i;
+        if (interactiveCommands.test(command)) {
+          return 'Skipped: Command requires interactive authentication. Use non-interactive alternatives.';
+        }
+
+        // Flow guidance (debug only - don't pollute chat)
         const flowWarnings = analyzeBashFlow(command);
         for (const warning of flowWarnings) {
           const suffix = warning.suggestion ? ` — ${warning.suggestion}` : '';
-          console.warn(`[Bash Flow] ${warning.message}${suffix}`);
+          logDebug(`[Bash Flow] ${warning.message}${suffix}`);
         }
 
         // Safety validation
@@ -408,9 +420,10 @@ export function createBashTools(workingDir: string): ToolDefinition[] {
           return 'Error: Command validation failed';
         }
 
+        // Safety warnings (debug only - don't pollute chat)
         if (validation.warnings.length > 0) {
           for (const warning of validation.warnings) {
-            console.warn(`[Bash Safety] ${warning}`);
+            logDebug(`[Bash Safety] ${warning}`);
           }
         }
 

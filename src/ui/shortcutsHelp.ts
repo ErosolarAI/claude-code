@@ -1,5 +1,5 @@
 /**
- * Keyboard Shortcuts Help Display (Erosolar-CLI style)
+ * Keyboard Shortcuts Help Display (AGI CLI style)
  */
 
 import { theme } from './theme.js';
@@ -13,7 +13,7 @@ export interface ShortcutGroup {
   }>;
 }
 
-const EROSOLAR_SHORTCUTS: ShortcutGroup[] = [
+const AGI_SHORTCUTS: ShortcutGroup[] = [
   {
     title: 'Mode Toggles',
     shortcuts: [
@@ -73,7 +73,7 @@ const EROSOLAR_SHORTCUTS: ShortcutGroup[] = [
 ];
 
 /**
- * Format keyboard shortcuts help in Erosolar-CLI style
+ * Format keyboard shortcuts help in AGI CLI style
  */
 export function formatShortcutsHelp(): string {
   const width = Math.min(getTerminalColumns(), 80);
@@ -86,7 +86,7 @@ export function formatShortcutsHelp(): string {
   lines.push('');
 
   // Groups
-  for (const group of EROSOLAR_SHORTCUTS) {
+  for (const group of AGI_SHORTCUTS) {
     lines.push(theme.bold(`  ${group.title}`));
     lines.push('');
 
@@ -108,7 +108,7 @@ export function formatShortcutsHelp(): string {
 }
 
 /**
- * Format inline shortcut hint (Erosolar-CLI style)
+ * Format inline shortcut hint (AGI CLI style)
  */
 export function formatShortcutHint(keys: string, description: string): string {
   return `${theme.info(keys)} ${theme.ui.muted(description)}`;
@@ -129,7 +129,7 @@ export function formatQuickShortcuts(): string {
 }
 
 /**
- * Get the current edit mode description (Erosolar-CLI style)
+ * Get the current edit mode description (AGI CLI style)
  * Format: "⏵⏵ accept edits on"
  */
 export function formatEditModeIndicator(mode: 'auto' | 'ask' | 'plan'): string {
@@ -152,7 +152,7 @@ export function formatEditModeIndicator(mode: 'auto' | 'ask' | 'plan'): string {
 }
 
 /**
- * Format a task in progress indicator (Erosolar-CLI style)
+ * Format a task in progress indicator (AGI CLI style)
  * Format: "✢ Task description…"
  * Optional next step: "  ⎿ Next: description"
  */
@@ -171,7 +171,7 @@ export function formatTaskInProgress(task: string, nextStep?: string): string {
 }
 
 /**
- * Format a completed thought indicator (Erosolar-CLI style)
+ * Format a completed thought indicator (AGI CLI style)
  * Format: "∴ Thought for Xs"
  */
 export function formatThoughtComplete(durationSeconds: number): string {

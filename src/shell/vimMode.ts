@@ -1,5 +1,5 @@
 /**
- * Vim Mode - Erosolar-CLI Style
+ * Vim Mode - AGI CLI Style
  *
  * Vim-style editing support for the terminal input.
  * Toggle with /vim command or Ctrl+[ to escape.

@@ -1,12 +1,12 @@
 /**
- * Text Highlighter - Erosolar-CLI style
+ * Text Highlighter - AGI CLI style
  * Applies sophisticated coloring to different text types
  */
 
 import { theme } from './theme.js';
 
 /**
- * Highlight file paths (Erosolar-CLI style)
+ * Highlight file paths (AGI CLI style)
  * Example: src/ui/display.ts
  */
 export function highlightFilePath(path: string): string {
@@ -45,7 +45,7 @@ export function highlightQuotedStrings(text: string): string {
 }
 
 /**
- * Highlight keywords (Erosolar-CLI style)
+ * Highlight keywords (AGI CLI style)
  * Example: function, class, const, let, etc.
  */
 export function highlightKeywords(text: string): string {
@@ -76,7 +76,7 @@ export function highlightUrls(text: string): string {
 }
 
 /**
- * Highlight error messages (Erosolar-CLI style)
+ * Highlight error messages (AGI CLI style)
  * Makes errors stand out with proper coloring and clickable file references
  */
 export function highlightError(text: string): string {
@@ -92,7 +92,7 @@ export function highlightError(text: string): string {
     (_, code) => `error ${theme.error.bold(code)}:`
   );
 
-  // Highlight file:line:col references (Erosolar-CLI style - make them look clickable)
+  // Highlight file:line:col references (AGI CLI style - make them look clickable)
   // Pattern: path/to/file.ts(10,5) or path/to/file.ts:10:5
   text = text.replace(
     /([a-zA-Z0-9_\-./]+\.[a-zA-Z]+)\((\d+),(\d+)\)/g,
@@ -131,7 +131,7 @@ export function highlightError(text: string): string {
 }
 
 /**
- * Format file:line reference for terminal output (Erosolar-CLI style)
+ * Format file:line reference for terminal output (AGI CLI style)
  * Returns a formatted string that looks like a clickable reference
  */
 export function formatFileLineRef(filePath: string, line?: number, col?: number): string {
@@ -175,14 +175,14 @@ export function highlightWarning(text: string): string {
 }
 
 /**
- * Highlight tool names (Erosolar-CLI style)
+ * Highlight tool names (AGI CLI style)
  */
 export function highlightToolName(name: string): string {
   return theme.info.bold(name);
 }
 
 /**
- * Highlight command output (Erosolar-CLI style)
+ * Highlight command output (AGI CLI style)
  * Applies context-aware highlighting
  */
 export function highlightCommandOutput(output: string, command?: string): string {
@@ -314,7 +314,7 @@ export function emphasizeText(text: string): string {
 }
 
 /**
- * Highlight thinking blocks (Erosolar-CLI style)
+ * Highlight thinking blocks (AGI CLI style)
  * Wraps <thinking>...</thinking> content in a styled box
  */
 export function highlightThinkingBlock(text: string): string {

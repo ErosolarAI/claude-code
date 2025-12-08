@@ -6,8 +6,8 @@
  * Converts Node.js test runner tests to Jest format
  */
 
-import { readFileSync, writeFileSync, readdirSync } from 'fs';
-import { join, extname } from 'path';
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { join, extname } from 'node:path';
 
 const testDir = './test';
 

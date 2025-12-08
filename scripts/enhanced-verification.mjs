@@ -14,10 +14,10 @@
  * Uses AI-driven analysis to detect verification gaps and suggest improvements.
  */
 
-import { spawnSync, execSync } from 'child_process';
-import { readFileSync, existsSync, writeFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
+import { spawnSync, execSync } from 'node:child_process';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

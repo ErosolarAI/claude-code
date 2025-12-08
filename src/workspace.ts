@@ -33,12 +33,15 @@ export function buildWorkspaceContext(root: string, options: WorkspaceCaptureOpt
   // CRITICAL: Validate options BEFORE building context
   const optionsValidation = validateWorkspaceOptions(options);
   if (!optionsValidation.valid) {
-    console.error('[Workspace Context] Invalid options:', optionsValidation.errors);
+    // Only log in debug mode to avoid polluting chat
+    if (process.env['DEBUG_CONTEXT']) {
+      console.error('[Workspace Context] Invalid options:', optionsValidation.errors);
+    }
     throw new Error(`Invalid workspace options: ${optionsValidation.errors.join(', ')}`);
   }
 
-  // Log warnings if any
-  if (optionsValidation.warnings.length > 0) {
+  // Warnings only in debug mode
+  if (optionsValidation.warnings.length > 0 && process.env['DEBUG_CONTEXT']) {
     console.warn('[Workspace Context] Warnings:', optionsValidation.warnings);
   }
 
@@ -78,9 +81,10 @@ export function buildWorkspaceContext(root: string, options: WorkspaceCaptureOpt
 
     return safe.content;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('[Workspace Context] Failed to build context:', message);
-    if (DEBUG_CONTEXT_ERRORS) {
+    // Only log errors in debug mode to avoid polluting chat
+    if (DEBUG_CONTEXT_ERRORS || process.env['DEBUG_CONTEXT']) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[Workspace Context] Failed to build context:', message);
       console.error(error);
     }
     return null;

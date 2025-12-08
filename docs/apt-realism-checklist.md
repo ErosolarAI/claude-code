@@ -8,7 +8,7 @@ Use this to ensure engagements are exercising real techniques and telemetry, not
 - Evidence path ready: `artifacts/<engagement-id>/`.
 
 ## Real execution validation
-- [ ] No dry-run/simulation flags enabled in commands or scripts; headless runs use the same prompts and tools as operators (`erosolar --json --provider ...`).
+- [ ] No dry-run/simulation flags enabled in commands or scripts; headless runs use the same prompts and tools as operators (`agi --json --provider ...`).
 - [ ] Targets are real systems in scope (lab or approved prod); avoid mock endpoints.
 - [ ] Payloads/commands produce observable system changes (processes, files, network flows) confirmed via host/network telemetry.
 - [ ] Dual verification: operator console output plus independent logs (EDR/SIEM/NDR/pcap) show the activity.

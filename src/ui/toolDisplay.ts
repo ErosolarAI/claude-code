@@ -1,7 +1,7 @@
 /**
- * Tool Display Formatter - Erosolar-CLI style
+ * Tool Display Formatter - AGI CLI style
  *
- * Implements the clean, informative tool execution display that Erosolar-CLI uses:
+ * Implements the clean, informative tool execution display that AGI CLI uses:
  * - Tool call indicators with inline args
  * - Result summaries with status indicators
  * - Expandable content with previews
@@ -47,7 +47,7 @@ export interface DiffLine {
 }
 
 /**
- * Format tool call display (Erosolar-CLI style)
+ * Format tool call display (AGI CLI style)
  *
  * Example output:
  * ⏺ [Read] src/core/agent.ts
@@ -69,7 +69,7 @@ export function formatToolCall(
 }
 
 /**
- * Format tool result display (Erosolar-CLI style)
+ * Format tool result display (AGI CLI style)
  *
  * Example output:
  * ⎿  Read 340 lines
@@ -244,7 +244,7 @@ export function formatExpandablePreview(
 }
 
 /**
- * Format diff output (Erosolar-CLI style)
+ * Format diff output (AGI CLI style)
  *
  * Example:
  * Update(src/core/agent.ts)
@@ -491,7 +491,7 @@ export function formatCompactEdit(
 }
 
 /**
- * Format multiline content with indentation (Erosolar-CLI style)
+ * Format multiline content with indentation (AGI CLI style)
  *
  * Adds proper indentation and line wrapping
  */
@@ -628,7 +628,7 @@ export function formatJSON(data: unknown, compact = false): string {
 }
 
 /**
- * Format a list of items (Erosolar-CLI style)
+ * Format a list of items (AGI CLI style)
  * Example:
  *   • Item 1
  *   • Item 2
@@ -639,7 +639,7 @@ export function formatList(items: string[], bullet = '•'): string {
 }
 
 /**
- * Format a key-value pair (Erosolar-CLI style)
+ * Format a key-value pair (AGI CLI style)
  */
 export function formatKeyValue(key: string, value: string): string {
   return `${theme.ui.muted(key)}: ${value}`;
