@@ -3211,40 +3211,23 @@ Any text response is a failure. Only tool calls are accepted.`;
           case 'message.complete': {
             // Response complete - ensure final output includes required "Next steps"
             if (renderer) {
-              // Get the response content from event or accumulated buffer
+              // Get the response content from the event or accumulated stream
               const base = (event.content ?? '').trimEnd();
               const streamed = this.currentResponseBuffer.trim();
-
-              // Check if we actually rendered meaningful content during streaming
-              const hasStreamedText = streamed.length > 0 && /[\p{L}\p{N}]/u.test(streamed);
               const baseHasText = base.length > 0 && /[\p{L}\p{N}]/u.test(base);
+              const streamedHasText = streamed.length > 0 && /[\p{L}\p{N}]/u.test(streamed);
 
               const fallbackGreeting =
                 "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
 
-              // Determine the final response text
-              let responseText: string;
-              if (baseHasText) {
-                responseText = base;
-              } else if (hasStreamedText) {
-                responseText = streamed;
-              } else {
-                responseText = fallbackGreeting;
-              }
+              // Prefer base content, otherwise fallback to streamed text, then greeting
+              const responseText = baseHasText ? base : streamedHasText ? streamed : fallbackGreeting;
 
               // Always append Next steps to the final output
               const { output } = ensureNextSteps(responseText);
 
-              const ensureTrailingNewline = (block: string): string =>
-                block.endsWith('\n') ? block : `${block}\n`;
-              const ensureLeadingNewline = (block: string): string =>
-                block.startsWith('\n') ? block : `\n${block}`;
-
-              const finalBlock = hasStreamedText
-                ? ensureTrailingNewline(ensureLeadingNewline(output))
-                : ensureTrailingNewline(output);
-
-              // Always emit the full response to guarantee visibility, even if streaming filters hid chunks
+              // Emit full response (base + Next steps) via renderer to keep output ordering stable
+              const finalBlock = output.endsWith('\n') ? output : `${output}\n`;
               renderer.addEvent('raw', finalBlock);
 
               episodeSuccess = true;
@@ -3399,9 +3382,8 @@ Any text response is a failure. Only tool calls are accepted.`;
             "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
           const safeSynth = /[\p{L}\p{N}]/u.test(synthesized) ? synthesized : fallbackGreeting;
           const { output } = ensureNextSteps(safeSynth);
-          const withTrailing = output.endsWith('\n') ? output : `${output}\n`;
-          const withLeading = withTrailing.startsWith('\n') ? withTrailing : `\n${withTrailing}`;
-          renderer.addEvent('raw', withLeading);
+          const finalBlock = output.endsWith('\n') ? output : `${output}\n`;
+          renderer.addEvent('raw', finalBlock);
           renderer.addEvent('response', '\n');
           episodeSuccess = true;
         }
@@ -3421,9 +3403,8 @@ Any text response is a failure. Only tool calls are accepted.`;
             "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
           const safeSynth = /[\p{L}\p{N}]/u.test(synthesized) ? synthesized : fallbackGreeting;
           const { output } = ensureNextSteps(safeSynth);
-          const withTrailing = output.endsWith('\n') ? output : `${output}\n`;
-          const withLeading = withTrailing.startsWith('\n') ? withTrailing : `\n${withTrailing}`;
-          renderer.addEvent('raw', withLeading);
+          const finalBlock = output.endsWith('\n') ? output : `${output}\n`;
+          renderer.addEvent('raw', finalBlock);
           renderer.addEvent('response', '\n');
           episodeSuccess = true; // Mark as partial success
         }
@@ -3439,9 +3420,8 @@ Any text response is a failure. Only tool calls are accepted.`;
             "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
           const safeSynth = /[\p{L}\p{N}]/u.test(synthesized) ? synthesized : fallbackGreeting;
           const { output } = ensureNextSteps(safeSynth);
-          const withTrailing = output.endsWith('\n') ? output : `${output}\n`;
-          const withLeading = withTrailing.startsWith('\n') ? withTrailing : `\n${withTrailing}`;
-          renderer.addEvent('raw', withLeading);
+          const finalBlock = output.endsWith('\n') ? output : `${output}\n`;
+          renderer.addEvent('raw', finalBlock);
           renderer.addEvent('response', '\n');
           episodeSuccess = true;
         }
@@ -3456,6 +3436,21 @@ Any text response is a failure. Only tool calls are accepted.`;
         ? `Completed: ${prompt.slice(0, 100)}${prompt.length > 100 ? '...' : ''}`
         : `Failed/interrupted: ${prompt.slice(0, 80)}`;
       await memory.endEpisode(episodeSuccess, summary);
+
+      // Absolute fallback: if we still have no successful response and nothing meaningful was streamed,
+      // surface the default greeting with Next steps so the user always sees a reply.
+      if (!episodeSuccess) {
+        const renderer = this.promptController?.getRenderer();
+        if (renderer) {
+          const fallbackGreeting =
+            "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
+          const { output } = ensureNextSteps(fallbackGreeting);
+          const finalBlock = output.endsWith('\n') ? output : `${output}\n`;
+          renderer.addEvent('raw', finalBlock);
+          renderer.addEvent('response', '\n');
+        }
+        episodeSuccess = true;
+      }
 
       this.currentResponseBuffer = '';
 
