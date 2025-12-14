@@ -3176,10 +3176,6 @@ Any text response is a failure. Only tool calls are accepted.`;
             const deltaContent = event.content ?? '';
             this.currentResponseBuffer += deltaContent;
 
-            // Let renderer handle filtering so we don't drop formatting-only chunks (e.g., ``` or newlines)
-            if (renderer && deltaContent) {
-              renderer.addEvent('stream', deltaContent);
-            }
             // Reset reasoning timer only when we get actual non-empty content
             if (deltaContent && deltaContent.trim()) {
               reasoningOnlyStartTime = null;
