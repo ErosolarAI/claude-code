@@ -1,0 +1,325 @@
+import { createAppleExploitationTools } from './appleExploitation.js';
+import { createAppleSecurityAuditTools } from './appleSecurityAudit.js';
+import type { ToolDefinition } from '../../core/toolRuntime.js';
+
+// Apple Tool Categories for UI Organization
+export const APPLE_TOOL_CATEGORIES = {
+  reconnaissance: [
+    'AppleRecon',
+    'AppleEnum',
+    'AppleVulnScan'
+  ],
+  exploitation: [
+    'AppleExploit',
+    'ApplePostExploit',
+    'AppleWirelessAttack',
+    'AppleSecurityBypass'
+  ],
+  audit: [
+    'AppleSecurityAudit',
+    'AppleAuthAudit',
+    'AppleNetworkAudit',
+    'AppleEncryptionAudit',
+    'AppleConfigAudit',
+    'AppleCodeExecutionAudit'
+  ],
+  compliance: [
+    'AppleComplianceCheck',
+    'AppleVulnerabilityManagement'
+  ],
+  persistence: [
+    'ApplePersistence'
+  ],
+  testing: [
+    'AppleSecTest'
+  ]
+};
+
+// Apple Service Mappings for Auto-Suggestion
+export const APPLE_SERVICE_MAPPINGS = {
+  'appleid.apple.com': ['AppleAuthAudit', 'AppleSecurityAudit'],
+  'icloud.com': ['AppleAuthAudit', 'AppleNetworkAudit', 'AppleEncryptionAudit'],
+  'push.apple.com': ['AppleNetworkAudit', 'AppleSecurityAudit'],
+  'developer.apple.com': ['AppleSecurityAudit', 'AppleComplianceCheck'],
+  'appstoreconnect.apple.com': ['AppleSecurityAudit', 'AppleComplianceCheck'],
+  'mesu.apple.com': ['AppleNetworkAudit', 'AppleVulnerabilityManagement'],
+  'business.apple.com': ['AppleSecurityAudit', 'AppleComplianceCheck'],
+  'school.apple.com': ['AppleSecurityAudit', 'AppleComplianceCheck']
+};
+
+// Apple Security Recommendations Database
+export const APPLE_SECURITY_RECOMMENDATIONS = {
+  critical: [
+    'Apply all Apple security updates immediately',
+    'Enable System Integrity Protection (SIP) on macOS',
+    'Use two-factor authentication for all Apple IDs',
+    'Disable unnecessary Apple services and ports',
+    'Implement network segmentation for Apple infrastructure'
+  ],
+  high: [
+    'Regularly audit Apple ID account access',
+    'Monitor Apple Push Notification Service traffic',
+    'Use certificate pinning for Apple APIs',
+    'Implement Apple-specific intrusion detection',
+    'Conduct regular Apple security assessments'
+  ],
+  medium: [
+    'Review Apple device configuration policies',
+    'Enable Gatekeeper on macOS',
+    'Use Mobile Device Management (MDM) for Apple devices',
+    'Implement Apple Keychain security best practices',
+    'Monitor Apple network protocol usage'
+  ]
+};
+
+// Apple Tool Suggestions based on target
+export function getAppleToolSuggestions(target: string): string[] {
+  const suggestions: string[] = [];
+  
+  // Add basic Apple tools for any target
+  suggestions.push('AppleSecurityAudit', 'AppleRecon');
+  
+  // Add specific tools based on target analysis
+  if (target.includes('appleid') || target.includes('icloud')) {
+    suggestions.push('AppleAuthAudit', 'AppleEncryptionAudit');
+  }
+  
+  if (target.includes('push') || target.includes('apns')) {
+    suggestions.push('AppleNetworkAudit', 'AppleWirelessAttack');
+  }
+  
+  if (target.includes('developer') || target.includes('appstore')) {
+    suggestions.push('AppleComplianceCheck', 'AppleSecTest');
+  }
+  
+  if (target.includes('business') || target.includes('school')) {
+    suggestions.push('AppleComplianceCheck', 'AppleVulnerabilityManagement');
+  }
+  
+  // Remove duplicates and return
+  return [...new Set(suggestions)];
+}
+
+// Apple Security Score Calculator
+export function calculateAppleSecurityScore(findings: any[]): {
+  score: number;
+  breakdown: Record<string, number>;
+  grade: string;
+} {
+  const severityWeights = {
+    critical: 10,
+    high: 7,
+    medium: 4,
+    low: 1,
+    info: 0
+  };
+  
+  let totalWeight = 0;
+  const categoryWeights: Record<string, number> = {};
+  
+  for (const finding of findings) {
+    const weight = severityWeights[finding.severity] || 0;
+    totalWeight += weight;
+    
+    const category = finding.category || 'unknown';
+    categoryWeights[category] = (categoryWeights[category] || 0) + weight;
+  }
+  
+  // Calculate score (0-100, higher is better)
+  const maxWeight = findings.length * severityWeights.critical;
+  const rawScore = maxWeight > 0 ? Math.max(0, 100 - Math.round((totalWeight / maxWeight) * 100)) : 100;
+  
+  // Apply curve for more realistic scoring
+  const curvedScore = Math.min(100, Math.round(rawScore * 1.2));
+  
+  // Determine grade
+  let grade = 'F';
+  if (curvedScore >= 90) grade = 'A';
+  else if (curvedScore >= 80) grade = 'B';
+  else if (curvedScore >= 70) grade = 'C';
+  else if (curvedScore >= 60) grade = 'D';
+  
+  return {
+    score: curvedScore,
+    breakdown: categoryWeights,
+    grade
+  };
+}
+
+// Apple Tool Result Formatter for UI
+export function formatAppleToolResult(tool: string, result: any): string {
+  const timestamp = new Date().toISOString();
+  
+  switch (tool) {
+    case 'AppleSecurityAudit':
+      return `🔐 Apple Security Audit Complete
+Target: ${result.target || 'Unknown'}
+Security Score: ${result.summary?.securityScore || 0}/100 (${result.summary?.securityScore || 0 >= 80 ? '🟢' : result.summary?.securityScore || 0 >= 60 ? '🟡' : '🔴'})
+Findings: ${result.summary?.totalFindings || 0} (${result.summary?.critical || 0} critical, ${result.summary?.high || 0} high)
+Timestamp: ${timestamp}`;
+    
+    case 'AppleAuthAudit':
+      return `🔑 Apple Authentication Audit
+Target: ${result.target || 'Unknown'}
+Category: ${result.category || 'authentication'}
+Findings: ${result.summary?.totalFindings || 0}
+Critical Issues: ${result.findings?.filter((f: any) => f.severity === 'critical').length || 0}
+Timestamp: ${timestamp}`;
+    
+    case 'AppleExploit':
+      return `⚡ Apple Exploitation Attempt
+Target: ${result.target || 'Unknown'}
+Exploit: ${result.exploitUsed || 'Unknown'}
+Success: ${result.success ? '✅ Yes' : '❌ No'}
+Access: ${result.accessGained || 'None'}
+Timestamp: ${timestamp}`;
+    
+    case 'AppleWirelessAttack':
+      return `📡 Apple Wireless Attack
+Interface: ${result.interface || 'Unknown'}
+Attack Type: ${result.attackType || 'Unknown'}
+Success: ${result.success ? '✅ Yes' : '❌ No'}
+Devices Discovered: ${result.devicesDiscovered?.length || 0}
+Timestamp: ${timestamp}`;
+    
+    case 'AppleComplianceCheck':
+      return `📋 Apple Compliance Check
+Standard: ${result.standard || 'Unknown'}
+Checks Performed: ${result.complianceChecks?.length || 0}
+Status: ${result.status || 'Unknown'}
+Timestamp: ${timestamp}`;
+    
+    default:
+      return `🍎 Apple Tool Execution: ${tool}
+Target: ${result.target || 'Unknown'}
+Status: Complete
+Timestamp: ${timestamp}`;
+  }
+}
+
+// Generate Apple Security Report
+export function generateAppleSecurityReport(auditResults: any[], target: string): string {
+  const timestamp = new Date().toISOString();
+  const allFindings = auditResults.flatMap((r: any) => r.findings || []);
+  const securityScore = calculateAppleSecurityScore(allFindings);
+  
+  let report = `# Apple Security Assessment Report
+## Executive Summary
+
+**Target:** ${target}
+**Assessment Date:** ${timestamp}
+**Overall Security Score:** ${securityScore.score}/100 (${securityScore.grade})
+
+## Assessment Results
+
+`;
+  
+  // Add results from each tool
+  for (const result of auditResults) {
+    report += `### ${result.tool || 'Unknown Tool'}
+**Target:** ${result.target || 'N/A'}
+**Findings:** ${result.summary?.totalFindings || 0}
+**Critical:** ${result.summary?.critical || 0}
+**High:** ${result.summary?.high || 0}
+**Medium:** ${result.summary?.medium || 0}
+**Low:** ${result.summary?.low || 0}
+
+`;
+  }
+  
+  // Add findings breakdown
+  report += `## Findings Breakdown by Category
+`;
+  
+  const categoryBreakdown: Record<string, number> = {};
+  for (const finding of allFindings) {
+    const category = finding.category || 'unknown';
+    categoryBreakdown[category] = (categoryBreakdown[category] || 0) + 1;
+  }
+  
+  for (const [category, count] of Object.entries(categoryBreakdown)) {
+    report += `- **${category}**: ${count} findings\n`;
+  }
+  
+  // Add critical findings
+  const criticalFindings = allFindings.filter((f: any) => f.severity === 'critical');
+  if (criticalFindings.length > 0) {
+    report += `
+## Critical Findings Requiring Immediate Attention
+`;
+    
+    for (const finding of criticalFindings.slice(0, 10)) { // Limit to top 10
+      report += `### ${finding.title}
+**ID:** ${finding.id}
+**Description:** ${finding.description}
+**Impact:** ${finding.impact}
+**Remediation:** ${finding.remediation}
+**CVEs:** ${finding.cves?.join(', ') || 'None'}
+
+`;
+    }
+  }
+  
+  // Add recommendations
+  report += `## Security Recommendations
+
+### Immediate Actions (Next 24-48 hours)
+`;
+  
+  for (const rec of APPLE_SECURITY_RECOMMENDATIONS.critical.slice(0, 3)) {
+    report += `- ${rec}\n`;
+  }
+  
+  report += `
+### Short-Term Actions (Next 1-2 weeks)
+`;
+  
+  for (const rec of APPLE_SECURITY_RECOMMENDATIONS.high.slice(0, 3)) {
+    report += `- ${rec}\n`;
+  }
+  
+  report += `
+### Ongoing Security Practices
+`;
+  
+  for (const rec of APPLE_SECURITY_RECOMMENDATIONS.medium.slice(0, 3)) {
+    report += `- ${rec}\n`;
+  }
+  
+  report += `
+## Next Steps
+1. Prioritize remediation of critical findings
+2. Implement security recommendations
+3. Schedule follow-up assessment in 30 days
+4. Establish continuous Apple security monitoring
+5. Develop Apple-specific incident response procedures
+
+---
+*Generated by AGI Core Apple Security Framework*
+*Report ID: ${Date.now().toString(36).toUpperCase()}*
+`;
+  
+  return report;
+}
+
+// Main function to create all Apple tools
+export function createAllAppleTools() {
+  const exploitationTools = createAppleExploitationTools();
+  const auditTools = createAppleSecurityAuditTools();
+  
+  // Combine all tools
+  const allTools = [
+    ...exploitationTools.tools,
+    ...auditTools.tools
+  ];
+  
+  return {
+    id: 'all-apple-tools',
+    tools: allTools,
+    categories: APPLE_TOOL_CATEGORIES,
+    getSuggestions: getAppleToolSuggestions,
+    formatResult: formatAppleToolResult,
+    generateReport: generateAppleSecurityReport,
+    calculateScore: calculateAppleSecurityScore
+  };
+}

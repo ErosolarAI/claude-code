@@ -4,7 +4,7 @@ import { createEditToolPlugin } from './edit/editPlugin.js';
 import { createLocalSearchToolPlugin } from './search/localSearchPlugin.js';
 import { createLocalBashToolPlugin } from './bash/localBashPlugin.js';
 import { createEnhancedGitToolPlugin } from './enhancedGit/enhancedGitPlugin.js';
-import { createTaoToolPlugin } from './tao/taoPlugin.js';
+import { createSecureTaoToolPlugin } from './tao/secureTaoPlugin.js';
 
 let registered = false;
 
@@ -17,6 +17,7 @@ let registered = false;
  * - search: Unified search (files, content, definitions)
  * - bash: Execute commands
  * - enhanced-git: Git operations
+ * - secure-tao: Secure security tooling
  */
 export function registerDefaultNodeToolPlugins(): void {
   if (registered) return;
@@ -26,7 +27,7 @@ export function registerDefaultNodeToolPlugins(): void {
   registerToolPlugin(createLocalSearchToolPlugin());
   registerToolPlugin(createLocalBashToolPlugin());
   registerToolPlugin(createEnhancedGitToolPlugin());
-  registerToolPlugin(createTaoToolPlugin());
+  registerToolPlugin(createSecureTaoToolPlugin());
 
   registered = true;
 }
