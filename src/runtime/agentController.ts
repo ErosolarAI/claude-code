@@ -56,6 +56,7 @@ class EventStream<T> implements AsyncIterableIterator<T> {
       return;
     }
     this.failure = error;
+    this.closed = true; // Mark as closed to prevent new pending promises
     if (this.pending) {
       this.pending.reject(error);
       this.pending = null;
@@ -250,10 +251,8 @@ export class AgentController implements IAgentController {
   private createAgentCallbacks(): AgentCallbacks {
     return {
       onRequestReceived: (requestPreview) => {
-        // Acknowledge user request before any processing
-        if (requestPreview?.trim()) {
-          this.emitDelta(`I'll help with: "${requestPreview.slice(0, 100)}${requestPreview.length > 100 ? '...' : ''}"\n\n`, false);
-        }
+        // Signal to UI that request was received - let model handle natural acknowledgment
+        // Don't emit verbatim echo - it's redundant and the model's response should acknowledge contextually
         this.externalCallbacks?.onRequestReceived?.(requestPreview);
       },
       onAssistantMessage: (content, metadata) => {

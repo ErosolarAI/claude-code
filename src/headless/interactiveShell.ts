@@ -51,8 +51,9 @@ const ATTACK_ENV_FLAG = process.env['AGI_ENABLE_ATTACKS'] === '1';
 const MAX_TOURNAMENT_ROUNDS = 8; // Safety cap to avoid runaway loops
 
 // Timeout constants for regular prompt processing (reasoning models like DeepSeek)
-const PROMPT_REASONING_TIMEOUT_MS = 8_000; // 8s max for reasoning-only without action
-const PROMPT_STEP_TIMEOUT_MS = 15_000; // 15s per event
+// Increased to accommodate slower reasoning models that need more time to think
+const PROMPT_REASONING_TIMEOUT_MS = 30_000; // 30s max for reasoning-only without action
+const PROMPT_STEP_TIMEOUT_MS = 60_000; // 60s per event - allow models time to reason
 
 /**
  * Iterate over an async iterator with a timeout per iteration.
@@ -3060,7 +3061,7 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Track total prompt processing time to prevent infinite loops
     const promptStartTime = Date.now();
-    const TOTAL_PROMPT_TIMEOUT_MS = 15_000; // 15s max for entire prompt without meaningful content
+    const TOTAL_PROMPT_TIMEOUT_MS = 120_000; // 2 min max for entire prompt without meaningful content
     let hasReceivedMeaningfulContent = false;
     // Track response content separately - tool calls don't count for reasoning timeout
     let hasReceivedResponseContent = false;

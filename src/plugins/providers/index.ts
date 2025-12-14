@@ -1,9 +1,5 @@
-import { registerOpenAIProviderPlugin } from './openai/index.js';
-import { registerAnthropicProviderPlugin } from './anthropic/index.js';
 import { registerDeepSeekProviderPlugin } from './deepseek/index.js';
 import { registerXaiProviderPlugin } from './xai/index.js';
-import { registerGoogleProviderPlugin } from './google/index.js';
-import { registerOllamaProviderPlugin } from './ollama/index.js';
 
 let defaultsRegistered = false;
 
@@ -12,12 +8,9 @@ export function registerDefaultProviderPlugins(): void {
     return;
   }
 
-  registerOpenAIProviderPlugin();
-  registerAnthropicProviderPlugin();
+  // Only deepseek (default) and xai (backup) are supported
   registerDeepSeekProviderPlugin();
   registerXaiProviderPlugin();
-  registerGoogleProviderPlugin();
-  registerOllamaProviderPlugin();
 
   defaultsRegistered = true;
 }

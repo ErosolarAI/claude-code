@@ -24,8 +24,8 @@ export function registerDeepSeekProviderPlugin(): void {
       model: config.model,
       baseURL: 'https://api.deepseek.com',
       providerId: 'deepseek',
-      // DeepSeek can be slower, use longer timeout
-      timeout: 180000, // 3 minutes
+      // DeepSeek timeout - balance between allowing reasoning time and not freezing UI
+      timeout: 60000, // 60 seconds per API call
       // Built-in retries at provider level
       maxRetries: 3,
       ...(typeof config.temperature === 'number' ? { temperature: config.temperature } : {}),
