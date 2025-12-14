@@ -368,14 +368,30 @@ function sanitizeAgainstLoadedSecrets(message: string): string {
 
   for (const name of secretNames) {
     const value = process.env[name];
-    if (value && value.length >= 8) {
+    if (value && value.length >= 4) { // Reduced from 8 to catch shorter keys
       // Only sanitize if the value appears in the message
       // Use a case-sensitive exact match to avoid false positives
       if (sanitized.includes(value)) {
         sanitized = sanitized.split(value).join('[REDACTED]');
       }
+      
+      // Also sanitize partial matches (first 8 chars + last 4 chars pattern)
+      if (value.length >= 12) {
+        const partialPattern = `${value.substring(0, 8)}...${value.substring(value.length - 4)}`;
+        if (sanitized.includes(partialPattern)) {
+          sanitized = sanitized.split(partialPattern).join('[REDACTED_PARTIAL]');
+        }
+      }
     }
   }
+  
+  // Additional OpenAI-specific key patterns
+  // OpenAI keys: sk-proj-..., sk-..., org-...
+  const openaiKeyPattern = /sk-(proj-)?[a-zA-Z0-9]{20,}/g;
+  sanitized = sanitized.replace(openaiKeyPattern, '[REDACTED_OPENAI_KEY]');
+  
+  const openaiOrgPattern = /org-[a-zA-Z0-9]{20,}/g;
+  sanitized = sanitized.replace(openaiOrgPattern, '[REDACTED_OPENAI_ORG]');
 
   return sanitized;
 }

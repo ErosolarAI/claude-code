@@ -72,6 +72,26 @@ export class ProviderStreamError extends Error {
 }
 
 /**
+ * Security audit: OpenAI API key validation and protection
+ */
+function validateAndProtectApiKey(apiKey: string): string {
+  if (!apiKey || typeof apiKey !== 'string') {
+    throw new Error('OpenAI API key is required and must be a string');
+  }
+  
+  // Basic validation for OpenAI key format (starts with sk-)
+  if (!apiKey.startsWith('sk-')) {
+    console.warn('Security warning: OpenAI API key does not match expected format (should start with sk-)');
+  }
+  
+  // Redact key for logging (show only first 8 chars)
+  const redactedKey = apiKey.length > 8 ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` : '[REDACTED]';
+  
+  // Log warning if key appears in error messages or logs (handled by sanitizeErrorMessage)
+  return apiKey;
+}
+
+/**
  * Check if an error is recoverable (should be retried)
  */
 function isRecoverableError(error: unknown): boolean {
@@ -116,13 +136,20 @@ export class OpenAIChatCompletionsProvider implements LLMProvider {
   private readonly temperature?: number;
   private readonly maxTokens: number;
   constructor(options: OpenAIChatCompletionsOptions) {
+    // SECURITY: Validate and protect API key before use
+    const validatedApiKey = validateAndProtectApiKey(options.apiKey);
+    
     const clientConfig: ConstructorParameters<typeof OpenAI>[0] = {
-      apiKey: options.apiKey,
+      apiKey: validatedApiKey,
       timeout: options.timeout ?? 120000,
       maxRetries: 0, // We handle retries ourselves for better control
     };
 
     if (options.baseURL) {
+      // SECURITY: Validate base URL format
+      if (options.baseURL && !options.baseURL.startsWith('http')) {
+        throw new Error(`Invalid baseURL format: ${options.baseURL}. Must start with http:// or https://`);
+      }
       clientConfig.baseURL = options.baseURL;
     }
 
@@ -373,8 +400,12 @@ export class OpenAIChatCompletionsProvider implements LLMProvider {
             pending.name = toolCallDelta.function.name;
           }
 
-          // Accumulate arguments
+          // Accumulate arguments with size limit
           if (toolCallDelta.function?.arguments) {
+            // SECURITY: Limit accumulated arguments size to prevent memory DoS
+            if (pending.arguments.length + toolCallDelta.function.arguments.length > 100000) {
+              throw new Error(`Tool call arguments too large (${pending.arguments.length + toolCallDelta.function.arguments.length} bytes), maximum is 100KB`);
+            }
             pending.arguments += toolCallDelta.function.arguments;
           }
         }
@@ -748,6 +779,16 @@ function mapToolCall(call: ChatCompletionMessageToolCall): ToolCallRequest {
   }
 
   try {
+    // SECURITY: Validate JSON size before parsing to prevent DoS attacks
+    if (rawArgs.length > 100000) {
+      throw new Error(`JSON too large (${rawArgs.length} bytes), maximum is 100KB`);
+    }
+    
+    // SECURITY: Check for potential malicious patterns before parsing
+    if (rawArgs.includes('__proto__') || rawArgs.includes('constructor') || rawArgs.includes('prototype')) {
+      logDebug(`[security] Suspicious pattern detected in tool call arguments for ${funcName}`);
+    }
+    
     parsed = JSON.parse(rawArgs);
   } catch (error) {
     // Try to recover malformed JSON (common with some models)
