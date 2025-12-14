@@ -131,6 +131,5 @@ export const BUILTIN_PLUGINS = [
   'tool.bash.local',
   'tool.search.local',
   'tool.edit',
-  'tool.glob',
   'tool.enhanced-git',
 ] as const;

@@ -41,6 +41,7 @@ import { getRepoTelemetrySnapshot } from '../tools/telemetryTools.js';
 
 const exec = promisify(childExec);
 import { ensureNextSteps } from '../core/finalResponseFormatter.js';
+import { getTaskCompletionDetector } from '../core/taskCompletionDetector.js';
 
 // Timeout constants for attack tournament - balanced for model response time
 const ATTACK_AGENT_STEP_TIMEOUT_MS = 8_000; // 8s per agent step - fail fast
@@ -230,6 +231,8 @@ class InteractiveShell {
         onExit: () => this.handleExit(),
         onCtrlC: (info) => this.handleCtrlC(info),
         onToggleDualRl: () => this.handleDualRlToggle(),
+        onToggleAutoContinue: () => this.handleAutoContinueToggle(),
+        onToggleVerify: () => this.handleVerifyToggle(),
       }
     );
 
@@ -3365,8 +3368,72 @@ Any text response is a failure. Only tool calls are accepted.`;
         if (next) {
           await this.processPrompt(next);
         }
+      } else if (!this.shouldExit) {
+        // Auto-continue mode: automatically generate follow-up prompts
+        const autoContinueEnabled = this.promptController?.getModeToggleState().autoContinueEnabled ?? false;
+        if (autoContinueEnabled && episodeSuccess && toolsUsed.length > 0) {
+          // Check if task is actually complete using TaskCompletionDetector
+          const detector = getTaskCompletionDetector();
+          const analysis = detector.analyzeCompletion({
+            response: this.currentResponseBuffer,
+            toolsUsed: toolsUsed.map(t => ({
+              toolName: t,
+              timestamp: Date.now(),
+              success: true,
+              hasOutput: true
+            })),
+            todoItems: [], // No todo tracking yet
+            filesModified: filesModified
+          });
+          
+          // Only auto-continue if task is NOT complete
+          if (!analysis.isComplete) {
+            // Auto-generate follow-up prompt based on response
+            const followUpPrompt = this.generateAutoContinuePrompt(prompt, this.currentResponseBuffer, toolsUsed);
+            if (followUpPrompt) {
+              // Small delay before auto-continue
+              await new Promise(resolve => setTimeout(resolve, 500));
+              await this.processPrompt(followUpPrompt);
+            }
+          }
+        }
       }
     }
+    }
+
+  private generateAutoContinuePrompt(originalPrompt: string, response: string, toolsUsed: string[]): string | null {
+    // Only auto-continue for certain types of work
+    const hasFileOperations = toolsUsed.some(t => ['Read', 'Write', 'Edit', 'Search', 'Grep'].includes(t));
+    const hasBashOperations = toolsUsed.includes('Bash');
+    
+    if (!hasFileOperations && !hasBashOperations) {
+      return null; // No meaningful work to continue
+    }
+
+    // Analyze response to determine what to do next
+    const lowercaseResponse = response.toLowerCase();
+    
+    // Check for common patterns that indicate more work is needed
+    if (lowercaseResponse.includes('next steps') || 
+        lowercaseResponse.includes('further') ||
+        lowercaseResponse.includes('additional') ||
+        lowercaseResponse.includes('implement') ||
+        lowercaseResponse.includes('complete') ||
+        lowercaseResponse.includes('finish')) {
+      
+      // Generate a follow-up prompt based on the original task
+      if (originalPrompt.includes('attack') || originalPrompt.includes('security')) {
+        return "Continue with the next offensive security steps. What should we do next?";
+      } else if (originalPrompt.includes('fix') || originalPrompt.includes('bug')) {
+        return "Continue fixing the issue. What's the next step?";
+      } else if (originalPrompt.includes('implement') || originalPrompt.includes('add')) {
+        return "Continue implementing the feature. What should we do next?";
+      } else {
+        return "Continue with the next logical steps to complete the task.";
+      }
+    }
+    
+    return null;
   }
 
   private handleInterrupt(): void {
@@ -3383,6 +3450,24 @@ Any text response is a failure. Only tool calls are accepted.`;
     this.syncPreferredModeFromToggles();
     const dual = this.preferredUpgradeMode === 'dual-rl-continuous';
     this.promptController?.setStatusMessage(dual ? 'Dual RL on' : 'Single mode');
+    setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
+  }
+
+  private handleAutoContinueToggle(): void {
+    const autoContinueEnabled = this.promptController?.getModeToggleState().autoContinueEnabled ?? false;
+    this.promptController?.setStatusMessage(autoContinueEnabled ? 'Auto-continue on' : 'Auto-continue off');
+    setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
+    
+    // Reset task completion detector when toggling auto-continue mode
+    if (autoContinueEnabled) {
+      const detector = getTaskCompletionDetector();
+      detector.reset();
+    }
+  }
+
+  private handleVerifyToggle(): void {
+    const verificationEnabled = this.promptController?.getModeToggleState().verificationEnabled ?? false;
+    this.promptController?.setStatusMessage(verificationEnabled ? 'Verify on' : 'Verify off');
     setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
   }
 
