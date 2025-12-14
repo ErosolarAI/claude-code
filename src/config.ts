@@ -9,7 +9,6 @@ import {
   type AgentProfileBlueprint,
   type ProfileName,
 } from './core/agentProfiles.js';
-import { inferProviderFromModelId } from './core/modelDiscovery.js';
 import { buildAgentRulebookPrompt, loadAgentRulebook } from './core/agentRulebook.js';
 import { getAgentProfileManifest } from './core/agentProfileManifest.js';
 
@@ -63,17 +62,8 @@ export function resolveProfileConfig(profile: ProfileName, workspaceContext: str
   const systemPrompt = process.env[`${envPrefix}_SYSTEM_PROMPT`] ?? blueprint.defaultSystemPrompt;
 
   const providerEnv = process.env[`${envPrefix}_PROVIDER`];
-  const providerEnvValue = providerEnv?.trim();
-  let providerLocked = isProviderValue(providerEnv);
-  let provider = providerLocked ? providerEnvValue! : blueprint.defaultProvider;
-
-  // Auto-align provider with the selected model to prevent "model not found" errors
-  const inferredProvider = inferProviderFromModelId(model);
-  if (inferredProvider && inferredProvider !== provider) {
-    provider = inferredProvider;
-    providerLocked = false; // We inferred the provider from the model, not from env
-  }
-
+  const providerLocked = isProviderValue(providerEnv);
+  const provider = providerLocked ? providerEnv!.trim() : blueprint.defaultProvider;
   const rulebook = loadRulebookMetadata(blueprint);
 
   const contextBlock = workspaceContext?.trim()

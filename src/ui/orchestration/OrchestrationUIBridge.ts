@@ -1,9 +1,14 @@
 import type { OrchestratorEvent, OperationConfig, OperationReport, UnifiedOrchestrator } from '../../core/unifiedOrchestrator.js';
-import type { UnifiedUIRenderer } from '../UnifiedUIRenderer.js';
 import { UIUpdateCoordinator } from './UIUpdateCoordinator.js';
 
+interface Display {
+  writeRaw(text: string): void;
+  showError(title: string, error: unknown): void;
+  showSystemMessage(message: string): void;
+}
+
 interface BridgeOptions {
-  renderer: UnifiedUIRenderer;
+  display: Display;
   updateCoordinator?: UIUpdateCoordinator;
   orchestrator?: UnifiedOrchestrator;
   showRealTimeOutput?: boolean;
@@ -12,14 +17,14 @@ interface BridgeOptions {
 }
 
 export class OrchestrationUIBridge {
-  private readonly renderer: UnifiedUIRenderer;
+  private readonly display: Display;
   private readonly orchestrator: UnifiedOrchestrator | undefined;
   private readonly updateCoordinator: UIUpdateCoordinator;
   private readonly showRealtime: boolean;
   private unsub?: () => void;
 
   constructor(options: BridgeOptions) {
-    this.renderer = options.renderer;
+    this.display = options.display;
     this.orchestrator = options.orchestrator;
     this.updateCoordinator = options.updateCoordinator ?? new UIUpdateCoordinator();
     this.showRealtime = Boolean(options.showRealTimeOutput);
@@ -63,11 +68,11 @@ export class OrchestrationUIBridge {
     if (data && typeof data === 'object' && 'toolName' in data) {
       name = String((data as {toolName: unknown}).toolName);
     }
-    this.renderer.writeRaw(`[${event.type}] ${name}\n`);
+    this.display.writeRaw(`[${event.type}] ${name}\n`);
     this.updateCoordinator.enqueue({
       lane: 'status',
       run: () => {
-        this.renderer.writeRaw('');
+        this.display.writeRaw('');
       },
     });
   }

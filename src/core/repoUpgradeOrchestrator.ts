@@ -1,19 +1,16 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { UnifiedOrchestrator, type ExecutionResult, type Finding, type OperationReport } from './unifiedOrchestrator.js';
+import { ParallelExecutor, createTask, type ParallelTask } from './parallelExecutor.js';
 import {
+  DEFAULT_HUMAN_REWARD_WEIGHTS,
   runDualTournament,
   type RankedCandidate,
   type TournamentCandidate,
   type TournamentOutcome,
   type TournamentTask,
 } from './dualTournament.js';
-import { executeVariants } from './variantExecution.js';
-import { resolveWinner as resolveWinnerStrategy } from './winnerStrategy.js';
-import { buildEvaluatorConfig } from './tournamentStrategy.js';
-import { ParallelCoordinator } from './parallelCoordinator.js';
-export { buildRepoWidePlan, detectWorkspaceModules, expandWorkspacePattern, parseWorkspaceField } from './upgradePlan.js';
 
 export type RepoUpgradeMode = 'single-continuous' | 'dual-rl-continuous' | 'dual-rl-tournament';
 export type UpgradeVariant = 'primary' | 'refiner';
@@ -334,11 +331,221 @@ export interface VariantWinStats {
   totalSteps: number;
 }
 
+/**
+ * Build a repo-wide upgrade plan using common directories. Falls back to a single
+ * catch-all module when no known scopes are found.
+ */
+export function buildRepoWidePlan(workspaceRoot: string, additionalScopes: string[] = []): RepoUpgradePlan {
+  const areas: Array<{
+    id: string;
+    label: string;
+    description: string;
+    scope: string[];
+    candidates: string[];
+    codemodCommands?: string[];
+    validationCommands?: string[];
+  }> = [
+    {
+      id: 'source',
+      label: 'Source',
+      description: 'Core application and library code.',
+      scope: ['src/**/*', 'lib/**/*'],
+      candidates: ['src', 'lib'],
+      codemodCommands: ['npx jscodeshift -t <transform> src'],
+      validationCommands: ['npm run build', 'npm test'],
+    },
+    {
+      id: 'tests',
+      label: 'Tests',
+      description: 'Unit, integration, and smoke tests.',
+      scope: ['test/**/*', '__tests__/**/*'],
+      candidates: ['test', '__tests__'],
+      validationCommands: ['npm test -- --runInBand', 'npm run lint'],
+    },
+    {
+      id: 'docs',
+      label: 'Docs',
+      description: 'Documentation and guides.',
+      scope: ['docs/**/*', 'README.md'],
+      candidates: ['docs', 'README.md'],
+    },
+    {
+      id: 'scripts',
+      label: 'Tooling Scripts',
+      description: 'Build, migration, and maintenance scripts.',
+      scope: ['scripts/**/*'],
+      candidates: ['scripts'],
+      validationCommands: ['npm run lint -- scripts/**/*.ts'],
+    },
+    {
+      id: 'agents',
+      label: 'Agents',
+      description: 'Agent rules and behaviors.',
+      scope: ['agents/**/*'],
+      candidates: ['agents'],
+      validationCommands: ['npm run build'],
+    },
+    {
+      id: 'skills',
+      label: 'Skills',
+      description: 'Skill packs and reusable automation.',
+      scope: ['skills/**/*'],
+      candidates: ['skills'],
+      validationCommands: ['npm run build'],
+    },
+    {
+      id: 'examples',
+      label: 'Examples',
+      description: 'Example flows and templates.',
+      scope: ['examples/**/*'],
+      candidates: ['examples'],
+    },
+    {
+      id: 'configs',
+      label: 'Configuration',
+      description: 'Configuration and deployment settings.',
+      scope: ['config/**/*', '*.config.*', '*.rc', '*.json'],
+      candidates: ['config'],
+    },
+  ];
+
+  for (const extra of additionalScopes) {
+    if (!extra?.trim()) continue;
+    const slug = extra.replace(/[^\w]/g, '-').toLowerCase() || 'custom';
+    areas.push({
+      id: `custom-${slug}`,
+      label: `Custom: ${extra}`,
+      description: `User-specified scope: ${extra}`,
+      scope: [`${extra}/**/*`],
+      candidates: [extra],
+    });
+  }
+
+  const modules: RepoUpgradeModule[] = [];
+  const workspaceModules = detectWorkspaceModules(workspaceRoot);
+  modules.push(...workspaceModules);
+
+  for (const area of areas) {
+    const matches = area.candidates.some((candidate) => existsSync(join(workspaceRoot, candidate)));
+    if (!matches) {
+      continue;
+    }
+    modules.push({
+      id: area.id,
+      label: area.label,
+      description: area.description,
+      scope: area.scope,
+      codemodCommands: area.codemodCommands,
+      validationCommands: area.validationCommands,
+      steps: buildDefaultSteps(area.id),
+    });
+  }
+
+  if (modules.length === 0) {
+    modules.push({
+      id: 'repo-wide',
+      label: 'Repository',
+      description: 'Fallback repo-wide upgrade module.',
+      scope: ['**/*'],
+      steps: buildDefaultSteps('repo'),
+    });
+  }
+
+  return { modules };
+}
+
+function detectWorkspaceModules(workspaceRoot: string): RepoUpgradeModule[] {
+  const pkgPath = join(workspaceRoot, 'package.json');
+  if (!existsSync(pkgPath)) {
+    return [];
+  }
+
+  let workspaces: string[] = [];
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    workspaces = parseWorkspaceField(pkg?.workspaces);
+  } catch {
+    return [];
+  }
+
+  if (!workspaces.length) {
+    return [];
+  }
+
+  const modules: RepoUpgradeModule[] = [];
+  const seen = new Set<string>();
+
+  for (const pattern of workspaces) {
+    const paths = expandWorkspacePattern(workspaceRoot, pattern);
+    for (const relPath of paths) {
+      if (seen.has(relPath)) {
+        continue;
+      }
+      seen.add(relPath);
+
+      const cleanPath = relPath.replace(/\/+$/, '');
+      const name = cleanPath.split('/').filter(Boolean).pop() ?? cleanPath;
+      const normalizedPath = cleanPath.replace(/[/\\]+/g, '-');
+      const slug = `workspace-${normalizedPath.replace(/[^\w-]+/g, '-').replace(/-+/g, '-').toLowerCase() || 'default'}`;
+
+      modules.push({
+        id: slug,
+        label: `Workspace: ${name}`,
+        description: `Upgrade tasks scoped to workspace "${name}" (${cleanPath}).`,
+        scope: [`${cleanPath}/**/*`],
+        validationCommands: [
+          `npm test --workspace ${name} --if-present`,
+          `npm run lint --workspace ${name} --if-present`,
+        ],
+        steps: buildDefaultSteps(slug),
+      });
+    }
+  }
+
+  return modules;
+}
+
+function parseWorkspaceField(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean);
+  }
+  if (value && typeof value === 'object') {
+    const record = value as { packages?: unknown };
+    if (Array.isArray(record.packages)) {
+      return record.packages.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean);
+    }
+  }
+  return [];
+}
+
+function expandWorkspacePattern(workspaceRoot: string, pattern: string): string[] {
+  const normalized = pattern.trim();
+  if (!normalized) return [];
+
+  if (!normalized.includes('*')) {
+    const target = join(workspaceRoot, normalized);
+    return existsSync(target) ? [normalized] : [];
+  }
+
+  const base = normalized.split('*')[0]?.replace(/\/+$/, '') ?? '';
+  if (!base) return [];
+
+  const baseDir = join(workspaceRoot, base);
+  if (!existsSync(baseDir)) return [];
+
+  try {
+    const entries = readdirSync(baseDir, { withFileTypes: true });
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => `${base}/${entry.name}`);
+  } catch {
+    return [];
+  }
+}
+
 export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
   private readonly executor: UpgradeStepExecutor;
   private variantWorkspaceRoots: Partial<Record<UpgradeVariant, string>> | undefined;
   private repoPolicy: string | undefined;
-  private parallelCoordinator: ParallelCoordinator | null = null;
+  private parallelExecutor: ParallelExecutor | null = null;
   private objective: string | undefined;
   static repoTypeTelemetry: Map<string, { winsPrimary: number; winsRefiner: number }> = new Map();
   /** Disable persisted telemetry via env or flag */
@@ -347,6 +554,26 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
   constructor(executor: UpgradeStepExecutor) {
     super();
     this.executor = executor;
+  }
+
+  /**
+   * Get or create a parallel executor instance
+   */
+  private getParallelExecutor(concurrency: number): ParallelExecutor {
+    if (!this.parallelExecutor) {
+      this.parallelExecutor = new ParallelExecutor({
+        maxConcurrency: concurrency,
+        continueOnFailure: true,
+        onTaskEvent: (event) => {
+          this.emit({
+            type: `parallel.${event.type}`,
+            timestamp: event.timestamp,
+            data: event.data,
+          });
+        },
+      });
+    }
+    return this.parallelExecutor;
   }
 
   /**
@@ -368,7 +595,7 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     // Reset state per run to keep reports clean
     this.results = [];
     this.findings = [];
-    this.parallelCoordinator = null;
+    this.parallelExecutor = null;
 
     const variantStats: VariantWinStats = { primaryWins: 0, refinerWins: 0, ties: 0, totalSteps: 0 };
 
@@ -470,32 +697,65 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     continueOnFailure: boolean,
     variantStats: VariantWinStats
   ): Promise<UpgradeModuleReport[]> {
-    if (!this.parallelCoordinator) {
-      this.parallelCoordinator = new ParallelCoordinator();
-    }
+    const executor = this.getParallelExecutor(concurrency);
 
-    const reports = await this.parallelCoordinator.runModules(
-      {
-        concurrency,
-        mode,
-        modeDefinition,
-        parallelVariants,
-        continueOnFailure,
-        variantStats,
-        processModule: (module) => this.processModule(module, mode, modeDefinition, parallelVariants, variantStats, continueOnFailure),
-        emit: (event) => this.emit(event),
-      },
-      modules
+    this.emit({
+      type: 'upgrade.parallel.start',
+      timestamp: Date.now(),
+      data: { moduleCount: modules.length, concurrency },
+    });
+
+    // Create parallel tasks for each module
+    const tasks: ParallelTask<UpgradeModuleReport>[] = modules.map((module) =>
+      createTask(
+        `module:${module.id}`,
+        async () => this.processModule(module, mode, modeDefinition, parallelVariants, variantStats, continueOnFailure),
+        {
+          label: module.label,
+          parallelizable: true,
+          group: 'modules',
+        }
+      )
     );
 
-    if (!continueOnFailure) {
-      const firstFailure = reports.findIndex((report) => report.status === 'failed');
-      if (firstFailure >= 0) {
-        return reports.slice(0, firstFailure + 1);
+    const batchResult = await executor.execute(tasks);
+
+    this.emit({
+      type: 'upgrade.parallel.complete',
+      timestamp: Date.now(),
+      data: {
+        totalDurationMs: batchResult.totalDurationMs,
+        successCount: batchResult.successCount,
+        failureCount: batchResult.failureCount,
+        parallelismAchieved: batchResult.parallelismAchieved,
+      },
+    });
+
+    // Extract results in order, handling failures
+    const moduleReports: UpgradeModuleReport[] = [];
+    for (const result of batchResult.results) {
+      if (result.status === 'completed' && result.result) {
+        moduleReports.push(result.result);
+      } else {
+        // Create a failed report for tasks that couldn't complete
+        const moduleId = result.taskId.replace('module:', '');
+        const module = modules.find((m) => m.id === moduleId);
+        moduleReports.push({
+          id: moduleId,
+          label: module?.label ?? moduleId,
+          scope: module?.scope ?? [],
+          steps: [],
+          status: 'failed',
+        });
+
+        if (!continueOnFailure) {
+          // Mark remaining as skipped
+          break;
+        }
       }
     }
 
-    return reports;
+    return moduleReports;
   }
 
   /**
@@ -509,7 +769,6 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     variantStats: VariantWinStats,
     continueOnFailure = true
   ): Promise<UpgradeModuleReport> {
-    const moduleStart = Date.now();
     this.emit({
       type: 'upgrade.module.start',
       timestamp: Date.now(),
@@ -543,11 +802,7 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     this.emit({
       type: 'upgrade.module.complete',
       timestamp: Date.now(),
-      data: {
-        moduleId: module.id,
-        status: moduleReport.status,
-        durationMs: Date.now() - moduleStart,
-      },
+      data: { moduleId: module.id, status: moduleReport.status },
     });
 
     return moduleReport;
@@ -559,7 +814,6 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     mode: RepoUpgradeMode,
     parallelVariants = true
   ): Promise<UpgradeStepOutcome> {
-    const stepStart = Date.now();
     const modeDefinition = getModeDefinition(mode);
     this.emit({
       type: 'upgrade.step.start',
@@ -567,19 +821,63 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
       data: { moduleId: module.id, stepId: step.id, variant: 'primary', mode, parallelVariants },
     });
 
-    const variantResults = await executeVariants({
-      module,
-      step,
-      mode,
-      modeDefinition,
-      context: {
-        parallelVariants,
-        variantWorkspaceRoots: this.variantWorkspaceRoots,
-        repoPolicy: this.repoPolicy,
-      },
-      executeVariant: (input) => this.safeExecuteVariant(input),
-      emit: (event) => this.emit(event),
-    });
+    const variantResults: Partial<Record<UpgradeVariant, UpgradeStepResult>> = {};
+
+    // Determine if we can run variants in parallel
+    // Parallel is possible when:
+    // 1. parallelVariants is enabled
+    // 2. We have both primary and refiner variants
+    // 3. We have separate workspace roots for each variant
+    const canRunParallel =
+      parallelVariants &&
+      modeDefinition.variants.includes('refiner') &&
+      this.variantWorkspaceRoots?.refiner &&
+      this.variantWorkspaceRoots.refiner !== this.variantWorkspaceRoots.primary;
+
+    if (canRunParallel && modeDefinition.variants.length > 1) {
+      // PARALLEL VARIANT EXECUTION
+      this.emit({
+        type: 'upgrade.step.variants.parallel',
+        timestamp: Date.now(),
+        data: { moduleId: module.id, stepId: step.id, variants: modeDefinition.variants },
+      });
+
+      const variantPromises = modeDefinition.variants.map(async (variant) => {
+        const result = await this.safeExecuteVariant({
+          module,
+          step,
+          mode,
+          variant,
+          // In parallel mode, refiner doesn't get primary's result as it runs concurrently
+          previousResult: undefined,
+          workspaceRoot: this.variantWorkspaceRoots?.[variant] ?? this.variantWorkspaceRoots?.primary,
+          repoPolicy: this.repoPolicy,
+        });
+        return { variant, result };
+      });
+
+      const results = await Promise.all(variantPromises);
+      for (const { variant, result } of results) {
+        variantResults[variant] = result;
+      }
+    } else {
+      // SEQUENTIAL VARIANT EXECUTION (original behavior)
+      // Refiner gets primary's result for informed refinement
+      for (const variant of modeDefinition.variants) {
+        const previousResult = variant === 'refiner' ? variantResults.primary : undefined;
+        const result = await this.safeExecuteVariant({
+          module,
+          step,
+          mode,
+          variant,
+          previousResult,
+          workspaceRoot: this.variantWorkspaceRoots?.[variant] ?? this.variantWorkspaceRoots?.primary,
+          repoPolicy: this.repoPolicy,
+        });
+        variantResults[variant] = result;
+      }
+    }
+
     const primary = variantResults.primary as UpgradeStepResult;
     const refiner = variantResults.refiner;
 
@@ -587,10 +885,25 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     if (tournamentOutcome) {
       this.attachTournamentBreakdown(variantResults, tournamentOutcome);
     }
-    const { winner, winnerVariant } = resolveWinnerStrategy(
-      { modeDefinition, variantResults, tournamentOutcome },
-      (definition, primaryResult, refinerResult) => this.pickWinner(definition, primaryResult, refinerResult)
-    );
+
+    let winner: UpgradeStepResult;
+    let winnerVariant: UpgradeVariant;
+
+    if (tournamentOutcome?.ranked?.length) {
+      const top = tournamentOutcome.ranked[0];
+      const topVariant = top.candidateId === 'refiner' && refiner ? 'refiner' : 'primary';
+      winnerVariant = topVariant;
+      winner = topVariant === 'refiner' && refiner ? refiner : primary;
+      this.attachTournamentBreakdown(variantResults, tournamentOutcome);
+      primary.humanAccuracy = primary.tournament?.humanAccuracy ?? primary.humanAccuracy;
+      if (refiner) {
+        refiner.humanAccuracy = refiner.tournament?.humanAccuracy ?? refiner.humanAccuracy;
+      }
+    } else {
+      const fallback = this.pickWinner(modeDefinition, primary, refiner);
+      winner = fallback.winner;
+      winnerVariant = fallback.winnerVariant;
+    }
 
     this.recordOutcomeArtifacts(module, step, winner, winnerVariant);
 
@@ -616,7 +929,6 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
         primaryAccuracy,
         refinerAccuracy,
         tournamentRankings: tournamentOutcome?.ranked,
-        durationMs: Date.now() - stepStart,
       },
     });
 
@@ -639,12 +951,6 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     primary: UpgradeStepResult,
     refiner?: UpgradeStepResult
   ): TournamentOutcome | null {
-    // Only run tournaments when the mode explicitly supports it to avoid overhead and keep
-    // continuous modes deterministic.
-    if (modeDefinition.id !== 'dual-rl-tournament') {
-      return null;
-    }
-
     // Fast exits: if only one variant succeeded, avoid tournament overhead
     if (primary.success && (!refiner || !refiner.success)) {
       primary.humanAccuracy = 1;
@@ -684,7 +990,7 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
       },
     };
 
-    const evaluatorConfig = buildEvaluatorConfig(module, RepoUpgradeOrchestrator.repoTypeTelemetry);
+    const evaluatorConfig = buildEvaluatorConfig(module);
 
     try {
       return runDualTournament(task, candidates, {
@@ -910,6 +1216,74 @@ function averageDefined(values: Array<number | undefined>): number {
   return total / nums.length;
 }
 
+function buildEvaluatorConfig(module: RepoUpgradeModule): {
+  rewardWeights: import('./dualTournament.js').HumanRewardWeights;
+  evaluators: Array<{
+    id: string;
+    label: string;
+    weight: number;
+    kind: 'hard' | 'soft' | 'hybrid';
+    elo?: number;
+  }>;
+} {
+  const repoType = getRepoTypeFromModule(module);
+
+  // Default: balanced weights
+  let rewardWeights = DEFAULT_HUMAN_REWARD_WEIGHTS;
+  let hardWeight = 1.35;
+  let qualityWeight = 1.0;
+  let rewardWeight = 0.9;
+
+  if (repoType === 'tests') {
+    rewardWeights = { alpha: 0.7, beta: 0.15, gamma: 0.15 };
+    hardWeight = 1.55;
+    qualityWeight = 0.9;
+    rewardWeight = 0.85;
+  } else if (repoType === 'docs') {
+    rewardWeights = { alpha: 0.45, beta: 0.3, gamma: 0.25 };
+    hardWeight = 1.0;
+    qualityWeight = 1.2;
+    rewardWeight = 1.0;
+  } else if (repoType === 'refactor') {
+    rewardWeights = { alpha: 0.55, beta: 0.25, gamma: 0.2 };
+    hardWeight = 1.25;
+    qualityWeight = 1.15;
+    rewardWeight = 0.95;
+  }
+
+  // Telemetry-based nudges per repo type
+  const telemetry = RepoUpgradeOrchestrator.repoTypeTelemetry.get(repoType);
+    if (telemetry) {
+      const total = Math.max(1, telemetry.winsPrimary + telemetry.winsRefiner);
+      const bias = (telemetry.winsPrimary - telemetry.winsRefiner) / total;
+      if (bias > 0.1) {
+        hardWeight = clampScore(hardWeight + 0.1, 0.8, 2);
+        rewardWeights = {
+          alpha: clampScore((rewardWeights.alpha ?? 0.6) + 0.05, 0, 1),
+          beta: rewardWeights.beta,
+          gamma: clampScore((rewardWeights.gamma ?? 0.2) - 0.02, 0, 1),
+        };
+      } else if (bias < -0.1) {
+        qualityWeight = clampScore(qualityWeight + 0.1, 0.8, 2);
+        rewardWeight = clampScore(rewardWeight + 0.05, 0.5, 1.5);
+        rewardWeights = {
+          alpha: clampScore((rewardWeights.alpha ?? 0.6) - 0.05, 0, 1),
+          beta: clampScore((rewardWeights.beta ?? 0.25) + 0.05, 0, 1),
+          gamma: clampScore((rewardWeights.gamma ?? 0.2) + 0.02, 0, 1),
+        };
+      }
+    }
+
+  return {
+    rewardWeights,
+    evaluators: [
+      { id: 'hard-metrics', label: 'Hard metrics', weight: hardWeight, kind: 'hard' },
+      { id: 'quality', label: 'Quality', weight: qualityWeight, kind: 'hybrid' },
+      { id: 'reward-signal', label: 'Reward signal', weight: rewardWeight, kind: 'hybrid' },
+    ],
+  };
+}
+
 function getRepoTypeFromModule(module: RepoUpgradeModule): string {
   const scope = (module.scope || []).join(' ').toLowerCase();
   const label = (module.label || '').toLowerCase();
@@ -983,7 +1357,28 @@ function persistTelemetry(): void {
   }
 }
 
-
+function buildDefaultSteps(moduleId: string): RepoUpgradeStep[] {
+  return [
+    {
+      id: `${moduleId}-analyze`,
+      intent: 'analyze',
+      description: `Map the upgrade surface for ${moduleId}. Identify risky files and coupling.`,
+      prompt: 'Inventory files, dependencies, and breaking-change areas before upgrading.',
+    },
+    {
+      id: `${moduleId}-upgrade`,
+      intent: 'upgrade',
+      description: `Apply modular upgrades for ${moduleId} with minimal blast radius.`,
+      prompt: 'Execute codemods or targeted edits. Keep edits small, atomic, and well scoped.',
+    },
+    {
+      id: `${moduleId}-verify`,
+      intent: 'verify',
+      description: `Validate ${moduleId} after the upgrade.`,
+      prompt: 'Run tests/lint/health checks relevant to this scope. Summarize residual risks.',
+    },
+  ];
+}
 
 function getModeDefinition(mode: RepoUpgradeMode): RepoUpgradeModeDefinition {
   return REPO_UPGRADE_MODE_DEFINITIONS[mode] ?? REPO_UPGRADE_MODE_DEFINITIONS['single-continuous'];

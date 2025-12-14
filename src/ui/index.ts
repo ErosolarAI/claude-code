@@ -29,14 +29,16 @@
  * Layer 4 - Controllers:
  * ─────────────────────────────────────────────────────────────────────────────
  * - PromptController.ts: User input handling and command line interface
+ * - UnifiedUIController.ts: Central UI state and event coordination
  *
- * Layer 5 - Main Renderer:
+ * Layer 5 - High-Level Renderers:
  * ─────────────────────────────────────────────────────────────────────────────
  * - UnifiedUIRenderer.ts: Main rendering engine, composes all layers
- *   The single source of truth for all UI output
+ * - display.ts: Legacy display functions (being migrated to UnifiedUIRenderer)
  *
  * Layer 6 - Integration:
  * ─────────────────────────────────────────────────────────────────────────────
+ * - ShellUIAdapter.ts: Bridges shell and UI systems
  * - outputMode.ts: Output format selection (interactive/JSON/plain)
  * - globalWriteLock.ts: Prevents concurrent terminal writes
  *
@@ -46,31 +48,34 @@
  *
  * 1. For theme colors: import { theme } from './theme.js';
  * 2. For formatted output: import { UnifiedUIRenderer } from './UnifiedUIRenderer.js';
- * 3. For user input: import { PromptController } from './PromptController.js';
+ * 3. For shell integration: import { ShellUIAdapter } from './ShellUIAdapter.js';
+ * 4. For user input: import { PromptController } from './PromptController.js';
  *
  *
  * Module Relationships:
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  *                        ┌────────────────────────┐
- *                        │   PromptController     │
- *                        │   (Input Handling)     │
+ *                        │    ShellUIAdapter      │
+ *                        │   (Integration Layer)  │
  *                        └───────────┬────────────┘
  *                                    │
- *                                    ▼
- *                        ┌─────────────────────┐
- *                        │ UnifiedUIRenderer   │
- *                        │ (Main Output)       │
- *                        └────────┬────────────┘
- *                                 │
- *                    ┌────────────┴────────────┐
- *                    ▼                         ▼
- *           ┌────────────────┐       ┌────────────────┐
- *           │ codeHighlight  │       │  toolDisplay   │
- *           │ errorFormatter │       │ animatedStatus │
- *           └────────────────┘       └────────────────┘
- *                    │                         │
- *                    └───────────┬─────────────┘
+ *           ┌────────────────────────┼────────────────────────┐
+ *           │                        │                        │
+ *           ▼                        ▼                        ▼
+ * ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+ * │PromptController │    │UnifiedUIRenderer│    │UnifiedUIControl │
+ * │  (Input)        │    │  (Output)       │    │  (State)        │
+ * └────────┬────────┘    └────────┬────────┘    └────────┬────────┘
+ *          │                      │                      │
+ *          │           ┌──────────┴──────────┐          │
+ *          │           ▼                     ▼          │
+ *          │  ┌────────────────┐   ┌────────────────┐  │
+ *          │  │ codeHighlight  │   │  toolDisplay   │  │
+ *          │  │ errorFormatter │   │ animatedStatus │  │
+ *          │  └────────────────┘   └────────────────┘  │
+ *          │           │                     │          │
+ *          └───────────┴─────────┬───────────┴──────────┘
  *                                ▼
  *                    ┌─────────────────────┐
  *                    │   theme / layout    │
@@ -127,10 +132,11 @@ export { formatShortcutsHelp } from './shortcutsHelp.js';
 export { PromptController } from './PromptController.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Layer 5 - Main Renderer
+// Layer 5 - High-Level Renderers
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export { UnifiedUIRenderer } from './UnifiedUIRenderer.js';
+export { Display, display, type DisplayMessageMetadata } from './display.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Layer 6 - Integration

@@ -1,6 +1,7 @@
 import type { AgentController } from '../runtime/agentController.js';
 import {
   RepoUpgradeOrchestrator,
+  buildRepoWidePlan,
   REPO_UPGRADE_MODE_DEFINITIONS,
   extractRewardSignals,
   calculateRewardScore,
@@ -14,7 +15,6 @@ import {
   type UpgradeVariant,
 } from '../core/repoUpgradeOrchestrator.js';
 import { GitWorktreeManager, type CrossVariantComparison } from '../core/gitWorktreeManager.js';
-import { buildRepoWidePlan } from '../core/upgradePlan.js';
 import { exec as execCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -221,15 +221,6 @@ function buildStepPrompt(input: UpgradeStepExecutionInput): string {
 
   if (input.step.prompt) {
     lines.push(`Guidance: ${input.step.prompt}`);
-  }
-
-  // Encourage logical sequencing: core logic first, heavy validation last
-  if (input.step.intent !== 'verify') {
-    lines.push(
-      'Priority: core logic/orchestration/runtime/tool-IO/session flows first. Prohibited in analyze/upgrade: build/test/lint/dependency/install commands from any stack (tsc, npm/yarn/pnpm, gradle, maven, go test/build, cargo, make, bazel, etc.) or broad typing/import sweeps. Read code and refactor core paths; leave toolchain/typing/lint/package hygiene to verify unless a tiny fix unblocks execution.'
-    );
-  } else {
-    lines.push('Now run validation: stack-specific build/test/lint/toolchain/package validation belongs here (and only here).');
   }
 
   if (input.module.codemodCommands?.length) {

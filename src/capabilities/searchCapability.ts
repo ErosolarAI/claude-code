@@ -6,12 +6,12 @@ export interface SearchCapabilityOptions {
 }
 
 /**
- * Search Capability Module
+ * Unified Search Capability Module
  *
- * Provides separate, focused search tools:
- * - Glob: File pattern matching
- * - Grep: Content search (regex)
- * - FindDefinition: Code definition finding
+ * Provides the Search tool which combines:
+ * - File pattern matching (glob)
+ * - Content search (regex/grep)
+ * - Definition finding (functions, classes, interfaces)
  */
 export class SearchCapabilityModule implements CapabilityModule {
   readonly id = 'capability.search';
@@ -24,8 +24,8 @@ export class SearchCapabilityModule implements CapabilityModule {
   async create(context: CapabilityContext): Promise<CapabilityContribution> {
     const workingDir = this.options.workingDir ?? context.workingDir;
     return {
-      id: 'search.tools',
-      description: 'Separate tools for file and content search',
+      id: 'search.unified',
+      description: 'Unified search for files and content',
       toolSuite: {
         id: 'search',
         tools: createSearchTools(workingDir),

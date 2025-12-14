@@ -137,25 +137,6 @@ describe('UnifiedUIRenderer slash menu', () => {
     }
   });
 
-  it('submits a captured paste when Enter is pressed after collapse', () => {
-    const { renderer } = createRenderer();
-    try {
-      const submissions: string[] = [];
-      renderer.on('submit', (text: string) => submissions.push(text));
-
-      (renderer as any).handleKeypress('', { sequence: '\x1b[200~' } as any);
-      (renderer as any).handleKeypress('hello\nworld', { sequence: 'hello\nworld' } as any);
-      (renderer as any).handleKeypress('', { sequence: '\x1b[201~' } as any);
-
-      (renderer as any).handleKeypress('', { name: 'enter' } as any);
-
-      expect(submissions).toEqual(['hello\nworld']);
-      expect(renderer.getBuffer()).toBe('');
-    } finally {
-      renderer.cleanup();
-    }
-  });
-
   it('renders mode toggles when provided', () => {
     const { renderer, output } = createRenderer();
     try {
@@ -237,15 +218,10 @@ describe('UnifiedUIRenderer event coalescing', () => {
   it('formats thoughts with a thinking label and tidy wrapping', async () => {
     setPlainOutputMode(true);
     const { renderer, output } = createRenderer();
-    // Make output non-TTY to prevent prompt rendering from interfering with test
-    (output as any).isTTY = false;
     try {
       output.setEncoding('utf8');
       const thought = Array(6).fill('Reasoning through the requested steps to keep UX stable and readable.').join(' ');
 
-      // Enable debug mode so thoughts are rendered
-      renderer.updateModeToggles({ debugEnabled: true });
-      
       renderer.addEvent('thought', thought);
       await renderer.flushEvents();
 

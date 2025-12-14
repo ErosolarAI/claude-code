@@ -10,8 +10,23 @@ export interface FinalResponseFormat {
 const NEXT_STEPS_HEADING = /(^|\n)\s*next steps?\s*:/i;
 
 export function ensureNextSteps(content: string): FinalResponseFormat {
-  // No fallback - model should generate context-aware next steps via system prompt
-  // Just pass through the content as-is
   const normalized = content?.trimEnd() ?? '';
-  return { output: normalized, appended: null };
+  if (!normalized) {
+    return { output: '', appended: null };
+  }
+
+  if (NEXT_STEPS_HEADING.test(normalized)) {
+    return { output: normalized, appended: null };
+  }
+
+  const fallbackSteps = [
+    '- Tell me if you want more changes or tests.',
+    '- I can run checks or prep a PR-style summary if needed.',
+  ];
+
+  const appended = ['\n', 'Next steps:', ...fallbackSteps].join('\n');
+  return {
+    output: `${normalized}${appended}`,
+    appended,
+  };
 }

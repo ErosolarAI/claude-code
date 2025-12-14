@@ -412,9 +412,7 @@ export class ParallelExecutor {
     // Execute in phases
     const phases = graph.getExecutionPhases();
     const results: TaskResult<T>[] = [];
-    const allTaskIds = new Set(tasks.map((t) => t.id));
     let maxParallelism = 0;
-    let halted = false;
 
     for (const phase of phases) {
       if (this.cancelled) break;
@@ -436,26 +434,8 @@ export class ParallelExecutor {
       if (!this.config.continueOnFailure) {
         const failure = phaseResults.find((r) => r.status === 'failed');
         if (failure) {
-          halted = true;
           break;
         }
-      }
-    }
-
-    // If halted early, mark remaining tasks as cancelled for clarity
-    if (halted && !this.config.continueOnFailure) {
-      const now = Date.now();
-      const recorded = new Set(results.map((r) => r.taskId));
-      for (const taskId of allTaskIds) {
-        if (recorded.has(taskId)) continue;
-        results.push({
-          taskId,
-          status: 'cancelled',
-          durationMs: 0,
-          attempts: 0,
-          startedAt: now,
-          completedAt: now,
-        });
       }
     }
 

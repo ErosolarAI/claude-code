@@ -13,8 +13,7 @@ import { ContextManager } from './contextManager.js';
 import { isMultilinePaste, processPaste, type PasteSummary } from './multilinePasteHandler.js';
 import { safeErrorMessage } from './secretStore.js';
 import { logDebug, debugSnippet } from '../utils/debugLogger.js';
-// Note: ensureNextSteps is handled by interactiveShell.ts - removed from agent.ts to prevent
-// showing "Next steps" for simple conversational responses when no tools were used
+import { ensureNextSteps } from './finalResponseFormatter.js';
 
 /**
  * Maximum number of context overflow recovery attempts
@@ -203,8 +202,6 @@ export class AgentRuntime {
   private readonly workingDirectory: string;
   private readonly explainEdits: boolean;
   private cancellationRequested = false;
-  // One-time system hint to prefer searching before answering
-  private autoSearchHintAdded = false;
   // Loop detection: track last tool calls to detect stuck loops
   private lastToolCallSignature: string | null = null;
   private repeatedToolCallCount = 0;
@@ -374,15 +371,6 @@ export class AgentRuntime {
     if (!prompt) {
       return '';
     }
-    // Inject a single system hint to encourage tool-assisted searching before answering
-    if (!this.autoSearchHintAdded) {
-      this.messages.push({
-        role: 'system',
-        content:
-          'When answering user requests, first try to gather evidence via the available search tools (Glob, Grep, FindDefinition, and any provider search) before composing a reply. Avoid guessing; prefer tool output.',
-      });
-      this.autoSearchHintAdded = true;
-    }
     // Notify UI immediately so it can reflect activity without waiting for generation
     this.callbacks.onRequestReceived?.(prompt.slice(0, 400));
 
@@ -502,24 +490,23 @@ export class AgentRuntime {
         }
 
         const reply = response.content?.trim() ?? '';
-        // Note: "Next steps" section is handled by interactiveShell.ts only when tools were used
-        // This prevents showing "Next steps" for simple conversational responses
+        const { output: finalReply } = ensureNextSteps(reply);
 
         // Reset loop detection when we get a text response (not just tool calls)
-        if (reply.length >= 10) {
+        if (finalReply.length >= 10) {
           this.lastToolCallSignature = null;
           this.repeatedToolCallCount = 0;
         }
 
-        if (reply) {
-          this.emitAssistantMessage(reply, { isFinal: true, usage, contextStats });
+        if (finalReply) {
+          this.emitAssistantMessage(finalReply, { isFinal: true, usage, contextStats });
         }
-        this.messages.push({ role: 'assistant', content: reply });
+        this.messages.push({ role: 'assistant', content: finalReply });
 
         // Trigger verification for final responses with verifiable claims
-        this.triggerVerificationIfNeeded(reply);
+        this.triggerVerificationIfNeeded(finalReply);
 
-        return reply;
+        return finalReply;
       } catch (error) {
         // Auto-recover from context overflow errors (with session-level limit)
         const canRecover = contextRecoveryAttempts < MAX_CONTEXT_RECOVERY_ATTEMPTS &&
@@ -730,8 +717,7 @@ export class AgentRuntime {
 
         // If no tool calls were issued, emit reasoning and buffered content as complete blocks
         if (toolCalls.length === 0) {
-          // Always emit reasoning so it's captured in the UI's reasoningBuffer
-          // This is needed for fallback logic that synthesizes responses from reasoning
+          // Emit complete reasoning block if we have one
           if (reasoningContent.trim()) {
             this.callbacks.onStreamChunk?.(reasoningContent, 'reasoning');
           }
@@ -804,60 +790,42 @@ export class AgentRuntime {
         }
 
         let reply = combinedContent.trim();
+        let wasReasoningUsedAsReply = false;
 
-        logDebug('[DEBUG agent] End of stream - combinedContent length:', combinedContent.length);
-        logDebug('[DEBUG agent] End of stream - combinedContent:', debugSnippet(combinedContent));
-        logDebug('[DEBUG agent] End of stream - reasoningContent length:', reasoningContent.length);
-        logDebug('[DEBUG agent] End of stream - reasoningContent:', debugSnippet(reasoningContent));
-        logDebug('[DEBUG agent] End of stream - reply (initial):', debugSnippet(reply));
-        logDebug('[DEBUG agent] End of stream - fullContent (accumulated):', debugSnippet(fullContent));
-
-        // CRITICAL: For models like deepseek-reasoner that only output reasoning_content,
-        // force the fallback by checking if reply is essentially empty or just whitespace
-        // even if combinedContent technically has content (might be empty string from API)
-
-        // For reasoning models: if the "reply" is empty OR contains no word characters,
-        // but we have reasoning content, use the reasoning as the response.
-        // This handles models like deepseek-reasoner that put the entire answer in reasoning_content
-        // while emitting only punctuation in content chunks.
-        const hasWordChars = /[\p{L}\p{N}]/u.test(reply);
-
-        if ((!reply || !hasWordChars) && reasoningContent.trim()) {
+        // For reasoning models: if no content but we have reasoning, use reasoning as the response
+        // This handles models like DeepSeek-reasoner that put their entire response in reasoning_content
+        // The reasoning has already been streamed as 'thought' events showing the AI's thinking
+        if (!reply && reasoningContent.trim()) {
           // Use reasoning as the reply - it contains the model's answer
           reply = reasoningContent.trim();
-          logDebug('[DEBUG agent] Using reasoning as reply (content missing or punctuation only):', debugSnippet(reply));
+          wasReasoningUsedAsReply = true;
           // Stream the content so it appears as the actual response (not just thoughts)
-          logDebug('[DEBUG agent] About to call onStreamChunk with content type, hasCallback:', !!this.callbacks.onStreamChunk);
           this.callbacks.onStreamChunk?.(reply, 'content');
-          logDebug('[DEBUG agent] Called onStreamChunk with reasoning as content');
-        } else if (!reply) {
-          // No reply and no reasoning - this shouldn't happen but log it
-          logDebug('[DEBUG agent] WARNING: No reply and no reasoning content!');
-        } else {
-          // Have reply content - it was already streamed during the loop
-          logDebug('[DEBUG agent] Reply has content, length:', reply.length);
         }
 
-        // Note: "Next steps" section is handled by interactiveShell.ts only when tools were used
-        // This prevents showing "Next steps" for simple conversational responses
+        const { output: finalReply, appended } = ensureNextSteps(reply);
 
         // Reset loop detection when we get a text response (not just tool calls)
-        if (reply.length >= 10) {
+        if (finalReply.length >= 10) {
           this.lastToolCallSignature = null;
           this.repeatedToolCallCount = 0;
         }
 
-        // Final message - always emit so interactiveShell can run fallback logic
-        // Include reasoning content if no regular content (for models like deepseek-reasoner)
-        const finalContent = reply || reasoningContent.trim();
-        logDebug('[DEBUG agent] Final content to emit:', debugSnippet(finalContent));
-        this.emitAssistantMessage(finalContent, { isFinal: true, usage, contextStats, wasStreamed: true });
-        this.messages.push({ role: 'assistant', content: finalContent });
+        // If we appended a required Next steps section, stream just the delta
+        if (appended) {
+          this.callbacks.onStreamChunk?.(appended, 'content');
+        }
+
+        // Final message - mark as streamed to avoid double-display in UI
+        if (finalReply) {
+          this.emitAssistantMessage(finalReply, { isFinal: true, usage, contextStats, wasStreamed: true });
+        }
+        this.messages.push({ role: 'assistant', content: finalReply });
 
         // Trigger verification for final responses with verifiable claims
-        this.triggerVerificationIfNeeded(reply);
+        this.triggerVerificationIfNeeded(finalReply);
 
-        return reply;
+        return finalReply;
       } catch (error) {
         // Auto-recover from context overflow errors (with session-level limit)
         const canRecover = contextRecoveryAttempts < MAX_CONTEXT_RECOVERY_ATTEMPTS &&
@@ -1149,18 +1117,15 @@ export class AgentRuntime {
   }
 
   private emitAssistantMessage(content: string, metadata: AssistantMessageMetadata): void {
-    // For non-final messages, skip if content is empty
-    if (!metadata.isFinal && (!content || !content.trim())) {
+    if (!content || !content.trim()) {
       return;
     }
-    // For final messages, ALWAYS emit so controller can trigger message.complete
-    // This allows interactiveShell to run fallback logic for empty responses
     const elapsedMs = this.activeRun ? Date.now() - this.activeRun.startedAt : undefined;
     const payload: AssistantMessageMetadata = { ...metadata };
     if (typeof elapsedMs === 'number') {
       payload.elapsedMs = elapsedMs;
     }
-    this.callbacks.onAssistantMessage?.(content || '', payload);
+    this.callbacks.onAssistantMessage?.(content, payload);
   }
 
   /**

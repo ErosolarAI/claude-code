@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 
 describe('CLI End-to-End Integration', () => {
   const testWorkspace = join(tmpdir(), 'erosolar-e2e-test');
-  const cliBin = join(process.cwd(), 'dist/bin/agi.js');
+  const cliBin = join(process.cwd(), 'dist/bin/erosolar.js');
 
   beforeEach(() => {
     if (existsSync(testWorkspace)) {
@@ -31,14 +31,14 @@ describe('CLI End-to-End Integration', () => {
 
     // Should be able to run --version
     const version = execSync(`node ${cliBin} --version`, { encoding: 'utf-8' });
-    expect(version.toLowerCase()).toContain('agi');
+    expect(version).toContain('erosolar-cli');
     expect(version).toMatch(/v?\d+\.\d+\.\d+/);
   });
 
   test('CLI shows help message', () => {
     const help = execSync(`node ${cliBin} --help`, { encoding: 'utf-8' });
 
-    expect(help.toLowerCase()).toContain('agi');
+    expect(help).toContain('erosolar-cli');
     expect(help).toContain('Usage:');
     expect(help).toContain('Options:');
     expect(help).toContain('--version');
@@ -93,9 +93,9 @@ describe('CLI End-to-End Integration', () => {
     const pkgPath = join(process.cwd(), 'package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
 
-    expect(pkg.name).toBeTruthy();
+    expect(pkg.name).toBe('erosolar-cli');
     expect(pkg.bin).toBeTruthy();
-    expect(pkg.bin.agi).toBeTruthy();
+    expect(pkg.bin.erosolar).toBeTruthy();
     expect(pkg.main).toBeTruthy();
     expect(pkg.type).toBe('module');
   });
@@ -107,7 +107,7 @@ describe('CLI End-to-End Integration', () => {
     const binDir = join(distDir, 'bin');
     expect(existsSync(binDir)).toBe(true);
 
-    const mainBin = join(binDir, 'agi.js');
+    const mainBin = join(binDir, 'erosolar.js');
     expect(existsSync(mainBin)).toBe(true);
 
     // Check for essential modules
@@ -191,7 +191,7 @@ describe('CLI End-to-End Integration', () => {
         encoding: 'utf-8',
         timeout: 5000,
       });
-      expect(versionFromWorkspace.toLowerCase()).toContain('agi');
+      expect(versionFromWorkspace).toContain('erosolar-cli');
     } catch (error) {
       // If it fails due to config issues, that's acceptable for this test
       // The important thing is the CLI binary exists and can be invoked
@@ -225,7 +225,7 @@ describe('CLI End-to-End Integration', () => {
     expect(typesExist).toBe(true);
 
     // Check for source maps
-    const sourceMapsExist = existsSync(join(distDir, 'bin/agi.js.map'));
+    const sourceMapsExist = existsSync(join(distDir, 'bin/erosolar.js.map'));
     expect(sourceMapsExist).toBe(true);
   });
 
@@ -235,7 +235,7 @@ describe('CLI End-to-End Integration', () => {
 
     const readmeContent = readFileSync(readme, 'utf-8');
     expect(readmeContent.length).toBeGreaterThan(100);
-    expect(readmeContent.toLowerCase()).toContain('agi');
+    expect(readmeContent).toContain('erosolar');
   });
 
   test('License file exists', () => {
@@ -330,7 +330,7 @@ describe('Tool Registry Integration', () => {
 });
 
 describe('Performance and Resource Usage', () => {
-  const cliBin = join(process.cwd(), 'dist/bin/agi.js');
+  const cliBin = join(process.cwd(), 'dist/bin/erosolar.js');
 
   test('CLI startup time is reasonable', () => {
     const start = Date.now();

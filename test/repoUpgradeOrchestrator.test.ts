@@ -63,7 +63,6 @@ describe('RepoUpgradeOrchestrator - modes', () => {
           success: true,
           summary: 'primary version',
           score: 0.2,
-          rewardSignals: { executionSuccess: 1, testsPassed: 0.2 },
           execution: {
             success: true,
             output: 'primary',
@@ -76,7 +75,6 @@ describe('RepoUpgradeOrchestrator - modes', () => {
         success: true,
         summary: 'refiner wins',
         score: 0.9,
-        rewardSignals: { executionSuccess: 1, testsPassed: 0.9 },
         execution: {
           success: true,
           output: 'refiner',
@@ -144,7 +142,6 @@ describe('RepoUpgradeOrchestrator - modes', () => {
       success: true,
       summary: `${input.step.id}-${input.variant}`,
       score: 0.4,
-      rewardSignals: { executionSuccess: 1, testsPassed: 0.4 },
       execution: {
         success: true,
         output: input.variant,

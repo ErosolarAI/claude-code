@@ -210,15 +210,8 @@ export class AgentController implements IAgentController {
   private selection: ModelSelection;
   /** Set of providers that have failed with non-retryable errors in this session */
   private failedProviders: Set<ProviderId> = new Set();
-  /** Tracks whether any meaningful stream content has been emitted for the current run */
-  private hasStreamedContent = false;
   /** Maximum fallback attempts per send() call */
   private static readonly MAX_FALLBACK_ATTEMPTS = 3;
-  /** Optional timeout for a single agent run (ms); 0 disables */
-  private readonly runTimeoutMs: number =
-    Number.parseInt(process.env.AGI_AGENT_RUN_TIMEOUT_MS ?? '', 10) || 0;
-  /** Cancel hook for an in-flight run */
-  private cancelActiveRunFn: (() => void) | null = null;
 
   constructor(dependencies: AgentControllerDependencies) {
     this.session = dependencies.runtime.session;
@@ -259,14 +252,11 @@ export class AgentController implements IAgentController {
         this.externalCallbacks?.onAssistantMessage?.(content, metadata);
       },
       onStreamChunk: (chunk, type) => {
-        logDebug(`[DEBUG controller] onStreamChunk: type=${type}, chunk length=${chunk?.length || 0}, preview="${chunk?.slice(0, 80)}"`);
         if (type === 'content') {
           // Content chunks go to message.delta for streaming display
-          logDebug(`[DEBUG controller] Calling emitDelta with content type`);
           this.emitDelta(chunk, false);
         } else if (type === 'reasoning') {
           // Reasoning chunks go to reasoning event for thought display
-          logDebug(`[DEBUG controller] Calling emitReasoning with reasoning type`);
           this.emitReasoning(chunk);
         }
         // Pass all chunks to external callbacks
@@ -319,12 +309,10 @@ export class AgentController implements IAgentController {
     if (/^[\s\n\r]+$/.test(trimmed)) return true;
 
     // Short fragments with high punctuation ratio (likely leaked formatting)
-    // Use Unicode-aware letter/number detection to support non-Latin languages
     if (trimmed.length < 15) {
-      // Count Unicode letters and digits (supports Chinese, Japanese, Arabic, etc.)
-      const wordCharCount = (trimmed.match(/[\p{L}\p{N}]/gu) || []).length;
-      if (wordCharCount === 0) return true;
-      if (wordCharCount / trimmed.length < 0.2) return true;
+      const alphaCount = (trimmed.match(/[a-zA-Z0-9]/g) || []).length;
+      if (alphaCount === 0) return true;
+      if (alphaCount / trimmed.length < 0.2) return true;
     }
 
     return false;
@@ -332,41 +320,16 @@ export class AgentController implements IAgentController {
 
   private emitDelta(content: string, isFinal: boolean): void {
     logDebug(`[DEBUG controller] emitDelta called: content="${content?.slice(0, 50)}", isFinal=${isFinal}, hasSink=${!!this.activeSink}`);
-    // Allow empty-ish content through for streaming - punctuation like "," or "." is valid
-    // Only skip completely empty/null content
-    if (content == null || content === '') {
-      logDebug('[DEBUG controller] emitDelta: skipping null/empty content');
+    if (!content?.trim()) {
+      logDebug('[DEBUG controller] emitDelta: skipping empty content');
       return;
     }
 
-    // Guard against leading garbage-only chunks when no content has been streamed yet.
-    // Models like deepseek-reasoner can emit stray punctuation or short fragments before the real reply.
-    if (!this.hasStreamedContent) {
-      const trimmed = content.trim();
-      const hasWordChar = /[\p{L}\p{N}]/u.test(trimmed);
-      const isTinyPunctuation = trimmed.length > 0 && trimmed.length <= 3 && !hasWordChar;
-      // Also filter short fragments (6 chars or less) that aren't common greetings
-      // These are often leaked partial words from reasoning models
-      const isShortFragment = trimmed.length > 0 && trimmed.length <= 6 && hasWordChar;
-      const isCommonGreeting = /^(hi|hey|hello|yes|no|ok|okay|sure|thanks)[\p{P}]?$/iu.test(trimmed);
-      if (!trimmed || isTinyPunctuation || (isShortFragment && !isCommonGreeting)) {
-        logDebug('[DEBUG controller] emitDelta: skipping leading trivial/fragment chunk');
-        return;
-      }
+    // Filter out garbage/leaked reasoning fragments
+    if (this.isGarbageContent(content)) {
+      logDebug('[DEBUG controller] emitDelta: filtering garbage content');
+      return;
     }
-
-    // IMPORTANT: Don't filter garbage during streaming except for the leading trivial chunk above.
-    // Filtering during streaming can remove legitimate punctuation. Apply garbage filter only for
-    // final content or large chunks.
-    if (isFinal || content.length > 20) {
-      if (this.isGarbageContent(content)) {
-        logDebug('[DEBUG controller] emitDelta: filtering garbage content');
-        return;
-      }
-    }
-
-    // Mark that we've emitted meaningful stream content
-    this.hasStreamedContent = true;
 
     logDebug('[DEBUG controller] emitDelta: pushing to sink');
     this.activeSink?.push({
@@ -434,24 +397,21 @@ export class AgentController implements IAgentController {
     if (!this.activeSink) {
       return;
     }
+    if (!content.trim()) {
+      return;
+    }
     if (metadata.suppressDisplay) {
       return;
     }
-    // For non-final messages, require content to emit delta
     if (!metadata.isFinal) {
-      if (!content.trim()) {
-        return;
-      }
       this.emitDelta(content, false);
       return;
     }
-    // For final messages, always emit message.complete so interactiveShell can run fallback logic
-    // even if content is empty (reasoning-only models like deepseek-reasoner)
     const elapsedMs = metadata.elapsedMs ?? 0;
     this.activeSink.push({
       type: 'message.complete',
       timestamp: Date.now(),
-      content: content || '', // Ensure content is at least empty string, not undefined
+      content,
       elapsedMs,
     });
     this.emitUsage(metadata.usage ?? null);
@@ -463,88 +423,10 @@ export class AgentController implements IAgentController {
     }
   }
 
-  private createSink(): EventStream<AgentEventUnion> {
-    const sink = new EventStream<AgentEventUnion>();
-    this.activeSink = sink;
-    this.sinkRef.current = sink;
-    return sink;
-  }
-
-  private clearSink(): void {
-    if (this.activeSink) {
-      this.activeSink = null;
-      this.sinkRef.current = null;
-    }
-  }
-
-  private startAgentRun(
-    agent: ReturnType<AgentSession['createAgent']>,
-    message: string,
-    sink: EventStream<AgentEventUnion>
-  ): Promise<void> {
-    // Reset streaming state for this run
-    this.hasStreamedContent = false;
-    sink.push({ type: 'message.start', timestamp: Date.now() });
-    const runPromise = agent.send(message, true);
-
-    let timer: NodeJS.Timeout | null = null;
-    const timeoutPromise =
-      this.runTimeoutMs > 0
-        ? new Promise<never>((_, reject) => {
-            timer = setTimeout(() => {
-              reject(new Error(`Agent run timed out after ${this.runTimeoutMs}ms`));
-            }, this.runTimeoutMs);
-            timer.unref?.();
-          })
-        : null;
-
-    let cancelled = false;
-    const cancelPromise = new Promise<never>((_, reject) => {
-      this.cancelActiveRunFn = () => {
-        cancelled = true;
-        reject(new Error('Agent run cancelled'));
-      };
-    });
-
-    return Promise.race([runPromise, cancelPromise, timeoutPromise].filter(Boolean) as Promise<unknown>[])
-      .then(() => {
-        this.updateCachedHistory();
-        sink.close();
-      })
-      .catch((error) => {
-        const errorObj = error instanceof Error ? error : new Error(String(error));
-        // Let caller decide on fallback; propagate error after marking sink failed
-        if (cancelled) {
-          sink.fail(errorObj);
-        } else {
-          sink.fail(errorObj);
-        }
-        throw errorObj;
-      })
-      .finally(() => {
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-        this.cancelActiveRunFn = null;
-        if (this.sinkRef.current === sink) {
-          this.clearSink();
-        }
-      });
-  }
-
-  private async attemptFallbackWithError(errorObj: Error, attempts: number): Promise<boolean> {
-    if (!isFallbackEligibleError(errorObj)) return false;
-    if (attempts >= AgentController.MAX_FALLBACK_ATTEMPTS) return false;
-    logDebug(`[AgentController] Fallback-eligible error detected: ${errorObj.message}`);
-    return this.attemptFallback(errorObj);
-  }
-
   async *send(message: string): AsyncIterableIterator<AgentEventUnion> {
     if (this.activeSink) {
       throw new Error('Agent runtime is already processing a message. Please wait for the current run to finish.');
     }
-    let cancelledByUser = false;
 
     // Reset failed providers at the start of each new message
     // (providers might have recovered, quotas might have reset, etc.)
@@ -555,16 +437,45 @@ export class AgentController implements IAgentController {
     // Retry loop for fallback handling
     while (fallbackAttempts < AgentController.MAX_FALLBACK_ATTEMPTS) {
       const agent = this.ensureAgent();
-      const sink = this.createSink();
+      const sink = new EventStream<AgentEventUnion>();
+      this.activeSink = sink;
+      this.sinkRef.current = sink;
+      sink.push({ type: 'message.start', timestamp: Date.now() });
+
       let caughtError: Error | null = null;
       let fallbackSucceeded = false;
 
-      const run = this.startAgentRun(agent, message, sink).catch((error) => {
-        caughtError = error instanceof Error ? error : new Error(String(error));
-        if (/cancelled/i.test(caughtError.message)) {
-          cancelledByUser = true;
-        }
-      });
+      const run = agent
+        .send(message, true)
+        .then(() => {
+          this.updateCachedHistory();
+          sink.close();
+        })
+        .catch(async (error) => {
+          const errorObj = error instanceof Error ? error : new Error(String(error));
+          caughtError = errorObj;
+
+          // Check if this error is eligible for fallback
+          if (isFallbackEligibleError(error) && fallbackAttempts < AgentController.MAX_FALLBACK_ATTEMPTS - 1) {
+            logDebug(`[AgentController] Fallback-eligible error detected: ${errorObj.message}`);
+            fallbackSucceeded = await this.attemptFallback(errorObj);
+            if (fallbackSucceeded) {
+              // Close this sink without error - we'll retry with new provider
+              sink.close();
+              return;
+            }
+          }
+
+          // Not fallback-eligible or no fallback available - emit error and fail
+          this.emitError(errorObj.message);
+          sink.fail(errorObj);
+        })
+        .finally(() => {
+          if (this.activeSink === sink) {
+            this.activeSink = null;
+            this.sinkRef.current = null;
+          }
+        });
 
       try {
         for await (const event of sink) {
@@ -574,37 +485,16 @@ export class AgentController implements IAgentController {
         await run;
       }
 
-      // Decide on fallback after run completion
-      if (caughtError) {
-        if (cancelledByUser) {
-          this.emitError(caughtError.message);
-          break;
-        }
-        fallbackSucceeded = await this.attemptFallbackWithError(caughtError, fallbackAttempts + 1);
-        if (!fallbackSucceeded) {
-          this.emitError(caughtError.message);
-          break;
-        }
+      // If we successfully fell back, increment counter and continue loop
+      if (fallbackSucceeded && caughtError) {
         fallbackAttempts++;
-        logDebug(
-          `[AgentController] Retrying with fallback provider (attempt ${fallbackAttempts}/${AgentController.MAX_FALLBACK_ATTEMPTS})`
-        );
+        logDebug(`[AgentController] Retrying with fallback provider (attempt ${fallbackAttempts}/${AgentController.MAX_FALLBACK_ATTEMPTS})`);
         continue;
       }
 
-      // Successful run, exit loop
+      // No fallback happened or it failed - exit loop
       break;
     }
-  }
-
-  /**
-   * Cancel an in-flight agent run, if any. This triggers a controlled failure on the stream.
-   */
-  cancel(reason = 'Cancelled by user'): void {
-    if (!this.activeSink) return;
-    this.cancelActiveRunFn?.();
-    this.activeSink.fail(new Error(reason));
-    this.clearSink();
   }
 
   async switchModel(config: ModelConfig): Promise<void> {
@@ -654,6 +544,84 @@ export class AgentController implements IAgentController {
   clearHistory(): void {
     this.cachedHistory = [];
     this.agent?.clearHistory();
+  }
+
+  /**
+   * Check if the controller is currently processing a message.
+   */
+  isProcessing(): boolean {
+    return this.activeSink !== null;
+  }
+
+  /**
+   * Force-clear any lingering active state. Use this before starting a new
+   * operation (like attack tournament) to ensure clean state.
+   * This will close any active sink without waiting for completion.
+   */
+  forceReset(): void {
+    if (this.activeSink) {
+      try {
+        this.activeSink.close();
+      } catch {
+        // Ignore errors - sink may already be closed
+      }
+      this.activeSink = null;
+      this.sinkRef.current = null;
+    }
+  }
+
+  /**
+   * Sanitize history by fixing orphaned tool calls (tool_calls without corresponding tool results).
+   * This can happen when a run is interrupted mid-tool-execution.
+   * We add placeholder error results for any orphaned tool calls to keep history valid.
+   */
+  sanitizeHistory(): void {
+    const history = this.getHistory();
+    if (history.length === 0) return;
+
+    const sanitized: ConversationMessage[] = [];
+    for (let i = 0; i < history.length; i++) {
+      const msg = history[i];
+      sanitized.push(msg);
+
+      // Check if this is an assistant message with tool_calls
+      if (msg.role === 'assistant' && msg.toolCalls?.length) {
+        // Look ahead for tool results
+        const toolCallIds = new Set(msg.toolCalls.map(tc => tc.id));
+        let nextIdx = i + 1;
+
+        // Consume any following tool messages
+        while (nextIdx < history.length && history[nextIdx].role === 'tool') {
+          const toolMsg = history[nextIdx] as { role: 'tool'; toolCallId: string };
+          if (toolMsg.toolCallId) {
+            toolCallIds.delete(toolMsg.toolCallId);
+          }
+          sanitized.push(history[nextIdx]);
+          nextIdx++;
+        }
+
+        // Add placeholder results for any orphaned tool calls
+        for (const orphanedId of toolCallIds) {
+          const orphanedCall = msg.toolCalls.find(tc => tc.id === orphanedId);
+          const toolName = orphanedCall?.name ?? 'unknown';
+          sanitized.push({
+            role: 'tool',
+            name: toolName,
+            toolCallId: orphanedId,
+            content: `[Interrupted: ${toolName} execution was cancelled]`,
+          });
+        }
+
+        // Skip the tool messages we already processed
+        i = nextIdx - 1;
+      }
+    }
+
+    // Update both cached history and agent history
+    this.cachedHistory = sanitized;
+    if (this.agent) {
+      this.agent.loadHistory(sanitized);
+    }
   }
 
   private toModelConfig(selection: ModelSelection): ModelConfig {

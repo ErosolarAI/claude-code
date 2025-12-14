@@ -20,7 +20,6 @@ import { logDebug } from '../utils/debugLogger.js';
 import {
   clampPercentage,
   getContextColor,
-  UI_STRINGS,
 } from './uiConstants.js';
 
 export interface CommandSuggestion {
@@ -144,7 +143,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   private suggestionIndex = -1;
   private availableCommands: typeof this.suggestions = [];
   private hotkeysInToggleLine: Set<string> = new Set();
-  private collapsedPaste: { text: string; lines: number; charDisplay: string; truncated: boolean; prePasteBuffer: string; prePasteCursor: number } | null = null;
+  private collapsedPaste: { text: string; lines: number; chars: number } | null = null;
 
   private mode: 'idle' | 'streaming' = 'idle';
   private lastToolResult: string | null = null;
@@ -159,11 +158,9 @@ export class UnifiedUIRenderer extends EventEmitter {
   /** Track the last tool name for pairing with results */
   private lastToolName: string = '';
   private streamingStartTime: number | null = null;
-  private statusMessage: string | null = UI_STRINGS.LOADING;
+  private statusMessage: string | null = null;
   private statusOverride: string | null = null;
   private statusStreaming: string | null = null;
-  // Pinned status keeps the initial loading UI consistent across streaming/typing states
-  private pinnedStatus: { text: string; tone: 'success' | 'info' | 'warn' | 'error' } | null = null;
 
   // Animated UI components
   private streamingSpinner: AnimatedSpinner | null = null;
@@ -186,8 +183,6 @@ export class UnifiedUIRenderer extends EventEmitter {
   private readonly activityStarFrames = ['✳', '✴', '✵', '✶', '✷', '✸'];
   // Token count during streaming
   private streamingTokens = 0;
-  // Track whether meaningful stream content has been rendered (for filtering leading garbage)
-  private hasRenderedMeaningfulStream = false;
   // Elapsed time color animation
   private elapsedColorFrame = 0;
   private readonly elapsedColorFrames = ['#F59E0B', '#FBBF24', '#FCD34D', '#FDE68A', '#FCD34D', '#FBBF24'];
@@ -213,7 +208,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     thinkingLabel?: string;
     autosave?: boolean;
     version?: string;
-    author?: string;
     toolSummary?: string;
   } = {};
   private toggleState: ModeToggleState = {
@@ -324,7 +318,6 @@ export class UnifiedUIRenderer extends EventEmitter {
   private hasRenderedPrompt = false;
   private hasEverRenderedOverlay = false;  // Track if we've ever rendered for inline clearing
   private lastOverlay: { lines: string[]; promptIndex: number } | null = null;
-  private lastOverlayRendered: { lines: string[]; promptIndex: number; promptCol: number } | null = null;
   private allowPromptRender = true;
   private promptRenderingSuspended = false;
   private secretMode = false;
@@ -1104,7 +1097,14 @@ export class UnifiedUIRenderer extends EventEmitter {
       this.commitPasteBuffer();
       return true;
     }
-    // For bracketed paste, accumulate everything verbatim; newline handling is in the buffer.
+    if (key?.name === 'return' || key?.name === 'enter') {
+      this.appendToPasteBuffer('paste', '\n');
+      return true;
+    }
+    if (key?.name === 'backspace') {
+      this.pasteBuffer = this.pasteBuffer.slice(0, -1);
+      return true;
+    }
     if (typeof str === 'string' && str.length > 0) {
       this.appendToPasteBuffer('paste', str);
       return true;
@@ -1116,35 +1116,25 @@ export class UnifiedUIRenderer extends EventEmitter {
     return true;
   }
 
-  private captureCollapsedPaste(content: string, lineCount: number, wasTruncated: boolean): void {
-    const charDisplay = wasTruncated ? `${content.length}+` : `${content.length}`;
-    // Preserve any existing buffer content before the paste
-    const prePasteBuffer = this.buffer;
-    const prePasteCursor = this.cursor;
-    const combined = prePasteBuffer.slice(0, prePasteCursor) + content + prePasteBuffer.slice(prePasteCursor);
-
-    // Auto-submit pasted content (safer than waiting for a second Enter press)
-    this.collapsedPaste = null;
-    this.buffer = '';
-    this.cursor = 0;
-    this.updateSuggestions();
-    this.emitInputChange();
-    const status = `Pasted ${lineCount} line${lineCount === 1 ? '' : 's'} (${charDisplay} chars${wasTruncated ? ', truncated' : ''}, content hidden)`;
-    this.updateStatusBundle({ main: status });
-    this.renderPrompt();
-    this.submitText(combined);
-  }
-
   private commitPasteBuffer(): void {
     if (!this.inBracketedPaste) return;
     // Sanitize to remove any injected escape sequences, then normalize line endings
     const sanitized = this.sanitizePasteContent(this.pasteBuffer);
     const content = sanitized.replace(/\r\n?/g, '\n');
     if (content) {
-      const lineCount = content.split('\n').length;
+      const lines = content.split('\n');
       const wasTruncated = this.pasteBufferOverflow;
-      if (lineCount > 1 || content.length > 200) {
-        this.captureCollapsedPaste(content, lineCount, wasTruncated);
+      if (lines.length > 1 || content.length > 200) {
+        this.collapsedPaste = {
+          text: content,
+          lines: lines.length,
+          chars: content.length + (wasTruncated ? '+' as unknown as number : 0), // Indicate truncation
+        };
+        this.buffer = '';
+        this.cursor = 0;
+        this.updateSuggestions();
+        this.renderPrompt();
+        this.emitInputChange();
       } else {
         this.insertText(content);
       }
@@ -1181,14 +1171,6 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     const now = Date.now();
     this.trackPlainPasteBurst(chunk.length, now);
-
-    // Handle Enter/Return key specifically during paste
-    if (this.inPlainPaste && (key?.name === 'return' || key?.name === 'enter')) {
-      // During paste, Enter should just add a newline to the paste buffer, not submit
-      this.appendToPasteBuffer('plainPaste', '\n');
-      this.schedulePlainPasteCommit();
-      return true; // Consume the key to prevent it from reaching normal key handling
-    }
 
     if (!this.inPlainPaste) {
       this.recordRecentPlainChunk(chunk, now);
@@ -1326,9 +1308,18 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (!content) return;
-    const lineCount = content.split('\n').length;
-    if (lineCount > 1 || content.length > 200) {
-      this.captureCollapsedPaste(content, lineCount, wasTruncated);
+    const lines = content.split('\n');
+    if (lines.length > 1 || content.length > 200) {
+      this.collapsedPaste = {
+        text: content,
+        lines: lines.length,
+        chars: content.length + (wasTruncated ? '+' as unknown as number : 0),
+      };
+      this.buffer = '';
+      this.cursor = 0;
+      this.updateSuggestions();
+      this.renderPrompt();
+      this.emitInputChange();
       return;
     }
 
@@ -1510,21 +1501,11 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (!content) return;
     const normalized = this.normalizeEventType(type);
     if (!normalized) return;
-    // Note: 'thought' events are handled in formatContent() which checks debug mode
-    // and thinking mode - don't drop them here so they can be displayed when appropriate
-
-    // When pinned loading UI is active, suppress all non-prompt events to keep the
-    // initial layout intact across streaming/typing/post-stream.
-    // Allow banner events even when pinned - they're part of the initial UI
-    if (this.pinnedStatus && normalized !== 'prompt' && type !== 'banner') {
-      // Transition out of the pinned welcome state on first real event
-      this.clearPinnedStatus();
-    }
-
     logDebug(`[DEBUG renderer] normalized type=${normalized}`);
     if (
       normalized === 'prompt' ||
       normalized === 'response' ||
+      normalized === 'thought' ||
       normalized === 'stream' ||
       normalized === 'tool' ||
       normalized === 'tool-result' ||
@@ -1654,8 +1635,7 @@ export class UnifiedUIRenderer extends EventEmitter {
         target &&
           !target.isCompacted &&
           ((target.type === 'response' && target.rawType === 'response') ||
-            (target.type === 'thought' && target.rawType === 'thought') ||
-            (target.type === 'stream' && target.rawType === 'stream'))
+            (target.type === 'thought' && target.rawType === 'thought'))
       );
 
     if (!isMergeable(event)) {
@@ -1664,14 +1644,9 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     while (this.eventQueue.length > 0 && isMergeable(this.eventQueue[0])) {
       const next = this.eventQueue.shift()!;
-      // For stream events, don't add separators - they should be concatenated directly
-      if (event.type === 'stream') {
-        event.content = event.content + next.content;
-      } else {
-        const needsSeparator =
-          event.content.length > 0 && !event.content.endsWith('\n') && !next.content.startsWith('\n');
-        event.content = needsSeparator ? `${event.content}\n${next.content}` : `${event.content}${next.content}`;
-      }
+      const needsSeparator =
+        event.content.length > 0 && !event.content.endsWith('\n') && !next.content.startsWith('\n');
+      event.content = needsSeparator ? `${event.content}\n${next.content}` : `${event.content}${next.content}`;
     }
 
     return event;
@@ -1727,21 +1702,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     // Clear the prompt area before writing new content
-    if (this.pinnedStatus) {
-      // Keep the loading overlay intact for non-content events
-      // BUT allow through: tools, tool results, stream (response content), and response events
-      const allowedWhilePinned = event.type === 'tool' || event.type === 'tool-result' ||
-                                  event.type === 'stream' || event.type === 'response';
-      if (!allowedWhilePinned) {
-        if (event.type === 'prompt' && this.output.isTTY && this.interactive && !this.disposed) {
-          this.renderPromptOverlay(true);
-        }
-        return;
-      }
-      // For allowed events, clear pinned status and continue rendering
-      this.clearPinnedStatus();
-    }
-
     if (this.promptHeight > 0 || this.lastOverlay) {
       this.clearPromptArea();
     }
@@ -1757,9 +1717,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     this.lastOutputEndedWithNewline = formatted.endsWith('\n');
 
     // Immediately restore the prompt overlay so the chat box stays pinned during streaming
-    // EXCEPT for stream events - let them flow naturally without overlay interference
-    // The overlay will be rendered after the queue is empty (in processQueue)
-    if (this.output.isTTY && this.interactive && !this.disposed && event.type !== 'stream') {
+    if (this.output.isTTY && this.interactive && !this.disposed) {
       this.renderPromptOverlay(true);
     }
   }
@@ -1805,12 +1763,6 @@ export class UnifiedUIRenderer extends EventEmitter {
       return `${lines.join('\n')}\n`;
     }
 
-    if (event.rawType === 'raw') {
-      // Raw events bypass all filtering - display content directly
-      // Used for fallback greetings that must always be shown
-      return `${event.content}\n`;
-    }
-
     // Compact, user-friendly formatting
     switch (event.type) {
       case 'prompt':
@@ -1818,12 +1770,6 @@ export class UnifiedUIRenderer extends EventEmitter {
         return `${theme.primary('>')} ${event.content}\n`;
 
       case 'thought': {
-        // Show thinking/reasoning output in extended thinking mode or debug mode
-        const thinkingLabel = (this.toggleState.thinkingModeLabel || 'balanced').trim().toLowerCase();
-        const thinkingIsDeep = thinkingLabel === 'extended' || thinkingLabel === 'deep';
-        if (!this.toggleState.debugEnabled && !thinkingIsDeep) {
-          return '';
-        }
         // Programmatic filter: reject content that looks like internal/garbage output
         if (this.isGarbageOutput(event.content)) {
           return '';
@@ -1860,35 +1806,15 @@ export class UnifiedUIRenderer extends EventEmitter {
         return this.wrapBulletText(event.content, { label: 'test', labelColor: theme.info });
 
       case 'stream': {
-        // Streaming content is the model's response - pass through with filtering
-        // NOTE: In normal mode, the main handler uses 'raw' events (which bypass filtering).
-        // Stream events are only used in attack/upgrade tournament modes.
+        // Streaming content is the model's response - pass through directly
+        // IMPORTANT: Don't filter streaming chunks with isGarbageOutput because:
+        // 1. Chunks arrive character-by-character or in small pieces
+        // 2. Small chunks like "." or ":" are valid parts of sentences
+        // 3. Filtering would break the streaming display
+        // Only filter completely empty content
         if (!event.content) {
           return '';
         }
-
-        const trimmed = event.content.trim();
-        const hasWordChar = /[\p{L}\p{N}]/u.test(trimmed);
-
-        // Filter leading garbage until we have meaningful content
-        // Models like deepseek-reasoner emit punctuation-only chunks before/instead of real content
-        if (!this.hasRenderedMeaningfulStream) {
-          // Skip ANY content that has no letters or numbers (punctuation, whitespace, symbols)
-          if (!hasWordChar) {
-            return '';
-          }
-          // Also skip short fragments that look like leaked partial words (e.g., "do.", "with")
-          // These often leak from reasoning models before the actual response
-          if (trimmed.length <= 6) {
-            // Skip short fragments unless they look like a complete sentence or greeting
-            if (!/^(hi|hey|hello|yes|no|ok|okay|sure|thanks)[\p{P}]?$/iu.test(trimmed)) {
-              return '';
-            }
-          }
-          // Mark that we've rendered meaningful content
-          this.hasRenderedMeaningfulStream = true;
-        }
-
         return event.content;
       }
 
@@ -1959,7 +1885,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       const lineTrimmed = line.trim();
       if (!lineTrimmed) return false;
       // Line must have at least 30% alphanumeric content
-      const alphaNum = (lineTrimmed.match(/[\p{L}\p{N}]/gu) || []).length;
+      const alphaNum = (lineTrimmed.match(/[a-zA-Z0-9]/g) || []).length;
       return lineTrimmed.length > 0 && alphaNum / lineTrimmed.length >= 0.3;
     });
     // If less than 30% of lines are meaningful, it's garbage
@@ -2846,20 +2772,13 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (mode === 'streaming' && !wasStreaming) {
       this.streamingStartTime = Date.now();
       this.streamingTokens = 0; // Reset token count
-      this.hasRenderedMeaningfulStream = false; // Reset for new stream
       // Clear inline panel when entering streaming mode to prevent stale menus
       if (this.inlinePanel.length > 0) {
         this.inlinePanel = [];
       }
+      this.startSpinnerAnimation();
     } else if (mode === 'idle' && wasStreaming) {
       this.streamingStartTime = null;
-    }
-
-    // Keep spinner running while streaming or when pinned loading UI is active
-    const shouldSpin = this.mode === 'streaming' && !this.pinnedStatus;
-    if (shouldSpin) {
-      this.startSpinnerAnimation();
-    } else {
       this.stopSpinnerAnimation();
     }
 
@@ -2875,39 +2794,9 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   /**
-   * Keep the initial loading UI pinned regardless of streaming/user input state.
-   */
-  pinLoadingUI(text: string = UI_STRINGS.LOADING): void {
-    this.pinnedStatus = { text: text || UI_STRINGS.LOADING, tone: 'info' };
-    // Keep the loading UI static; don't start spinner in pinned mode
-    if (this.spinnerInterval) {
-      this.stopSpinnerAnimation();
-    }
-    if (!this.plainMode) {
-      this.renderPrompt();
-    }
-  }
-
-  /**
-   * Clear pinned loading UI and return to dynamic status rendering.
-   */
-  clearPinnedStatus(): void {
-    this.pinnedStatus = null;
-    if (this.mode === 'streaming') {
-      this.startSpinnerAnimation();
-    }
-    if (!this.plainMode) {
-      this.renderPrompt();
-    }
-  }
-
-  /**
    * Start the animated spinner for streaming status
    */
   private startSpinnerAnimation(): void {
-    if (this.pinnedStatus) {
-      return; // Keep loading UI static to avoid flicker
-    }
     if (this.spinnerInterval) return; // Already running
     this.spinnerFrame = 0;
     this.activityStarFrame = 0;
@@ -3031,7 +2920,6 @@ export class UnifiedUIRenderer extends EventEmitter {
       thinkingLabel?: string;
       autosave?: boolean;
       version?: string;
-      author?: string;
       toolSummary?: string;
     },
     options: { render?: boolean } = {}
@@ -3057,10 +2945,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     ) {
       this.hotkeysInToggleLine.clear();
     }
-    // Only re-render prompt in non-plain mode to avoid polluting output
-    if (!this.plainMode) {
-      this.renderPrompt();
-    }
+    this.renderPrompt();
   }
 
   /**
@@ -3117,99 +3002,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (!this.inlinePanel.length) return;
     this.inlinePanel = [];
     this.renderPrompt();
-  }
-
-  /**
-   * Reset overlay state (prompt height/cached overlay) when terminal is externally cleared.
-   * Prevents duplicate stacked overlays after manual clear/cls.
-   */
-  resetOverlayState(): void {
-    this.lastOverlay = null;
-    this.lastOverlayRendered = null;
-    this.lastOverlayHeight = 0;
-    this.promptHeight = 0;
-    this.hasRenderedPrompt = false;
-    this.hasEverRenderedOverlay = false;
-    this.pendingRender = false;
-    this.lastRenderTime = 0;
-  }
-
-  // ------------ Convenience methods (Display compatibility) ------------
-
-  /**
-   * Write raw content directly to output.
-   * Convenience method for simple output without event processing.
-   */
-  writeRaw(content: string): void {
-    if (!content) return;
-    this.addEvent('raw', content);
-  }
-
-  /**
-   * Show an error message with optional error details.
-   */
-  showError(message: string, error?: unknown): void {
-    const normalized = message?.trim() ?? '';
-    const details = this.formatErrorDetails(error);
-    const parts = [`${theme.error('✗')} ${normalized || 'Error'}`];
-    if (details) {
-      parts.push(`  ${details}`);
-    }
-    this.addEvent('response', `${parts.join('\n')}\n`);
-  }
-
-  /**
-   * Show a system message.
-   */
-  showSystemMessage(content: string): void {
-    const normalized = content?.trim();
-    if (!normalized) return;
-    this.addEvent('response', `${normalized}\n\n`);
-  }
-
-  /**
-   * Show a success message.
-   */
-  showSuccess(message: string): void {
-    const normalized = message?.trim();
-    if (!normalized) return;
-    this.addEvent('response', `${theme.success('✓')} ${normalized}\n`);
-  }
-
-  /**
-   * Show a warning message.
-   */
-  showWarning(message: string): void {
-    const normalized = message?.trim();
-    if (!normalized) return;
-    this.addEvent('response', `${theme.warning('!')} ${normalized}\n`);
-  }
-
-  /**
-   * Show an info message.
-   */
-  showInfo(message: string): void {
-    const normalized = message?.trim();
-    if (!normalized) return;
-    this.addEvent('response', `${theme.info('ℹ')} ${normalized}\n`);
-  }
-
-  /**
-   * Format error details for display.
-   */
-  private formatErrorDetails(error?: unknown): string | null {
-    if (!error) return null;
-    if (error instanceof Error) {
-      return error.stack || error.message;
-    }
-    if (typeof error === 'string') {
-      return error;
-    }
-    try {
-      return JSON.stringify(error, null, 2);
-    } catch {
-      return '[Unable to serialize error details]';
-    }
   }
 
   private limitInlinePanel(lines: string[]): string[] {
@@ -3301,103 +3093,88 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     const promptIndex = Math.max(0, Math.min(overlay.promptIndex, renderedLines.length - 1));
     const height = renderedLines.length;
-    const promptCol = Math.min(Math.max(1, 3 + this.cursor), this.cols || 80);
-
-    const overlayUnchanged =
-      this.lastOverlayRendered &&
-      this.arraysEqual(this.lastOverlayRendered.lines, renderedLines) &&
-      this.lastOverlayRendered.promptIndex === promptIndex &&
-      this.lastOverlayRendered.promptCol === promptCol;
-
-    // Fast path: overlay unchanged, just position cursor
-    if (overlayUnchanged) {
-      // Just ensure cursor is at prompt position - don't move around
-      this.write(`\x1b[?25l\x1b[${promptCol}G\x1b[?25h`);
-      this.isPromptActive = true;
-      this.promptHeight = height;
-      this.lastOverlayHeight = height;
-      this.cursorVisibleColumn = promptCol;
-      return;
-    }
 
     // Batch all ANSI operations into a single write to prevent flickering
+    // This eliminates the visual jitter caused by multiple sequential terminal writes
     const buffer: string[] = [];
 
-    // Hide cursor during render
+    // Hide cursor during render to prevent visual artifacts
     buffer.push('\x1b[?25l');
 
-    // STRATEGY: Use save/restore cursor position for reliability
-    // First, clear any existing overlay by moving up and clearing
-    const prevHeight = this.lastOverlayHeight || 0;
-    const prevPromptIdx = this.lastOverlay?.promptIndex ?? 0;
-
-    if (prevHeight > 0) {
-      // Move cursor up from current position (assumed to be at or below prompt row)
-      // to the TOP of the previous overlay
-      const upFromPrompt = prevPromptIdx;
-      if (upFromPrompt > 0) {
-        buffer.push(`\x1b[${upFromPrompt}A`);
+    // Clear previous prompt and handle height changes
+    // Note: We check lastOverlayHeight > 0 to know if there's something to clear,
+    // but we use lastOverlay?.promptIndex for cursor positioning (defaulting to 0 if cleared)
+    if (this.hasEverRenderedOverlay && this.lastOverlayHeight > 0) {
+      // Move up from prompt row to top of overlay
+      const linesToTop = this.lastOverlay?.promptIndex ?? 0;
+      if (linesToTop > 0) {
+        buffer.push(`\x1b[${linesToTop}A`);
       }
 
-      // Clear all previous overlay lines going down
-      for (let i = 0; i < prevHeight; i++) {
-        buffer.push(`\r${ESC.CLEAR_LINE}`);
-        if (i < prevHeight - 1) {
-          buffer.push('\x1b[B'); // move down
+      // Clear exactly the old overlay lines, then erase to end of screen
+      for (let i = 0; i < this.lastOverlayHeight; i++) {
+        buffer.push('\r');
+        buffer.push(ESC.CLEAR_LINE);
+        if (i < this.lastOverlayHeight - 1) {
+          buffer.push('\x1b[B');
         }
       }
 
-      // Clear anything below (in case overlay shrunk)
+      // Clear anything below the old overlay (handles edge cases)
       buffer.push('\x1b[J');
 
-      // Move back up to top of overlay area
-      if (prevHeight > 1) {
-        buffer.push(`\x1b[${prevHeight - 1}A`);
+      // After clearing, cursor is at last cleared line
+      // Move back up to the top where new overlay should start
+      const moveBackUp = this.lastOverlayHeight - 1;
+      if (moveBackUp > 0) {
+        buffer.push(`\x1b[${moveBackUp}A`);
       }
     }
 
-    // Now write the new overlay lines
+    // Write prompt lines (no trailing newline on last line)
     for (let i = 0; i < renderedLines.length; i++) {
-      buffer.push(`\r${ESC.CLEAR_LINE}`);
+      buffer.push('\r');
+      buffer.push(ESC.CLEAR_LINE);
       buffer.push(renderedLines[i] || '');
       if (i < renderedLines.length - 1) {
         buffer.push('\n');
       }
     }
 
-    // Position cursor at prompt input position
-    // Cursor is now at the last line of the overlay
-    // Move up to the prompt row
-    const upToPrompt = height - 1 - promptIndex;
-    if (upToPrompt > 0) {
-      buffer.push(`\x1b[${upToPrompt}A`);
+    // If old overlay was taller, clear any remaining stale lines below
+    // and use CSI J (erase from cursor to end of screen) to clean up
+    if (this.lastOverlayHeight > height) {
+      buffer.push('\n'); // Move to line below last content
+      buffer.push('\x1b[J'); // Clear from cursor to end of screen
+      buffer.push('\x1b[A'); // Move back up to last content line
+    }
+
+    // Position cursor at prompt input line
+    const promptCol = Math.min(Math.max(1, 3 + this.cursor), this.cols || 80);
+    // Cursor is now at the last line. Move up to the prompt row.
+    const linesToMoveUp = height - 1 - promptIndex;
+    if (linesToMoveUp > 0) {
+      buffer.push(`\x1b[${linesToMoveUp}A`);
     }
     buffer.push(`\x1b[${promptCol}G`);
 
-    // Show cursor
+    // Show cursor again after positioning
     buffer.push('\x1b[?25h');
 
-    // Single atomic write
+    // Single atomic write to prevent flickering
     this.write(buffer.join(''));
 
-    // Update state
     this.cursorVisibleColumn = promptCol;
     this.hasRenderedPrompt = true;
     this.hasEverRenderedOverlay = true;
     this.isPromptActive = true;
     this.lastOverlayHeight = height;
     this.lastOverlay = { lines: renderedLines, promptIndex };
-    this.lastOverlayRendered = { lines: renderedLines, promptIndex, promptCol };
     this.lastOutputEndedWithNewline = false;
     this.promptHeight = height;
   }
 
   private buildOverlayLines(): { lines: string[]; promptIndex: number } {
-    // When pinned status is active, keep the initial loading UI layout regardless of state.
-    if (this.pinnedStatus) {
-      return this.buildPinnedLoadingOverlay();
-    }
-
     const lines: string[] = [];
     const maxWidth = this.safeWidth();
     // Simple horizontal divider - clean and reliable
@@ -3530,74 +3307,6 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   /**
-   * Render a minimal, stable overlay matching the initial loading UI.
-   * This suppresses dynamic overlays (activity, inline panels, suggestions, toggles)
-   * to avoid flicker during streaming/typing and keeps the banner-like chrome visible.
-   */
-  private buildPinnedLoadingOverlay(): { lines: string[]; promptIndex: number } {
-    const lines: string[] = [];
-    const maxWidth = this.safeWidth();
-    const divider = theme.ui.muted('─'.repeat(maxWidth));
-
-    // Status line with spinner when pinned
-    // Static status line: show loading text
-    const statusText = this.pinnedStatus?.text || UI_STRINGS.LOADING;
-    lines.push(this.truncateLine(`  ${theme.info('⠋')} ${theme.info(statusText)}`, maxWidth));
-
-    // Header line for version/author
-    const headerParts: string[] = [];
-    if (this.statusMeta.version) {
-      headerParts.push(theme.info(`v${this.statusMeta.version}`));
-    }
-    if (this.statusMeta.author) {
-      if (headerParts.length) headerParts.push(theme.ui.muted('•'));
-      headerParts.push(theme.ui.muted(this.statusMeta.author));
-    }
-    if (headerParts.length) {
-      lines.push(this.truncateLine(`  ${headerParts.join(' ')}`, maxWidth));
-    }
-
-    // Profile line
-    const profileParts: string[] = [];
-    if (this.statusMeta.profile) {
-      profileParts.push(theme.warning(this.statusMeta.profile));
-    }
-    if (profileParts.length) {
-      lines.push(this.truncateLine(`  ${profileParts.join(' ')}`, maxWidth));
-    }
-
-    // Model/provider line (static)
-    const model = this.statusMeta.model ? theme.info(this.statusMeta.model) : null;
-    const provider = this.statusMeta.provider ? theme.ui.muted(this.statusMeta.provider) : null;
-    const modelLine = [model, provider].filter(Boolean).join(theme.ui.muted('  ·  '));
-    if (modelLine) {
-      lines.push(this.truncateLine(`  ${modelLine}`, maxWidth));
-    }
-
-    // Quick commands and hint (static to mirror first-load UI)
-    lines.push(this.truncateLine(`  ${theme.ui.muted('💡 /model    🔑 /secrets    ❓ /help    🐛 /debug')}`, maxWidth));
-    lines.push(this.truncateLine(`  ${theme.ui.muted('hint: type a prompt to start, /help for commands, or -q for headless runs')}`, maxWidth));
-
-    // Divider and prompt line
-    lines.push(divider);
-
-    const inputLine = this.buildInputLine();
-    const inputLines = inputLine.split('\n').filter((line, idx, arr) => {
-      if (line.trim() === '' && (idx === 0 || idx === arr.length - 1)) return false;
-      return true;
-    });
-    const promptIndex = lines.length;
-    for (const line of inputLines) {
-      lines.push(this.truncateLine(line, maxWidth));
-    }
-
-    // Bottom divider to preserve spacing
-    lines.push(divider);
-
-    return { lines, promptIndex };
-  }
-
-  /**
    * Build model name and context usage line with mini progress bar
    * Format: gpt-4 · ████░░ 85% context
    */
@@ -3725,16 +3434,10 @@ export class UnifiedUIRenderer extends EventEmitter {
       return [];
     }
 
-    // Pinned mode uses a minimal, static status line to avoid flicker.
-    if (this.pinnedStatus) {
-      return [this.truncateLine(`${theme.info('⠋')} ${this.applyTone(statusLabel.text, statusLabel.tone)}`, maxWidth)];
-    }
-
     const segments: string[] = [];
 
-    // Add animated spinner when streaming
-    const showSpinner = this.mode === 'streaming';
-    if (showSpinner) {
+    // Add animated spinner when streaming for dynamic visual feedback
+    if (this.mode === 'streaming') {
       const spinnerChars = spinnerFrames.braille;
       const spinnerChar = spinnerChars[this.spinnerFrame % spinnerChars.length] ?? '⠋';
       segments.push(`${theme.info(spinnerChar)} ${this.applyTone(statusLabel.text, statusLabel.tone)}`);
@@ -3922,10 +3625,6 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private composeStatusLabel(): { text: string; tone: 'success' | 'info' | 'warn' | 'error' } | null {
-    if (this.pinnedStatus) {
-      return { text: this.pinnedStatus.text, tone: this.pinnedStatus.tone };
-    }
-
     const statuses = [this.statusStreaming, this.statusOverride, this.statusMessage].filter(
       (value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index
     );
@@ -3996,14 +3695,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     return lines;
-  }
-
-  private arraysEqual(a: string[], b: string[]): boolean {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (a[i] !== b[i]) return false;
-    }
-    return true;
   }
 
   private buildControlLines(): string[] {
@@ -4160,7 +3851,7 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   private buildInputLine(): string {
     if (this.collapsedPaste) {
-      const summary = `[pasted ${this.collapsedPaste.lines} lines, ${this.collapsedPaste.charDisplay} chars] (Enter/Ctrl+L insert, Backspace discard)`;
+      const summary = `[pasted ${this.collapsedPaste.lines} lines, ${this.collapsedPaste.chars} chars] (Enter/Ctrl+L insert, Backspace discard)`;
       return this.truncateLine(`${theme.primary('> ')}${theme.ui.muted(summary)}`, this.safeWidth());
     }
 
@@ -4305,19 +3996,14 @@ export class UnifiedUIRenderer extends EventEmitter {
   /**
    * Expand collapsed paste into the buffer without submitting (Ctrl+L).
    * Allows user to edit the pasted content before submission.
-   * Preserves any existing text that was in the buffer before the paste.
    */
   private expandCollapsedPasteToBuffer(): void {
     if (!this.collapsedPaste) return;
-    const pasteText = this.collapsedPaste.text;
-    const prePasteBuffer = this.collapsedPaste.prePasteBuffer;
-    const prePasteCursor = this.collapsedPaste.prePasteCursor;
+    const text = this.collapsedPaste.text;
     this.collapsedPaste = null;
-    // Insert pasted content at the original cursor position, preserving existing text
-    const before = prePasteBuffer.slice(0, prePasteCursor);
-    const after = prePasteBuffer.slice(prePasteCursor);
-    this.buffer = before + pasteText + after;
-    this.cursor = before.length + pasteText.length;
+    // Put the pasted content into the buffer for editing
+    this.buffer = text;
+    this.cursor = text.length;
     this.updateSuggestions();
     this.renderPrompt();
     this.emitInputChange();
@@ -4326,26 +4012,19 @@ export class UnifiedUIRenderer extends EventEmitter {
   /**
    * Expand collapsed paste and submit immediately (Enter).
    * Used when user wants to send the pasted content as-is.
-   * Combines any existing text that was in the buffer before the paste.
    */
   private expandCollapsedPaste(): void {
     if (!this.collapsedPaste) return;
-    const pasteText = this.collapsedPaste.text;
-    const prePasteBuffer = this.collapsedPaste.prePasteBuffer;
-    const prePasteCursor = this.collapsedPaste.prePasteCursor;
+    const text = this.collapsedPaste.text;
     this.collapsedPaste = null;
-    // Combine existing text with pasted content at the original cursor position
-    const before = prePasteBuffer.slice(0, prePasteCursor);
-    const after = prePasteBuffer.slice(prePasteCursor);
-    const combinedText = before + pasteText + after;
     // Clear the buffer first to avoid any visual duplication
     this.buffer = '';
     this.cursor = 0;
     this.updateSuggestions();
     this.renderPrompt();
     this.emitInputChange();
-    // Submit the combined content (displayUserPrompt is called within submitText for non-slash commands)
-    this.submitText(combinedText);
+    // Submit the paste content (displayUserPrompt is called within submitText for non-slash commands)
+    this.submitText(text);
   }
 
   captureInput(options: { allowEmpty?: boolean; trim?: boolean; resetBuffer?: boolean } = {}): Promise<string> {
@@ -4591,44 +4270,36 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private clearPromptArea(): void {
-    if (this.pinnedStatus) {
-      return; // Never clear overlay while loading UI is pinned
-    }
-    const height = this.lastOverlayHeight || this.promptHeight || 0;
+    const height = this.lastOverlay?.lines.length ?? this.promptHeight ?? 0;
     if (height === 0) return;
 
-    // Cursor should be at prompt row within the overlay.
-    // Move up to top of overlay first.
-    const promptIdx = this.lastOverlay?.promptIndex ?? 0;
-    if (promptIdx > 0) {
-      this.write(`\x1b[${promptIdx}A`);
+    // Cursor is at prompt row. Move up to top of overlay first.
+    if (this.lastOverlay) {
+      const linesToTop = this.lastOverlay.promptIndex;
+      if (linesToTop > 0) {
+        this.write(`\x1b[${linesToTop}A`);
+      }
     }
 
     // Now at top, clear each line downward
     for (let i = 0; i < height; i++) {
-      this.write(`\r${ESC.CLEAR_LINE}`);
+      this.write('\r');
+      this.write(ESC.CLEAR_LINE);
       if (i < height - 1) {
-        this.write('\x1b[B'); // Move down
+        this.write('\x1b[B');
       }
     }
 
-    // Clear anything that might be below
-    this.write('\x1b[J');
-
-    // After clearing, cursor is at the last cleared line.
-    // Move back up to the top (where new content should start).
+    // Move back to top (where content should continue from)
     if (height > 1) {
       this.write(`\x1b[${height - 1}A`);
     }
     this.write('\r');
 
-    // Reset overlay state completely
     this.lastOverlay = null;
-    this.lastOverlayRendered = null;
     this.promptHeight = 0;
     this.lastOverlayHeight = 0;
     this.isPromptActive = false;
-    this.hasEverRenderedOverlay = false;
   }
 
   private updateTerminalSize(): void {

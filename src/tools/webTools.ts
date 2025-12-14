@@ -31,11 +31,6 @@ interface TavilyExtractResponse {
   }>;
 }
 
-interface SearchFormatOptions {
-  includeHeader?: boolean;
-  queryLabel?: string;
-}
-
 interface BraveSearchResult {
   title: string;
   url: string;
@@ -79,11 +74,6 @@ export function createWebTools(): ToolDefinition[] {
             type: 'string',
             description: 'The search query',
           },
-          queries: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Optional: run multiple related queries in parallel for faster coverage (max 4, deduped)',
-          },
           maxResults: {
             type: 'number',
             description: 'Maximum number of results to return (default: 5, max: 10)',
@@ -98,22 +88,13 @@ export function createWebTools(): ToolDefinition[] {
             description: 'For Tavily: include AI-generated answer summary. Default: true',
           },
         },
+        required: ['query'],
         additionalProperties: false,
       },
       handler: async (args) => {
-        const baseQuery = typeof args['query'] === 'string' ? args['query'].trim() : '';
-        const additionalQueries = Array.isArray(args['queries'])
-          ? args['queries']
-              .map((q) => (typeof q === 'string' ? q.trim() : ''))
-              .filter((q) => q.length > 0)
-          : [];
-        const uniqueQueries = Array.from(new Set([baseQuery, ...additionalQueries].filter(Boolean)));
-        const MAX_PARALLEL_QUERIES = 4;
-        const queriesToRun = uniqueQueries.slice(0, MAX_PARALLEL_QUERIES);
-        const skippedQueries = uniqueQueries.length - queriesToRun.length;
-
-        if (queriesToRun.length === 0) {
-          return 'Error: query is required (provide "query" or an array of "queries")';
+        const query = args['query'];
+        if (typeof query !== 'string' || !query.trim()) {
+          return 'Error: query is required';
         }
 
         const maxResults = Math.min(
@@ -124,60 +105,25 @@ export function createWebTools(): ToolDefinition[] {
         const includeAnswer = args['includeAnswer'] !== false;
 
         try {
-          type SearchRunner = (query: string, includeHeader: boolean, queryLabel?: string) => Promise<string>;
-          const runQueries = async (runner: SearchRunner): Promise<string> => {
-            if (queriesToRun.length === 1) {
-              return runner(queriesToRun[0]!, true);
-            }
-            const results = await Promise.all(
-              queriesToRun.map((q, idx) =>
-                runner(q, idx === 0, `Query: "${q}"`)
-              )
-            );
-            if (skippedQueries > 0) {
-              results.push(
-                `(Skipped ${skippedQueries} additional quer${skippedQueries === 1 ? 'y' : 'ies'} to avoid rate limits)`
-              );
-            }
-            return results.join('\n\n');
-          };
-
           // Try providers in order of preference
           const tavilyKey = getSecretValue('TAVILY_API_KEY');
           if (tavilyKey) {
-            return await runQueries((query, includeHeader, queryLabel) =>
-              searchTavily(query, tavilyKey, {
-                maxResults,
-                searchDepth,
-                includeAnswer,
-                format: { includeHeader, queryLabel },
-              })
-            );
+            return await searchTavily(query, tavilyKey, { maxResults, searchDepth, includeAnswer });
           }
 
           const braveKey = getSecretValue('BRAVE_SEARCH_API_KEY');
           if (braveKey) {
-            return await runQueries((query, includeHeader, queryLabel) =>
-              searchBrave(query, braveKey, {
-                maxResults,
-                format: { includeHeader, queryLabel },
-              })
-            );
+            return await searchBrave(query, braveKey, { maxResults });
           }
 
           const serpKey = getSecretValue('SERPAPI_API_KEY');
           if (serpKey) {
-            return await runQueries((query, includeHeader, queryLabel) =>
-              searchSerpAPI(query, serpKey, {
-                maxResults,
-                format: { includeHeader, queryLabel },
-              })
-            );
+            return await searchSerpAPI(query, serpKey, { maxResults });
           }
 
           return 'WebSearch requires either TAVILY_API_KEY (recommended), BRAVE_SEARCH_API_KEY, or SERPAPI_API_KEY to be configured. Use /secrets set to configure.';
         } catch (error) {
-          return buildError('WebSearch', error, { query: queriesToRun.join(' | ') || baseQuery });
+          return buildError('WebSearch', error, { query });
         }
       },
     },
@@ -236,7 +182,7 @@ export function createWebTools(): ToolDefinition[] {
 async function searchTavily(
   query: string,
   apiKey: string,
-  options: { maxResults: number; searchDepth: string; includeAnswer: boolean; format?: SearchFormatOptions }
+  options: { maxResults: number; searchDepth: string; includeAnswer: boolean }
 ): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -262,7 +208,7 @@ async function searchTavily(
     }
 
     const data = (await response.json()) as TavilySearchResponse;
-    return formatTavilyResults(data, 'Tavily', options.format);
+    return formatTavilyResults(data, 'Tavily');
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('Tavily search timed out after 30 seconds');
@@ -279,7 +225,7 @@ async function searchTavily(
 async function searchBrave(
   query: string,
   apiKey: string,
-  options: { maxResults: number; format?: SearchFormatOptions }
+  options: { maxResults: number }
 ): Promise<string> {
   const params = new URLSearchParams({
     q: query,
@@ -304,7 +250,7 @@ async function searchBrave(
     }
 
     const data = (await response.json()) as BraveSearchResponse;
-    return formatBraveResults(data, 'Brave Search', options.format);
+    return formatBraveResults(data, 'Brave Search');
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('Brave search timed out after 30 seconds');
@@ -321,7 +267,7 @@ async function searchBrave(
 async function searchSerpAPI(
   query: string,
   apiKey: string,
-  options: { maxResults: number; format?: SearchFormatOptions }
+  options: { maxResults: number }
 ): Promise<string> {
   const params = new URLSearchParams({
     q: query,
@@ -344,7 +290,7 @@ async function searchSerpAPI(
     }
 
     const data = (await response.json()) as SerpAPIResponse;
-    return formatSerpAPIResults(data, 'SerpAPI', options.format);
+    return formatSerpAPIResults(data, 'SerpAPI');
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('SerpAPI search timed out after 30 seconds');
@@ -382,21 +328,8 @@ async function extractTavily(urls: string[], apiKey: string): Promise<string> {
 /**
  * Format Tavily search results
  */
-function formatTavilyResults(
-  data: TavilySearchResponse,
-  provider: string,
-  format: SearchFormatOptions = {}
-): string {
-  const { includeHeader = true, queryLabel } = format;
-  const lines: string[] = [];
-
-  if (includeHeader) {
-    lines.push(`[WebSearch via ${provider}]`, '');
-  }
-
-  if (queryLabel) {
-    lines.push(queryLabel, '');
-  }
+function formatTavilyResults(data: TavilySearchResponse, provider: string): string {
+  const lines: string[] = [`[WebSearch via ${provider}]`, ''];
 
   if (data.answer) {
     lines.push('Summary:', data.answer, '');
@@ -431,21 +364,8 @@ function formatTavilyResults(
 /**
  * Format Brave search results
  */
-function formatBraveResults(
-  data: BraveSearchResponse,
-  provider: string,
-  format: SearchFormatOptions = {}
-): string {
-  const { includeHeader = true, queryLabel } = format;
-  const lines: string[] = [];
-
-  if (includeHeader) {
-    lines.push(`[WebSearch via ${provider}]`, '');
-  }
-
-  if (queryLabel) {
-    lines.push(queryLabel, '');
-  }
+function formatBraveResults(data: BraveSearchResponse, provider: string): string {
+  const lines: string[] = [`[WebSearch via ${provider}]`, ''];
 
   const results = data.web?.results || [];
   if (results.length === 0) {
@@ -474,21 +394,8 @@ function formatBraveResults(
 /**
  * Format SerpAPI results
  */
-function formatSerpAPIResults(
-  data: SerpAPIResponse,
-  provider: string,
-  format: SearchFormatOptions = {}
-): string {
-  const { includeHeader = true, queryLabel } = format;
-  const lines: string[] = [];
-
-  if (includeHeader) {
-    lines.push(`[WebSearch via ${provider}]`, '');
-  }
-
-  if (queryLabel) {
-    lines.push(queryLabel, '');
-  }
+function formatSerpAPIResults(data: SerpAPIResponse, provider: string): string {
+  const lines: string[] = [`[WebSearch via ${provider}]`, ''];
 
   const results = data.organic_results || [];
   if (results.length === 0) {

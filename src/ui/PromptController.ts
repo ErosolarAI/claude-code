@@ -298,18 +298,12 @@ export class PromptController {
     workspace?: string;
     directory?: string;
     writes?: string;
-    toolSummary?: string;
     sessionLabel?: string;
     thinkingLabel?: string;
     autosave?: boolean;
     version?: string;
-    author?: string;
   }): void {
     this.renderer.updateStatusMeta(meta, { render: true });
-  }
-
-  setToolSummary(toolSummary: string | null): void {
-    this.renderer.updateStatusMeta({ toolSummary: toolSummary ?? undefined }, { render: true });
   }
 
   setAvailableCommands(commands: CommandSuggestion[]): void {
