@@ -59,7 +59,7 @@ export class AnimatedSpinner {
       if (this.onUpdate) {
         this.onUpdate(this.render());
       }
-    }, 80); // ~12 FPS for spinners
+    }, 80); // ~12 FPS for smooth spinner animations
   }
 
   stop(): void {

@@ -13,6 +13,10 @@
 // FAST PATH: Handle --version and --help before any heavy imports
 // ============================================================================
 const rawArgs = process.argv.slice(2);
+
+// Detect which binary was invoked
+const invokedAs = process.argv[1]?.includes('erosolar') ? 'erosolar' : 'agi';
+
 if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
   // Inline version read for fastest possible response
   import('node:fs').then(fs => {
@@ -23,9 +27,9 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
           const pkgPath = path.resolve(path.dirname(__filename), '../../package.json');
           const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
           const version = pkg.version || '0.0.0';
-          console.log(`erosolar-cli v${version} (agi)`);
+          console.log(`${invokedAs}-cli v${version}`);
         } catch {
-          console.log('erosolar-cli (version unknown)');
+          console.log(`${invokedAs}-cli (version unknown)`);
         }
         process.exit(0);
       });
@@ -108,17 +112,18 @@ async function main(): Promise<void> {
 }
 
 // Inline help for fast response (no imports needed)
-function printHelpFast(): void {
+function printHelpFast(invokedAs: string = 'agi'): void {
+  const commandName = invokedAs === 'erosolar' ? 'erosolar' : 'agi';
   console.log(`
-erosolar-cli (agi) - Unified AGI Core Interactive AI Agent
+${invokedAs}-cli - Unified AGI Core Interactive AI Agent
 
-Usage: agi [options] [prompt]
+Usage: ${commandName} [options] [prompt]
 
 Modes:
-  agi                        Start interactive shell (requires TTY)
-  agi "prompt"               Start interactive shell with initial prompt
-  agi -q "prompt"            Quick mode - single command, minimal UI
-  echo "prompt" | agi        Pipe mode - process stdin prompts
+  ${commandName}                        Start interactive shell (requires TTY)
+  ${commandName} "prompt"               Start interactive shell with initial prompt
+  ${commandName} -q "prompt"            Quick mode - single command, minimal UI
+  echo "prompt" | ${commandName}        Pipe mode - process stdin prompts
 
 Options:
   -v, --version              Show version number
@@ -128,10 +133,10 @@ Options:
   --self-test                Run self-tests
 
 Examples:
-  agi                                    # Start interactive shell
-  agi "create a hello world script"      # Interactive with initial prompt
-  agi -q "fix the build error"           # Quick mode
-  echo "run npm test" | agi              # Pipe mode
+  ${commandName}                                    # Start interactive shell
+  ${commandName} "create a hello world script"      # Interactive with initial prompt
+  ${commandName} -q "fix the build error"           # Quick mode
+  echo "run npm test" | ${commandName}              # Pipe mode
 
 Commands:
   /attack                    Dual-RL attack tournament (requires AGI_ENABLE_ATTACKS=1)

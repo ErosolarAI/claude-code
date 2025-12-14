@@ -130,7 +130,7 @@ export const ParallelPresets = {
    */
   light: {
     maxConcurrency: 3,
-    defaultTimeout: 30000,
+    defaultTimeout: 24 * 60 * 60 * 1000,
     continueOnFailure: true,
     autoDetectParallel: true,
   },
@@ -141,7 +141,7 @@ export const ParallelPresets = {
    */
   standard: {
     maxConcurrency: 5,
-    defaultTimeout: 60000,
+    defaultTimeout: 24 * 60 * 60 * 1000,
     continueOnFailure: true,
     autoDetectParallel: true,
   },
@@ -152,7 +152,7 @@ export const ParallelPresets = {
    */
   heavy: {
     maxConcurrency: 8,
-    defaultTimeout: 120000,
+    defaultTimeout: 24 * 60 * 60 * 1000,
     continueOnFailure: true,
     autoDetectParallel: true,
   },
@@ -163,7 +163,7 @@ export const ParallelPresets = {
    */
   sequential: {
     maxConcurrency: 1,
-    defaultTimeout: 60000,
+    defaultTimeout: 24 * 60 * 60 * 1000,
     continueOnFailure: false,
     autoDetectParallel: false,
   },
@@ -173,7 +173,7 @@ export const ParallelPresets = {
    */
   agentPool: {
     balanceStrategy: 'least-busy' as const,
-    defaultTimeout: 120000,
+    defaultTimeout: 24 * 60 * 60 * 1000,
     maxQueueSize: 50,
   },
 } as const;

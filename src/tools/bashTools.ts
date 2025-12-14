@@ -270,31 +270,8 @@ function getErrorFixer(workingDir: string): AIErrorFixer {
 function getSmartTimeout(command: string): number {
   const cmd = command.toLowerCase().trim();
 
-  // Long-running ML/AI training jobs (10 minutes)
-  if (/\b(python|python3)\b/.test(cmd) && /\b(train|fine[-\s]?tune|finetune)\b/.test(cmd)) {
-    return 600000;
-  }
-  if (/\b(torchrun|accelerate\s+launch)\b/.test(cmd)) return 600000;
-
-  // Python/pytest test runners (5 minutes)
-  if (/\b(pytest|python\s+-m\s+pytest)\b/.test(cmd)) return 300000;
-
-  // NPM/Yarn/PNPM operations (5 minutes)
-  if (/\b(npm|yarn|pnpm)\s+(install|ci|i|add|update|upgrade)\b/.test(cmd)) return 300000;
-  if (/\b(npm|yarn|pnpm)\s+(run\s+)?(build|test|lint|start|dev)\b/.test(cmd)) return 300000;
-  if (/\bnpx\s+(create-|degit|giget)\b/.test(cmd)) return 300000;
-
-  // Prisma (3 minutes)
-  if (/\b(prisma|npx prisma)\s+(generate|migrate|db push|db pull)\b/.test(cmd)) return 180000;
-
-  // Docker (10 minutes)
-  if (/\bdocker\s+(build|pull|push|compose)\b/.test(cmd)) return 600000;
-
-  // Git clone / pip install (3 minutes)
-  if (/\bgit\s+clone\b/.test(cmd)) return 180000;
-  if (/\bpip\s+install\b/.test(cmd)) return 180000;
-
-  return 30000; // Default
+  // All commands get 24 hours - effectively infinite timeout
+  return 24 * 60 * 60 * 1000;
 }
 
 // ============================================================================

@@ -2187,7 +2187,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       // Simple format without args
       const nameMatch = content.match(/^(\w+)/);
       if (nameMatch) {
-        return `${bullet} ${theme.tool(`[${nameMatch[1]}]`)}\n`;
+        return `${bullet} ${theme.toolColors.default(`[${nameMatch[1]}]`)}\n`;
       }
       return `${bullet} ${content}\n`;
     }
@@ -2197,7 +2197,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     const maxWidth = Math.min(this.cols - 4, 56);
 
     // Format: ⏺ [ToolName] args...
-    const prefix = `${bullet} ${theme.tool(`[${toolName}]`)} `;
+    const prefix = `${bullet} ${theme.toolColors.default(`[${toolName}]`)} `;
     const prefixLen = toolName!.length + 5; // "⏺ [ToolName] " visible length
     const indent = ' '.repeat(prefixLen + 4); // Extra indent for wrapped args
 
@@ -2351,7 +2351,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     params: Array<{ key: string; value: string }>,
     maxWidth: number
   ): string {
-    return this.formatToolParamsColored(toolName, params, maxWidth, theme.tool);
+    return this.formatToolParamsColored(toolName, params, maxWidth, theme.toolColors.default);
   }
 
   /**
@@ -2403,7 +2403,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       return theme.warning(value);
     }
     if (lowerKey === 'command' || lowerKey === 'cmd') {
-      return theme.tool(value);
+      return theme.toolColors.default(value);
     }
     return value;
   }

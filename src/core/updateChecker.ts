@@ -64,7 +64,7 @@ export async function checkForUpdates(currentVersion: string): Promise<UpdateInf
   }
 
   try {
-    const { stdout } = await execAsync('npm view agi-cli version', {
+    const { stdout } = await execAsync('npm view agi-core-cli version', {
       timeout: 5000,
       encoding: 'utf8',
     });
@@ -254,7 +254,7 @@ export function formatUpdateNotification(updateInfo: UpdateInfo, note?: string):
   }
 
   lines.push(
-    padLine('Run: npm install -g agi-cli@latest', theme.primary),
+    padLine('Run: npm install -g agi-core-cli@latest', theme.primary),
     theme.warning(`╰${border}╯`),
     ''
   );
@@ -401,7 +401,7 @@ function resolveUpdateCommand(): string {
   if (override && override.trim()) {
     return override.trim();
   }
-  return 'npm install -g agi-cli@latest';
+  return 'npm install -g agi-core-cli@latest';
 }
 
 export interface UpdatePromptResult {

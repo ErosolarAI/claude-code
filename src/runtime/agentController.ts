@@ -473,7 +473,8 @@ export class AgentController implements IAgentController {
 
       const timeoutMsRaw = process.env['AGI_AGENT_RUN_TIMEOUT_MS'];
       const timeoutMs = timeoutMsRaw ? Number(timeoutMsRaw) : NaN;
-      if (!Number.isNaN(timeoutMs) && timeoutMs > 0) {
+      if (!Number.isNaN(timeoutMs) && timeoutMs > 0 && timeoutMs < 24 * 60 * 60 * 1000) {
+        // Only set timeout if less than 24 hours (practically infinite)
         this.activeTimeout = setTimeout(() => {
           const err = new Error(`Run timed out after ${timeoutMs}ms`);
           this.rejectInflight(err);
@@ -484,6 +485,18 @@ export class AgentController implements IAgentController {
             // ignore
           }
         }, timeoutMs);
+      } else {
+        // Set a very large timeout (24 hours) as fallback
+        this.activeTimeout = setTimeout(() => {
+          const err = new Error(`Run timed out after 24h`);
+          this.rejectInflight(err);
+          sink.fail(err);
+          try {
+            (this.agent as any)?.cancel?.('timeout');
+          } catch {
+            // ignore
+          }
+        }, 24 * 60 * 60 * 1000);
       }
 
       let caughtError: Error | null = null;

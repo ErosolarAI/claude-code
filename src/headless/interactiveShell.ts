@@ -42,10 +42,12 @@ import { getRepoTelemetrySnapshot } from '../tools/telemetryTools.js';
 const exec = promisify(childExec);
 import { ensureNextSteps } from '../core/finalResponseFormatter.js';
 import { getTaskCompletionDetector } from '../core/taskCompletionDetector.js';
+import { checkForUpdates, formatUpdateNotification } from '../core/updateChecker.js';
+import { theme } from '../ui/theme.js';
 
 // Timeout constants for attack tournament - balanced for model response time
-const ATTACK_AGENT_STEP_TIMEOUT_MS = 8_000; // 8s per agent step - fail fast
-const ATTACK_REASONING_TIMEOUT_MS = 5_000; // 5s max for reasoning-only before forcing action
+const ATTACK_AGENT_STEP_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours per agent step - effectively infinite
+const ATTACK_REASONING_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours max for reasoning-only before forcing action
 // No tournament timeout - continues until success
 const MIN_SUCCESS_SCORE = 5; // Minimum score to consider tournament successful
 const ATTACK_ENV_FLAG = process.env['AGI_ENABLE_ATTACKS'] === '1';
@@ -53,8 +55,8 @@ const MAX_TOURNAMENT_ROUNDS = 8; // Safety cap to avoid runaway loops
 
 // Timeout constants for regular prompt processing (reasoning models like DeepSeek)
 // Increased to accommodate slower reasoning models that need more time to think
-const PROMPT_REASONING_TIMEOUT_MS = 30_000; // 30s max for reasoning-only without action
-const PROMPT_STEP_TIMEOUT_MS = 60_000; // 60s per event - allow models time to reason
+const PROMPT_REASONING_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours max for reasoning-only without action
+const PROMPT_STEP_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours per event - effectively infinite
 
 /**
  * Iterate over an async iterator with a timeout per iteration.
@@ -179,7 +181,7 @@ export async function runInteractiveShell(options: InteractiveShellOptions): Pro
 }
 
 class InteractiveShell {
-  private readonly controller: AgentController;
+  private controller: AgentController;
   private readonly profile: ProfileName;
   private profileConfig: ResolvedProfileConfig;
   private readonly workingDir: string;
@@ -216,6 +218,67 @@ class InteractiveShell {
     }
   }
 
+  private async checkForUpdates(): Promise<void> {
+    try {
+      const version = getVersion();
+      const updateInfo = await checkForUpdates(version);
+      if (updateInfo && updateInfo.updateAvailable) {
+        const renderer = this.promptController?.getRenderer();
+        if (renderer) {
+          const notification = formatUpdateNotification(updateInfo);
+          renderer.addEvent('banner', notification);
+        }
+      }
+    } catch {
+      // Silently fail - don't block startup for update checks
+    }
+  }
+
+  private validateRequiredApiKeys(): void {
+    const renderer = this.promptController?.getRenderer();
+    if (!renderer) return;
+
+    const missingKeys: string[] = [];
+
+    // Check DeepSeek API key
+    if (!getSecretValue('DEEPSEEK_API_KEY')) {
+      missingKeys.push('DEEPSEEK_API_KEY');
+    }
+
+    // Check xAI API key
+    if (!getSecretValue('XAI_API_KEY')) {
+      missingKeys.push('XAI_API_KEY');
+    }
+
+    // Check Tavily API key
+    if (!getSecretValue('TAVILY_API_KEY')) {
+      missingKeys.push('TAVILY_API_KEY');
+    }
+
+    if (missingKeys.length > 0) {
+      const lines: string[] = [
+        '',
+        theme.warning('⚠️  Missing Required API Keys'),
+        '',
+        theme.ui.muted('The following API keys are required but not configured:'),
+        '',
+      ];
+
+      for (const key of missingKeys) {
+        lines.push(theme.error(`  • ${key}`));
+      }
+
+      lines.push('');
+      lines.push(theme.ui.muted('Configure these keys using:'));
+      lines.push(theme.primary('  /secrets set <KEY_NAME>'));
+      lines.push('');
+      lines.push(theme.ui.muted('Or set them as environment variables.'));
+      lines.push('');
+
+      renderer.addEvent('banner', lines.join('\n'));
+    }
+  }
+
   queuePrompt(prompt: string): void {
     this.pendingPrompts.push(prompt);
   }
@@ -248,6 +311,12 @@ class InteractiveShell {
 
     // Show welcome message
     this.showWelcome();
+
+    // Validate required API keys on startup
+    this.validateRequiredApiKeys();
+
+    // Check for updates in background (non-blocking)
+    void this.checkForUpdates();
 
     // Process any queued prompts
     if (this.pendingPrompts.length > 0) {
@@ -734,7 +803,7 @@ class InteractiveShell {
             this.promptController?.setStatusMessage(`Primary: ${cmd.split(' ')[0]}...`);
             if (renderer) renderer.addEvent('tool', chalk.hex('#0EA5E9')(`[Bash] $ ${cmd}`));
             try {
-              const { stdout, stderr } = await exec(cmd, { timeout: 10000, shell: '/bin/bash' });
+              const { stdout, stderr } = await exec(cmd, { timeout: 24 * 60 * 60 * 1000, shell: '/bin/bash' });
               const output = (stdout || stderr || '').trim();
               if (output && renderer) {
                 renderer.addEvent('tool-result', output.slice(0, 2000));
@@ -908,7 +977,7 @@ class InteractiveShell {
             for (const cmd of fallbackCommands) {
               if (renderer) renderer.addEvent('tool', chalk.hex('#F97316')(`[Bash] $ ${cmd}`));
               try {
-                const { stdout, stderr } = await exec(cmd, { timeout: 10000, shell: '/bin/bash' });
+                const { stdout, stderr } = await exec(cmd, { timeout: 24 * 60 * 60 * 1000, shell: '/bin/bash' });
               const output = (stdout || stderr || '').trim();
               if (output && renderer) {
                 renderer.addEvent('tool-result', output.slice(0, 2000));
@@ -974,7 +1043,7 @@ class InteractiveShell {
           this.promptController?.setStatusMessage(`Refiner: ${cmd.split(' ')[0]}...`);
           if (renderer) renderer.addEvent('tool', chalk.hex('#F97316')(`[Bash] $ ${cmd}`));
           try {
-            const { stdout, stderr } = await exec(cmd, { timeout: 10000, shell: '/bin/bash' });
+            const { stdout, stderr } = await exec(cmd, { timeout: 24 * 60 * 60 * 1000, shell: '/bin/bash' });
             const output = (stdout || stderr || '').trim();
             if (output && renderer) {
               renderer.addEvent('tool-result', output.slice(0, 2000));
@@ -1165,9 +1234,13 @@ Any text response is a failure. Only tool calls are accepted.`;
 
       case 'message.complete':
         if (renderer) {
+          // Display the assistant response content
+          if (event.content?.trim()) {
+            renderer.addEvent('response', event.content);
+          }
           renderer.addEvent('response', '\n');
         }
-        return { content: '', stepIncrement: 0, score: null };
+        return { content: event.content ?? '', stepIncrement: 0, score: null };
 
       case 'tool.start': {
         const toolName = event.toolName;
@@ -1770,6 +1843,9 @@ Any text response is a failure. Only tool calls are accepted.`;
         break;
 
       case 'message.complete':
+        if (event.content?.trim()) {
+          renderer.addEvent('response', event.content);
+        }
         renderer.addEvent('response', '\n');
         break;
 
@@ -3133,10 +3209,13 @@ Any text response is a failure. Only tool calls are accepted.`;
               const base = (event.content ?? '').trimEnd();
               let sourceText = base || this.currentResponseBuffer;
 
-              // If content came via message.complete but NOT via deltas, render it now
+              // If content came via message.complete but NOT via deltas, render it now as a proper response
               // This handles models that don't stream deltas (e.g., deepseek-reasoner)
               if (base && !this.currentResponseBuffer.trim()) {
-                renderer.addEvent('stream', base);
+                renderer.addEvent('response', base);
+              } else if (this.currentResponseBuffer.trim()) {
+                // For models that stream via deltas, add the accumulated response as a proper response event
+                renderer.addEvent('response', this.currentResponseBuffer.trim());
               }
 
               // Fallback: If response is empty but we have reasoning, synthesize a response
@@ -3144,7 +3223,7 @@ Any text response is a failure. Only tool calls are accepted.`;
                 // Extract key conclusions from reasoning for display
                 const synthesized = this.synthesizeFromReasoning(reasoningBuffer);
                 if (synthesized) {
-                  renderer.addEvent('stream', synthesized);
+                  renderer.addEvent('response', synthesized);
                   sourceText = synthesized;
                 }
               }
@@ -3156,9 +3235,9 @@ Any text response is a failure. Only tool calls are accepted.`;
               if (toolsUsed.length > 0) {
                 const { appended } = ensureNextSteps(sourceText);
                 // Only stream the newly appended content (e.g., "Next steps:")
-                // The main response was already streamed via message.delta events
+                // The main response was already added as a response event above
                 if (appended && appended.trim()) {
-                  renderer.addEvent('stream', appended);
+                  renderer.addEvent('response', appended);
                 }
               }
               renderer.addEvent('response', '\n');

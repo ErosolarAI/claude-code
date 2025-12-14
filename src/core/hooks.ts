@@ -166,7 +166,7 @@ async function executeCommandHook(
     return { success: false, error: 'No command specified' };
   }
 
-  const timeout = hook.timeout ?? 30000;
+      const timeout = hook.timeout ?? 24 * 60 * 60 * 1000;
 
   // Prepare environment variables for the hook
   const env = {

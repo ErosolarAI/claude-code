@@ -1,12 +1,13 @@
-# AGI Core CLI - Next-Generation AI Assistant
+# 🚀 AGI Core - Elite AI Agent Framework
 
 <div align="center">
 
-**AGI Core CLI** is a premium AI agent framework with multi-provider support, advanced orchestration, and offensive security tooling.
+**AGI Core** is a premium AI agent framework with multi-provider support, advanced orchestration, and offensive security tooling.
 
-![AGI Banner](https://img.shields.io/badge/AGI-Core%20CLI-6366F1?style=for-the-badge&logo=openai&logoColor=white)
+![AGI Core](https://img.shields.io/badge/AGI%20Core-Elite%20AI-6366F1?style=for-the-badge&logo=openai&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-100%25-3178C6?style=for-the-badge&logo=typescript)
 ![Node.js](https://img.shields.io/badge/Node.js-20+-339933?style=for-the-badge&logo=nodedotjs)
+![Security](https://img.shields.io/badge/Security-TAO%20Suite-FF0022?style=for-the-badge&logo=shield-check)
 
 </div>
 

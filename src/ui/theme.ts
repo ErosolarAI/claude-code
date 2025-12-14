@@ -80,30 +80,45 @@ const palette = {
   platinum: '#E5E4E2',
 };
 
-// Neon effect styles
+// Premium neon effect styles with enhanced glow
 export const neon = {
-  blue: createNeonStyle(palette.neonBlue),
-  purple: createNeonStyle(palette.neonPurple),
-  pink: createNeonStyle(palette.neonPink),
-  green: createNeonStyle(palette.neonGreen),
-  cyan: createNeonStyle(palette.neonCyan),
-  yellow: createNeonStyle(palette.neonYellow),
-  orange: createNeonStyle(palette.neonOrange),
+  blue: createNeonStyle(palette.neonBlue, '#00F7FF'),
+  purple: createNeonStyle(palette.neonPurple, '#CC00FF'),
+  pink: createNeonStyle(palette.neonPink, '#FF00CC'),
+  green: createNeonStyle(palette.neonGreen, '#00FFAA'),
+  cyan: createNeonStyle(palette.neonCyan, '#00FFFF'),
+  yellow: createNeonStyle(palette.neonYellow, '#FFEE00'),
+  orange: createNeonStyle(palette.neonOrange, '#FF5500'),
+  magenta: createNeonStyle(palette.neonMagenta, '#FF00FF'),
+  // Premium holographic effects
+  hologram: createNeonStyle('#00FFFF', '#FF00FF'),
+  laser: createNeonStyle('#00FF00', '#FF0000'),
+  plasma: createNeonStyle('#FF5500', '#00AAFF'),
 };
 
 export const theme = {
-  primary: chalk.hex(palette.indigo), // Indigo
-  secondary: chalk.hex(palette.purple), // Purple
-  accent: chalk.hex(palette.pink), // Pink
-  success: chalk.hex(palette.emerald), // Green
-  warning: chalk.hex(palette.amber), // Amber
-  error: chalk.hex(palette.red), // Red
-  info: chalk.hex(palette.blue), // Blue
+  // Premium primary colors
+  primary: chalk.hex(palette.indigo).bold, // Indigo
+  secondary: chalk.hex(palette.purple).bold, // Purple
+  accent: chalk.hex(palette.pink).bold, // Pink
+  success: chalk.hex(palette.emerald).bold, // Green
+  warning: chalk.hex(palette.amber).bold, // Amber
+  error: chalk.hex(palette.red).bold, // Red
+  info: chalk.hex(palette.blue).bold, // Blue
 
+  // Enhanced text styles
   dim: chalk.dim,
   bold: chalk.bold,
   italic: chalk.italic,
   underline: chalk.underline,
+  inverse: chalk.inverse,
+  strikethrough: chalk.strikethrough,
+
+  // Premium UI components
+  user: chalk.hex(palette.neonCyan).bold,
+  assistant: chalk.hex(palette.neonPurple).bold,
+  system: chalk.hex(palette.neonGreen).bold,
+  highlight: chalk.bgHex(palette.slate900).hex(palette.neonCyan).bold,
 
   // Premium gradients with enhanced vibrancy and smooth transitions
   gradient: {
@@ -266,10 +281,7 @@ export const theme = {
     duration: chalk.hex('#F59E0B'),    // Task duration
   },
 
-  user: chalk.hex('#3B82F6'),
-  assistant: chalk.hex('#8B5CF6'),
-  system: chalk.hex('#6B7280'),
-  tool: chalk.hex('#10B981'),
+
 
   // Tool-specific colors for different categories
   toolColors: {

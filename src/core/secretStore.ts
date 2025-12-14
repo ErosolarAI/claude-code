@@ -9,8 +9,6 @@ export type SecretName =
   | 'DEEPSEEK_API_KEY'
   | 'XAI_API_KEY'
   | 'GEMINI_API_KEY'
-  | 'BRAVE_SEARCH_API_KEY'
-  | 'SERPAPI_API_KEY'
   | 'TAVILY_API_KEY'
   | 'SMTP_USER'
   | 'SMTP_PASSWORD'
@@ -68,23 +66,9 @@ const SECRET_DEFINITIONS: SecretDefinition[] = [
     providers: ['google'],
   },
   {
-    id: 'BRAVE_SEARCH_API_KEY',
-    label: 'Brave Search API Key',
-    description: 'Optional: unlock WebSearch using the Brave Search API.',
-    envVar: 'BRAVE_SEARCH_API_KEY',
-    providers: [],
-  },
-  {
-    id: 'SERPAPI_API_KEY',
-    label: 'SerpAPI Key',
-    description: 'Optional: fallback WebSearch provider via SerpAPI.',
-    envVar: 'SERPAPI_API_KEY',
-    providers: [],
-  },
-  {
     id: 'TAVILY_API_KEY',
     label: 'Tavily API Key',
-    description: 'Recommended: Primary WebSearch and WebExtract provider. Get yours at https://tavily.com',
+    description: 'Required: WebSearch and WebExtract provider. Get yours at https://tavily.com',
     envVar: 'TAVILY_API_KEY',
     providers: [],
   },
@@ -376,8 +360,6 @@ function sanitizeAgainstLoadedSecrets(message: string): string {
     'DEEPSEEK_API_KEY',
     'XAI_API_KEY',
     'GEMINI_API_KEY',
-    'BRAVE_SEARCH_API_KEY',
-    'SERPAPI_API_KEY',
     'TAVILY_API_KEY',
     'SMTP_PASSWORD',
   ];

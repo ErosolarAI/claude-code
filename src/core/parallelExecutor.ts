@@ -253,7 +253,7 @@ export class ParallelExecutor {
   constructor(config: ParallelExecutorConfig = {}) {
     this.config = {
       maxConcurrency: config.maxConcurrency ?? 5,
-      defaultTimeout: config.defaultTimeout ?? 30000,
+      defaultTimeout: config.defaultTimeout ?? 24 * 60 * 60 * 1000,
       autoDetectParallel: config.autoDetectParallel ?? true,
       continueOnFailure: config.continueOnFailure ?? true,
       rateLimit: config.rateLimit ?? null!,
