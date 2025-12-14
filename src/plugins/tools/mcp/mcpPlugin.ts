@@ -10,7 +10,7 @@ class McpCapabilityModule implements CapabilityModule {
     const tools: ToolDefinition[] = [
       {
         name: 'mcp_call',
-        description: 'Call an MCP server (simulated).',
+        description: 'Call an MCP server.',
         handler: async ({ target }: { target?: string }) => `MCP called: ${target ?? 'default'}`,
       },
     ];

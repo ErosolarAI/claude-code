@@ -65,10 +65,10 @@ export function validateToolPreconditions(
       if (hasStandalonePlaceholder) {
         warnings.push({
           code: 'EDIT_PLACEHOLDER',
-          message: 'Placeholder patterns detected in old_string',
+          message: 'Placeholder patterns detected - HALLUCINATION ALERT',
           severity: 'critical',
           suggestion:
-            'AI is guessing instead of reading actual file. Use Read tool to get exact file content.',
+            'AI is guessing content instead of reading actual file. ALWAYS use Read tool to get exact file content including whitespace.',
         });
       }
 

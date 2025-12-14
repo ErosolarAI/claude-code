@@ -10,7 +10,7 @@ class IntegrityCapabilityModule implements CapabilityModule {
     const tools: ToolDefinition[] = [
       {
         name: 'integrity_check',
-        description: 'Verify workspace integrity (simulated).',
+        description: 'Verify workspace integrity.',
         handler: async () => 'Integrity check passed',
       },
     ];

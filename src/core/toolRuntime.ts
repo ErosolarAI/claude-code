@@ -20,6 +20,7 @@ const globalPerformanceMonitor = {
   startToolCall: (_call: unknown) => () => {},
 };
 import { validateToolPreconditions, validateAIFlowPatterns, EDIT_WITHOUT_READ, type PreflightWarning } from './toolPreconditions.js';
+import { enhanceWithHallucinationGuard } from './hallucinationGuard.js';
 import { safeTruncate } from './resultVerification.js';
 import { logDebug } from '../utils/debugLogger.js';
 
