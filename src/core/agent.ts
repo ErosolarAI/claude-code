@@ -789,7 +789,6 @@ export class AgentRuntime {
         }
 
         let reply = combinedContent.trim();
-        let wasReasoningUsedAsReply = false;
 
         // For reasoning models: if no content but we have reasoning, use reasoning as the response
         // This handles models like DeepSeek-reasoner that put their entire response in reasoning_content
@@ -797,7 +796,6 @@ export class AgentRuntime {
         if (!reply && reasoningContent.trim()) {
           // Use reasoning as the reply - it contains the model's answer
           reply = reasoningContent.trim();
-          wasReasoningUsedAsReply = true;
           // Stream the content so it appears as the actual response (not just thoughts)
           this.callbacks.onStreamChunk?.(reply, 'content');
         }

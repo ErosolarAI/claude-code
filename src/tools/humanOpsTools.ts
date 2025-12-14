@@ -46,7 +46,7 @@ function getTaskDir(): string {
 }
 
 function safeTitle(title: string): string {
-  return title.trim().replace(/[^\w\d\-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'task';
+  return title.trim().replace(/[^\w\d-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'task';
 }
 
 function writeTask(record: HumanTaskRecord, path: string): void {

@@ -16,7 +16,6 @@ import chalk from 'chalk';
 import { theme, spinnerFrames, getToolColor } from './theme.js';
 import { isPlainOutputMode } from './outputMode.js';
 import { AnimatedSpinner, ThinkingIndicator, ContextMeter, disposeAnimations } from './animatedStatus.js';
-import { logDebug } from '../utils/debugLogger.js';
 import {
   clampPercentage,
   getContextColor,
