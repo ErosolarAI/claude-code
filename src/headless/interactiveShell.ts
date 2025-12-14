@@ -3374,17 +3374,7 @@ Any text response is a failure. Only tool calls are accepted.`;
         if (autoContinueEnabled && episodeSuccess && toolsUsed.length > 0) {
           // Check if task is actually complete using TaskCompletionDetector
           const detector = getTaskCompletionDetector();
-          const analysis = detector.analyzeCompletion({
-            response: this.currentResponseBuffer,
-            toolsUsed: toolsUsed.map(t => ({
-              toolName: t,
-              timestamp: Date.now(),
-              success: true,
-              hasOutput: true
-            })),
-            todoItems: [], // No todo tracking yet
-            filesModified: filesModified
-          });
+          const analysis = detector.analyzeCompletion(this.currentResponseBuffer, toolsUsed);
           
           // Only auto-continue if task is NOT complete
           if (!analysis.isComplete) {
@@ -3392,14 +3382,15 @@ Any text response is a failure. Only tool calls are accepted.`;
             const followUpPrompt = this.generateAutoContinuePrompt(prompt, this.currentResponseBuffer, toolsUsed);
             if (followUpPrompt) {
               // Small delay before auto-continue
-              await new Promise(resolve => setTimeout(resolve, 500));
+              this.promptController?.setStatusMessage('Auto-continue...');
+              await new Promise(resolve => setTimeout(resolve, 1000));
               await this.processPrompt(followUpPrompt);
             }
           }
         }
       }
     }
-    }
+  }
 
   private generateAutoContinuePrompt(originalPrompt: string, response: string, toolsUsed: string[]): string | null {
     // Only auto-continue for certain types of work
