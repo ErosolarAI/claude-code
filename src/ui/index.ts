@@ -1,7 +1,7 @@
 /**
  * UI Layer - AGI CLI User Interface System
  *
- * Layers (current, legacy-free stack):
+ * Layers (current stack):
  * - Core primitives: theme.ts, layout.ts, uiConstants.ts, richText.ts
  * - Render helpers: codeHighlighter.ts, textHighlighter.ts, errorFormatter.ts, toolDisplay.ts
  * - Animation: animatedStatus.ts (uses animation/AnimationScheduler)

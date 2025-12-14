@@ -226,7 +226,7 @@ function compareVersions(v1: string, v2: string): number {
 }
 
 /**
- * Format update notification message (legacy box format)
+ * Format update notification message
  */
 export function formatUpdateNotification(updateInfo: UpdateInfo, note?: string): string {
   const width = 57;

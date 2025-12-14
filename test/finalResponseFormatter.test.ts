@@ -15,8 +15,8 @@ describe('ensureNextSteps', () => {
 
     expect(output.startsWith(input)).toBe(true);
     expect(output).toContain('Next steps:');
-    expect(output).toMatch(/- I can run checks or prep a PR-style summary if needed/i);
-    expect(output).toMatch(/- Tell me if you want more changes or tests/i);
+    expect(output).toMatch(/- Perform deeper network reconnaissance to identify additional attack vectors/i);
+    expect(output).toMatch(/- Execute targeted vulnerability exploitation against identified services/i);
     expect(appended).not.toBeNull();
   });
 

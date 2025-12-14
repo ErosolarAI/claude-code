@@ -127,6 +127,14 @@ export const DISPLAY_LIMITS = {
   SEARCH_PREVIEW_FILES: 4,
   /** Maximum matches to show in grep results preview */
   GREP_PREVIEW_MATCHES: 3,
+  /** Maximum attack targets to display in real-time */
+  MAX_ATTACK_TARGETS: 10,
+  /** Maximum lines for security scan results */
+  MAX_SECURITY_RESULTS: 100,
+  /** Maximum ports to show in network scan summaries */
+  MAX_SCAN_PORTS: 20,
+  /** Maximum vulnerabilities to display in real-time */
+  MAX_VULNERABILITIES: 25,
 } as const;
 
 // ============================================================================
@@ -169,6 +177,36 @@ export const UI_STRINGS = {
   INFO: 'ℹ',
   /** Pending indicator */
   PENDING: '○',
+  
+  /** Offensive security indicators */
+  ATTACK_MODE: '⚔ ATTACK MODE',
+  RECON_MODE: '🕵️ RECON MODE',
+  EXPLOIT_MODE: '💥 EXPLOIT MODE',
+  PERSISTENCE_MODE: '🔗 PERSISTENCE MODE',
+  DESTRUCTION_MODE: '💀 DESTRUCTION MODE',
+  C2_MODE: '🛰 C2 MODE',
+  
+  /** Security status indicators */
+  TARGET_ACQUIRED: '🎯 TARGET ACQUIRED',
+  VULNERABILITY_FOUND: '🔓 VULNERABILITY FOUND',
+  EXPLOIT_SUCCESS: '💣 EXPLOIT SUCCESS',
+  PERSISTENCE_ESTABLISHED: '🔒 PERSISTENCE ESTABLISHED',
+  DATA_EXFILTRATED: '📤 DATA EXFILTRATED',
+  INFRASTRUCTURE_COMPROMISED: '🏗 INFRASTRUCTURE COMPROMISED',
+  
+  /** Attack phase indicators */
+  PHASE_RECON: '🕵️ Phase: Reconnaissance',
+  PHASE_SCANNING: '📡 Phase: Scanning',
+  PHASE_EXPLOITATION: '💥 Phase: Exploitation',
+  PHASE_PERSISTENCE: '🔗 Phase: Persistence',
+  PHASE_EXFILTRATION: '📤 Phase: Exfiltration',
+  PHASE_DESTRUCTION: '💀 Phase: Destruction',
+  
+  /** Real-time monitoring */
+  MONITORING_ACTIVE: '👁 MONITORING ACTIVE',
+  TARGET_DOWN: '🔴 TARGET DOWN',
+  TARGET_UP: '🟢 TARGET UP',
+  SERVICE_DEGRADED: '🟡 SERVICE DEGRADED',
 } as const;
 
 // ============================================================================

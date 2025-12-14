@@ -12,15 +12,8 @@ import {
   validateToolArguments,
 } from './schemaValidator.js';
 import { ContextManager } from './contextManager.js';
-// Performance monitor stub (legacy module removed)
-const globalPerformanceMonitor = {
-  startOperation: (_name: string) => ({ end: () => {} }),
-  getMetrics: () => ({}),
-  recordToolError: (_call: unknown, _error: unknown) => {},
-  startToolCall: (_call: unknown) => () => {},
-};
+
 import { validateToolPreconditions, validateAIFlowPatterns, EDIT_WITHOUT_READ, type PreflightWarning } from './toolPreconditions.js';
-import { enhanceWithHallucinationGuard } from './hallucinationGuard.js';
 import { safeTruncate } from './resultVerification.js';
 import { logDebug } from '../utils/debugLogger.js';
 
@@ -337,7 +330,7 @@ export class ToolRuntime implements IToolRuntime {
     if (!record) {
       const message = `Tool "${call.name}" is not available.`;
       this.observer?.onToolError?.(augmentedCall, message);
-      globalPerformanceMonitor.recordToolError(call, message);
+      // Performance monitoring removed - no legacy components
       return message;
     }
 
@@ -359,7 +352,7 @@ export class ToolRuntime implements IToolRuntime {
         this.observer?.onToolResult?.(augmentedCall, cached.result);
 
         // Record cache hit as successful execution with 0ms time
-        globalPerformanceMonitor.startToolCall(call)();
+        // Performance monitoring removed - no legacy components
         this.recordToolHistory({
           toolName: call.name,
           args,
@@ -373,8 +366,7 @@ export class ToolRuntime implements IToolRuntime {
 
     this.observer?.onToolStart?.(augmentedCall);
 
-    // Start performance monitoring
-    const finishToolCall = globalPerformanceMonitor.startToolCall(call);
+    // Performance monitoring removed - no legacy components
 
     try {
       validateToolArguments(record.definition.name, record.definition.parameters, args);
@@ -456,7 +448,7 @@ export class ToolRuntime implements IToolRuntime {
       });
 
       // Record successful execution
-      finishToolCall();
+      // Performance monitoring removed - no legacy components
       return output;
     } catch (error) {
       let formatted: string;
@@ -476,8 +468,7 @@ export class ToolRuntime implements IToolRuntime {
         error: formatted,
       });
       
-      // Record failed execution
-      globalPerformanceMonitor.recordToolError(call, formatted);
+      // Record failed execution - no legacy performance monitoring
       return formatted;
     }
   }

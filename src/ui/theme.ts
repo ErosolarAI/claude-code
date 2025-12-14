@@ -12,7 +12,7 @@ type GradientFunction = (text: string) => string;
 // Advanced color utilities
 
 
-// Create a neon glow effect (simulated with bright colors)
+// Create a neon glow effect with bright colors
 const createNeonStyle = (baseColor: string, glowColor?: string) => {
   const glow = glowColor || baseColor;
   return {
@@ -23,54 +23,61 @@ const createNeonStyle = (baseColor: string, glowColor?: string) => {
   };
 };
 
-// Dynamic color palette with neon variants
+// Enhanced color palette with modern gradients and vibrancy
 const palette = {
-  // Core colors
-  indigo: '#6366F1',
-  purple: '#8B5CF6',
-  violet: '#A78BFA',
-  pink: '#EC4899',
+  // Premium core colors (enhanced vibrancy)
+  indigo: '#4F46E5',
+  purple: '#7C3AED',
+  violet: '#8B5CF6',
+  pink: '#DB2777',
   rose: '#F472B6',
-  fuchsia: '#D946EF',
+  fuchsia: '#C026D3',
 
-  // Neon variants
-  neonBlue: '#00D4FF',
-  neonPurple: '#BD00FF',
-  neonPink: '#FF00E5',
-  neonGreen: '#00FF9F',
+  // Hyper-neon variants (brighter, more vibrant)
+  neonBlue: '#00F7FF',
+  neonPurple: '#CC00FF',
+  neonPink: '#FF00CC',
+  neonGreen: '#00FFAA',
   neonCyan: '#00FFFF',
-  neonYellow: '#FFFF00',
-  neonOrange: '#FF6B00',
+  neonYellow: '#FFEE00',
+  neonOrange: '#FF5500',
+  neonMagenta: '#FF00FF',
   
-  // Offensive security colors
-  attackRed: '#FF0033',
-  exploitOrange: '#FF6600',
-  persistencePurple: '#AA00FF',
-  c2Green: '#00FF66',
-  reconBlue: '#0066FF',
-  destructionCrimson: '#CC0000',
+  // Offensive security colors (enhanced intensity)
+  attackRed: '#FF0022',
+  exploitOrange: '#FF4400',
+  persistencePurple: '#CC00FF',
+  c2Green: '#00FF88',
+  reconBlue: '#0088FF',
+  destructionCrimson: '#FF0000',
 
-  // Status colors
-  emerald: '#10B981',
-  teal: '#14B8A6',
-  cyan: '#06B6D4',
-  sky: '#0EA5E9',
-  blue: '#3B82F6',
-  amber: '#F59E0B',
-  orange: '#F97316',
-  red: '#EF4444',
+  // Premium status colors
+  emerald: '#00D68F',
+  teal: '#00C7B3',
+  cyan: '#00D4FF',
+  sky: '#0095FF',
+  blue: '#3D8BFF',
+  amber: '#FFB224',
+  orange: '#FF6B35',
+  red: '#FF4757',
 
-  // Neutrals
-  slate50: '#F8FAFC',
-  slate100: '#F1F5F9',
-  slate200: '#E2E8F0',
-  slate300: '#CBD5E1',
-  slate400: '#94A3B8',
-  slate500: '#64748B',
-  slate600: '#475569',
-  slate700: '#334155',
-  slate800: '#1E293B',
-  slate900: '#0F172A',
+  // Modern neutrals with depth
+  slate50: '#F8FAFF',
+  slate100: '#F1F5FF',
+  slate200: '#E2E8FF',
+  slate300: '#CBD5FF',
+  slate400: '#94A3FF',
+  slate500: '#6474FF',
+  slate600: '#4756FF',
+  slate700: '#3341FF',
+  slate800: '#1E29FF',
+  slate900: '#0F17FF',
+
+  // Metallic accents
+  gold: '#FFD700',
+  silver: '#C0C0C0',
+  bronze: '#CD7F32',
+  platinum: '#E5E4E2',
 };
 
 // Neon effect styles
@@ -98,29 +105,27 @@ export const theme = {
   italic: chalk.italic,
   underline: chalk.underline,
 
-  // Enhanced gradients with more options
+  // Premium gradients with enhanced vibrancy and smooth transitions
   gradient: {
-    primary: gradientString([palette.indigo, palette.purple, palette.pink]) as GradientFunction,
-    cool: gradientString([palette.blue, palette.indigo, palette.purple]) as GradientFunction,
-    warm: gradientString([palette.amber, palette.pink, palette.red]) as GradientFunction,
-    success: gradientString([palette.emerald, palette.teal]) as GradientFunction,
-    // New advanced gradients
-    neon: gradientString([palette.neonCyan, palette.neonBlue, palette.neonPurple, palette.neonPink]) as GradientFunction,
-    sunset: gradientString([palette.neonOrange, palette.pink, palette.neonPurple]) as GradientFunction,
-    aurora: gradientString([palette.neonGreen, palette.neonCyan, palette.neonBlue, palette.neonPurple]) as GradientFunction,
-    fire: gradientString([palette.neonYellow, palette.neonOrange, palette.red]) as GradientFunction,
-    ocean: gradientString([palette.cyan, palette.blue, palette.indigo]) as GradientFunction,
-    rainbow: gradientString(['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3']) as GradientFunction,
-    matrix: gradientString(['#003300', '#00FF00', '#00FF00', '#003300']) as GradientFunction,
-    synthwave: gradientString(['#FF00FF', '#00FFFF', '#FF00FF']) as GradientFunction,
-    cyberpunk: gradientString([palette.neonPink, palette.neonCyan, palette.neonYellow]) as GradientFunction,
-    // Offensive security gradients
-    attack: gradientString([palette.attackRed, palette.exploitOrange, palette.destructionCrimson]) as GradientFunction,
-    recon: gradientString([palette.reconBlue, palette.neonCyan, palette.blue]) as GradientFunction,
-    persistence: gradientString([palette.persistencePurple, palette.purple, palette.violet]) as GradientFunction,
-    exploitation: gradientString([palette.exploitOrange, palette.neonOrange, palette.amber]) as GradientFunction,
-    destruction: gradientString([palette.destructionCrimson, palette.red, palette.attackRed]) as GradientFunction,
-    c2: gradientString([palette.c2Green, palette.neonGreen, palette.emerald]) as GradientFunction,
+    primary: gradientString([palette.neonBlue, palette.neonPurple, palette.neonPink]) as GradientFunction,
+    pro: gradientString([palette.gold, palette.neonCyan, palette.neonMagenta]) as GradientFunction,
+    cyber: gradientString([palette.neonGreen, palette.neonCyan, palette.neonBlue, palette.neonPurple]) as GradientFunction,
+    cool: gradientString([palette.cyan, palette.sky, palette.blue, palette.indigo]) as GradientFunction,
+    warm: gradientString([palette.amber, palette.orange, palette.pink, palette.red]) as GradientFunction,
+    success: gradientString([palette.neonGreen, palette.emerald, palette.teal]) as GradientFunction,
+    // Premium neon gradients
+    neon: gradientString([palette.neonCyan, palette.neonBlue, palette.neonPurple, palette.neonPink, palette.neonMagenta]) as GradientFunction,
+    fire: gradientString([palette.attackRed, palette.destructionCrimson, palette.exploitOrange, palette.neonOrange, palette.neonYellow]) as GradientFunction,
+    ocean: gradientString([palette.neonCyan, palette.cyan, palette.sky, palette.blue, palette.indigo]) as GradientFunction,
+    sunset: gradientString([palette.neonPurple, palette.purple, palette.pink, palette.rose, palette.amber]) as GradientFunction,
+    // Elite security gradients
+    offensive: gradientString([palette.attackRed, palette.destructionCrimson, palette.exploitOrange, palette.neonOrange]) as GradientFunction,
+    defensive: gradientString([palette.neonGreen, palette.c2Green, palette.reconBlue, palette.sky]) as GradientFunction,
+    stealth: gradientString([palette.silver, palette.platinum, palette.slate400, palette.slate600]) as GradientFunction,
+    // Metallic gradients
+    gold: gradientString([palette.gold, '#FFEC8B', '#FFFACD']) as GradientFunction,
+    silver: gradientString([palette.silver, '#E6E8FA', '#F0F8FF']) as GradientFunction,
+    platinum: gradientString([palette.platinum, '#E8E8E8', '#F5F5F5']) as GradientFunction,
   } as Record<string, GradientFunction>,
 
   // Neon text styles for special effects

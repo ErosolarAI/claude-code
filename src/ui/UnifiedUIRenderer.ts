@@ -98,6 +98,40 @@ export interface RLAgentStatus {
   streak?: number;
 }
 
+/**
+ * Attack operation status for real-time display during offensive security operations.
+ */
+export interface AttackStatus {
+  /** Current attack phase */
+  phase?: 'recon' | 'scanning' | 'exploitation' | 'persistence' | 'exfiltration' | 'destruction';
+  /** Current target being attacked */
+  currentTarget?: string;
+  /** Number of targets acquired */
+  targetsAcquired?: number;
+  /** Number of vulnerabilities found */
+  vulnerabilitiesFound?: number;
+  /** Number of successful exploits */
+  exploitsSuccessful?: number;
+  /** Persistence mechanisms established */
+  persistenceEstablished?: number;
+  /** Data exfiltrated (MB) */
+  dataExfiltrated?: number;
+  /** Infrastructure compromised count */
+  infrastructureCompromised?: number;
+  /** Real-time monitoring active */
+  monitoringActive?: boolean;
+  /** Current attack mode */
+  attackMode?: 'recon' | 'attack' | 'exploit' | 'persistence' | 'c2' | 'destruction';
+  /** Attack success rate percentage */
+  successRate?: number;
+  /** Last attack result */
+  lastResult?: 'success' | 'failure' | 'partial';
+  /** Active attack modules */
+  activeModules?: string[];
+  /** Time since attack started */
+  attackDuration?: number;
+}
+
 const ESC = {
   HIDE_CURSOR: '\x1b[?25l',
   SHOW_CURSOR: '\x1b[?25h',

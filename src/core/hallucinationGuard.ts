@@ -111,7 +111,7 @@ export class HallucinationGuard {
   /**
    * Validate AI-generated code for common hallucination patterns
    */
-  validateGeneratedCode(code: string, context?: string): HallucinationReport {
+  validateGeneratedCode(code: string, _context?: string): HallucinationReport {
     const checks: HallucinationCheck[] = [];
 
     // Check for placeholder patterns
@@ -274,7 +274,7 @@ export class HallucinationGuard {
     }
 
     const averageRisk = totalRisk / checks.length;
-    const overallRisk = averageRisk >= 2.5 ? 'critical' : averageRisk >= 1.5 ? 'warning' : 'info';
+    const overallRisk = averageRisk >= 2.5 ? 'critical' : averageRisk >= 1.5 ? 'warning' : 'safe';
     
     // Confidence score: 100 - (risk * 20)
     const confidenceScore = Math.max(0, Math.min(100, 100 - (averageRisk * 20)));
