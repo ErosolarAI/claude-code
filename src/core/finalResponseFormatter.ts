@@ -20,8 +20,10 @@ export function ensureNextSteps(content: string): FinalResponseFormat {
   }
 
   const fallbackSteps = [
-    '- Tell me if you want more changes or tests.',
     '- I can run checks or prep a PR-style summary if needed.',
+    '- Tell me if you want more changes or tests.',
+    '- I can analyze the current state or suggest optimizations.',
+    '- Let me know what specific actions you\'d like me to take.',
   ];
 
   const appended = ['\n', 'Next steps:', ...fallbackSteps].join('\n');

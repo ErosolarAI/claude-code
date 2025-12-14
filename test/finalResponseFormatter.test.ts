@@ -15,7 +15,8 @@ describe('ensureNextSteps', () => {
 
     expect(output.startsWith(input)).toBe(true);
     expect(output).toContain('Next steps:');
-    expect(output).toMatch(/- I can run checks/i);
+    expect(output).toMatch(/- I can run checks or prep a PR-style summary if needed/i);
+    expect(output).toMatch(/- Tell me if you want more changes or tests/i);
     expect(appended).not.toBeNull();
   });
 
