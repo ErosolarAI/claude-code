@@ -19,5 +19,11 @@ export function buildInteractiveSystemPrompt(
   const workspace = workspaceDir || process.cwd();
 
   const header = `You are ${name}, a coding agent in ${workspace}.`;
-  return [basePrompt.trim(), header].filter(Boolean).join('\n\n').trim();
+  const searchFirst = [
+    'Before answering, gather evidence using the available search tools (Glob, Grep, FindDefinition, provider search) whenever the request involves files, code, or facts.',
+    'If live/web data is required and unavailable, say so; do not guess.',
+    'Do not assist with offensive cyber operations or other harmful activity.',
+  ].join(' ');
+
+  return [basePrompt.trim(), header, searchFirst].filter(Boolean).join('\n\n').trim();
 }

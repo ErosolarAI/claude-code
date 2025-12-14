@@ -340,13 +340,17 @@ export class AgentController implements IAgentController {
     }
 
     // Guard against leading garbage-only chunks when no content has been streamed yet.
-    // Models like deepseek-reasoner can emit stray punctuation before the real reply.
+    // Models like deepseek-reasoner can emit stray punctuation or short fragments before the real reply.
     if (!this.hasStreamedContent) {
       const trimmed = content.trim();
       const hasWordChar = /[\p{L}\p{N}]/u.test(trimmed);
       const isTinyPunctuation = trimmed.length > 0 && trimmed.length <= 3 && !hasWordChar;
-      if (!trimmed || isTinyPunctuation) {
-        logDebug('[DEBUG controller] emitDelta: skipping leading trivial chunk');
+      // Also filter short fragments (6 chars or less) that aren't common greetings
+      // These are often leaked partial words from reasoning models
+      const isShortFragment = trimmed.length > 0 && trimmed.length <= 6 && hasWordChar;
+      const isCommonGreeting = /^(hi|hey|hello|yes|no|ok|okay|sure|thanks)[\p{P}]?$/iu.test(trimmed);
+      if (!trimmed || isTinyPunctuation || (isShortFragment && !isCommonGreeting)) {
+        logDebug('[DEBUG controller] emitDelta: skipping leading trivial/fragment chunk');
         return;
       }
     }

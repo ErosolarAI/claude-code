@@ -52,8 +52,8 @@ const MAX_TOURNAMENT_ROUNDS = 8; // Safety cap to avoid runaway loops
 // Timeout constants for regular prompt processing (reasoning models like DeepSeek)
 // Defaults can be overridden via env to allow long-running completions.
 const PROMPT_REASONING_TIMEOUT_MS = Number(process.env['AGI_REASONING_TIMEOUT_MS'] ?? 120_000);
-// NOTE: Set AGI_STEP_TIMEOUT_MS <= 0 to disable step timeouts entirely (default: disabled).
-const PROMPT_STEP_TIMEOUT_MS = Number(process.env['AGI_STEP_TIMEOUT_MS'] ?? 0);
+// NOTE: Set AGI_STEP_TIMEOUT_MS <= 0 to disable step timeouts entirely (default: 180s).
+const PROMPT_STEP_TIMEOUT_MS = Number(process.env['AGI_STEP_TIMEOUT_MS'] ?? 180_000);
 
 /**
  * Iterate over an async iterator with a timeout per iteration.
@@ -3114,13 +3114,22 @@ Any text response is a failure. Only tool calls are accepted.`;
     const { stepTimeoutMs, reasoningTimeoutMs } = this.getPromptTimeouts(prompt);
     this.isProcessing = true;
     this.currentResponseBuffer = '';
+
+    // Start streaming mode and show initial status
     this.promptController?.setStreaming(true);
-    this.promptController?.setStatusMessage('Processing...');
+    this.promptController?.setStatusMessage('Connecting...');
+    // Force immediate render to show spinner
+    this.promptController?.getRenderer()?.render();
 
     const renderer = this.promptController?.getRenderer();
     const suppressedToolCalls = new Set<string>(); // ignore noisy helper tools (e.g., "thinking")
     const isNoisyHelperTool = (name?: string | null) =>
       Boolean(name && /\b(thinking|think|reason|reflection)\b/i.test(name));
+
+    // Immediately surface activity feedback so users see progress before streaming starts
+    if (renderer) {
+      renderer.addEvent('response', chalk.dim('Thinking...') + '\n');
+    }
 
     // Start episodic memory tracking
     const memory = getEpisodicMemory();
@@ -3132,6 +3141,8 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Track reasoning content for fallback when response is empty
     let reasoningBuffer = '';
+    // Track whether we streamed any meaningful text
+    let streamedMeaningful = false;
 
     // Track reasoning-only time to prevent models from reasoning forever without action
     let reasoningOnlyStartTime: number | null = null;
@@ -3176,6 +3187,11 @@ Any text response is a failure. Only tool calls are accepted.`;
             const deltaContent = event.content ?? '';
             this.currentResponseBuffer += deltaContent;
 
+            // Only render meaningful text chunks to avoid leaking punctuation noise
+            if (renderer && deltaContent && /[\p{L}\p{N}]/u.test(deltaContent)) {
+              renderer.addEvent('stream', deltaContent);
+              streamedMeaningful = true;
+            }
             // Reset reasoning timer only when we get actual non-empty content
             if (deltaContent && deltaContent.trim()) {
               reasoningOnlyStartTime = null;
@@ -3186,14 +3202,22 @@ Any text response is a failure. Only tool calls are accepted.`;
           case 'reasoning': {
             // Display model's reasoning/thought process and accumulate for fallback
             reasoningBuffer += event.content ?? '';
-            // Suppress reasoning stream entirely in normal mode
 
             // Track reasoning-only time - abort if reasoning too long without action
             if (!reasoningOnlyStartTime) {
               reasoningOnlyStartTime = Date.now();
               logDebug('[DEBUG] Reasoning started timing');
+              // Show initial thinking indicator
+              this.promptController?.setStatusMessage('Thinking...');
             }
             const reasoningElapsed = Date.now() - reasoningOnlyStartTime;
+
+            // Update status with elapsed time every few seconds for visual feedback
+            const elapsedSec = Math.round(reasoningElapsed / 1000);
+            if (elapsedSec >= 3) {
+              this.promptController?.setStatusMessage(`Thinking... (${elapsedSec}s)`);
+            }
+
             if (reasoningElapsed > reasoningTimeoutMs) {
               logDebug(`[DEBUG] Reasoning timeout: ${reasoningElapsed}ms > ${reasoningTimeoutMs}ms`);
               if (renderer) {
@@ -3211,19 +3235,35 @@ Any text response is a failure. Only tool calls are accepted.`;
               const base = (event.content ?? '').trimEnd();
               const streamed = this.currentResponseBuffer.trim();
               const baseHasText = base.length > 0 && /[\p{L}\p{N}]/u.test(base);
-              const streamedHasText = streamed.length > 0 && /[\p{L}\p{N}]/u.test(streamed);
+              const streamedHasText = streamedMeaningful && streamed.length > 0 && /[\p{L}\p{N}]/u.test(streamed);
 
-              const fallbackGreeting =
-                "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
-
-              // Prefer base content, otherwise fallback to streamed text, then greeting
-              const responseText = baseHasText ? base : streamedHasText ? streamed : fallbackGreeting;
+              // Determine the response text
+              let responseText: string;
+              if (baseHasText) {
+                responseText = base;
+              } else if (streamedHasText) {
+                responseText = streamed;
+              } else if (toolsUsed.length > 0) {
+                // Tools were used but no text response - this is unusual
+                // Try to use reasoning buffer as fallback for reasoning models
+                if (reasoningBuffer.trim()) {
+                  // Extract a summary from reasoning
+                  const reasoningSummary = reasoningBuffer.trim().slice(0, 500);
+                  responseText = `Based on the search results:\n\n${reasoningSummary}${reasoningBuffer.length > 500 ? '...' : ''}`;
+                } else {
+                  // No reasoning either - indicate tools completed
+                  responseText = `Completed ${toolsUsed.length} tool operation(s): ${toolsUsed.join(', ')}. The results are shown above.`;
+                }
+              } else {
+                // No tools, no content - use greeting fallback
+                responseText = "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
+              }
 
               // Always append Next steps to the final output
               const { output } = ensureNextSteps(responseText);
 
-              // Emit full response (base + Next steps) via renderer to keep output ordering stable
               const finalBlock = output.endsWith('\n') ? output : `${output}\n`;
+              // Always emit full response (including Next steps) to guarantee visibility
               renderer.addEvent('raw', finalBlock);
 
               episodeSuccess = true;

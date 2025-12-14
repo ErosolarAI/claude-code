@@ -203,6 +203,8 @@ export class AgentRuntime {
   private readonly workingDirectory: string;
   private readonly explainEdits: boolean;
   private cancellationRequested = false;
+  // One-time system hint to prefer searching before answering
+  private autoSearchHintAdded = false;
   // Loop detection: track last tool calls to detect stuck loops
   private lastToolCallSignature: string | null = null;
   private repeatedToolCallCount = 0;
@@ -371,6 +373,15 @@ export class AgentRuntime {
     const prompt = text.trim();
     if (!prompt) {
       return '';
+    }
+    // Inject a single system hint to encourage tool-assisted searching before answering
+    if (!this.autoSearchHintAdded) {
+      this.messages.push({
+        role: 'system',
+        content:
+          'When answering user requests, first try to gather evidence via the available search tools (Glob, Grep, FindDefinition, and any provider search) before composing a reply. Avoid guessing; prefer tool output.',
+      });
+      this.autoSearchHintAdded = true;
     }
     // Notify UI immediately so it can reflect activity without waiting for generation
     this.callbacks.onRequestReceived?.(prompt.slice(0, 400));
@@ -1138,15 +1149,18 @@ export class AgentRuntime {
   }
 
   private emitAssistantMessage(content: string, metadata: AssistantMessageMetadata): void {
-    if (!content || !content.trim()) {
+    // For non-final messages, skip if content is empty
+    if (!metadata.isFinal && (!content || !content.trim())) {
       return;
     }
+    // For final messages, ALWAYS emit so controller can trigger message.complete
+    // This allows interactiveShell to run fallback logic for empty responses
     const elapsedMs = this.activeRun ? Date.now() - this.activeRun.startedAt : undefined;
     const payload: AssistantMessageMetadata = { ...metadata };
     if (typeof elapsedMs === 'number') {
       payload.elapsedMs = elapsedMs;
     }
-    this.callbacks.onAssistantMessage?.(content, payload);
+    this.callbacks.onAssistantMessage?.(content || '', payload);
   }
 
   /**

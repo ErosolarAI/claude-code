@@ -1104,15 +1104,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       this.commitPasteBuffer();
       return true;
     }
-    if (key?.name === 'return' || key?.name === 'enter') {
-      // During paste, Enter should just add a newline to the paste buffer, not submit
-      this.appendToPasteBuffer('paste', '\n');
-      return true; // Consume the key to prevent it from reaching normal key handling
-    }
-    if (key?.name === 'backspace') {
-      this.pasteBuffer = this.pasteBuffer.slice(0, -1);
-      return true;
-    }
+    // For bracketed paste, accumulate everything verbatim; newline handling is in the buffer.
     if (typeof str === 'string' && str.length > 0) {
       this.appendToPasteBuffer('paste', str);
       return true;
@@ -1129,22 +1121,18 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Preserve any existing buffer content before the paste
     const prePasteBuffer = this.buffer;
     const prePasteCursor = this.cursor;
-    this.collapsedPaste = {
-      text: content,
-      lines: lineCount,
-      charDisplay,
-      truncated: wasTruncated,
-      prePasteBuffer,
-      prePasteCursor,
-    };
+    const combined = prePasteBuffer.slice(0, prePasteCursor) + content + prePasteBuffer.slice(prePasteCursor);
+
+    // Auto-submit pasted content (safer than waiting for a second Enter press)
+    this.collapsedPaste = null;
     this.buffer = '';
     this.cursor = 0;
     this.updateSuggestions();
     this.emitInputChange();
-    const existingTextNote = prePasteBuffer ? ' (existing text preserved)' : '';
-    const hint = `Paste captured: ${lineCount} line${lineCount === 1 ? '' : 's'}${wasTruncated ? ' (truncated)' : ''}${existingTextNote}. Enter to send, Ctrl+L to edit, Backspace to discard.`;
-    this.updateStatusBundle({ main: hint });
+    const status = `Pasted ${lineCount} line${lineCount === 1 ? '' : 's'} (${charDisplay} chars${wasTruncated ? ', truncated' : ''}, content hidden)`;
+    this.updateStatusBundle({ main: status });
     this.renderPrompt();
+    this.submitText(combined);
   }
 
   private commitPasteBuffer(): void {
@@ -1873,6 +1861,8 @@ export class UnifiedUIRenderer extends EventEmitter {
 
       case 'stream': {
         // Streaming content is the model's response - pass through with filtering
+        // NOTE: In normal mode, the main handler uses 'raw' events (which bypass filtering).
+        // Stream events are only used in attack/upgrade tournament modes.
         if (!event.content) {
           return '';
         }
@@ -1886,6 +1876,14 @@ export class UnifiedUIRenderer extends EventEmitter {
           // Skip ANY content that has no letters or numbers (punctuation, whitespace, symbols)
           if (!hasWordChar) {
             return '';
+          }
+          // Also skip short fragments that look like leaked partial words (e.g., "do.", "with")
+          // These often leak from reasoning models before the actual response
+          if (trimmed.length <= 6) {
+            // Skip short fragments unless they look like a complete sentence or greeting
+            if (!/^(hi|hey|hello|yes|no|ok|okay|sure|thanks)[\p{P}]?$/iu.test(trimmed)) {
+              return '';
+            }
           }
           // Mark that we've rendered meaningful content
           this.hasRenderedMeaningfulStream = true;

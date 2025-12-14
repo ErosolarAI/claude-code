@@ -87,7 +87,8 @@ export function generatePasteSummary(text: string): PasteSummary {
  * Format a paste summary for display
  */
 export function formatPasteSummaryForDisplay(summary: PasteSummary): string {
-  return `${summary.summary}\n"${summary.preview}"`;
+  // Do NOT show paste contents; only surface a terse summary to avoid leaking data
+  return `${summary.summary} (content hidden)`;
 }
 
 /**
