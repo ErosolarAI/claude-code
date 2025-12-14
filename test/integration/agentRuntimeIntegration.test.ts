@@ -191,7 +191,8 @@ describe('Agent Runtime Integration', () => {
       const response = await agent.send('Hello');
 
       expect(response).toContain('Hello! How can I help you?');
-      expect(response).toContain('Next steps:');
+      // Note: "Next steps" is now only added by interactiveShell.ts when tools were used,
+      // not by agent.ts directly, to avoid showing it for simple conversational responses
       expect(provider.callHistory.length).toBe(1);
     });
 
@@ -275,7 +276,7 @@ describe('Agent Runtime Integration', () => {
       const response = await agent.send('Echo "Hello, World!"');
 
       expect(response).toContain('The echo result was: Echo: Hello, World!');
-      expect(response).toContain('Next steps:');
+      // Note: "Next steps" is now only added by interactiveShell.ts when tools were used
       expect(provider.callHistory.length).toBe(2); // Initial + after tool result
     });
 
@@ -295,7 +296,7 @@ describe('Agent Runtime Integration', () => {
       const response = await agent.send('Add 5+3 and 10+7');
 
       expect(response).toContain('The results are 8 and 17');
-      expect(response).toContain('Next steps:');
+      // Note: "Next steps" is now only added by interactiveShell.ts when tools were used
 
       // Check tool results are in history
       const history = agent.getHistory();
@@ -353,7 +354,7 @@ describe('Agent Runtime Integration', () => {
       await agent.send('Hi');
 
       expect(messages.some((msg) => msg.includes('Hello there!'))).toBe(true);
-      expect(messages.some((msg) => msg.includes('Next steps:'))).toBe(true);
+      // Note: "Next steps" is now only added by interactiveShell.ts when tools were used
     });
 
     test('should call onContextPruned when context is pruned', async () => {
@@ -485,7 +486,7 @@ describe('Agent Runtime Integration', () => {
 
       expect(recoveryAttempts).toBeGreaterThan(0);
       expect(response).toContain('Response after recovery');
-      expect(response).toContain('Next steps:');
+      // Note: "Next steps" is now only added by interactiveShell.ts when tools were used
     });
   });
 

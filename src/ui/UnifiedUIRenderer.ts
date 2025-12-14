@@ -144,7 +144,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   private suggestionIndex = -1;
   private availableCommands: typeof this.suggestions = [];
   private hotkeysInToggleLine: Set<string> = new Set();
-  private collapsedPaste: { text: string; lines: number; charDisplay: string; truncated: boolean } | null = null;
+  private collapsedPaste: { text: string; lines: number; charDisplay: string; truncated: boolean; prePasteBuffer: string; prePasteCursor: number } | null = null;
 
   private mode: 'idle' | 'streaming' = 'idle';
   private lastToolResult: string | null = null;
@@ -186,6 +186,8 @@ export class UnifiedUIRenderer extends EventEmitter {
   private readonly activityStarFrames = ['✳', '✴', '✵', '✶', '✷', '✸'];
   // Token count during streaming
   private streamingTokens = 0;
+  // Track whether meaningful stream content has been rendered (for filtering leading garbage)
+  private hasRenderedMeaningfulStream = false;
   // Elapsed time color animation
   private elapsedColorFrame = 0;
   private readonly elapsedColorFrames = ['#F59E0B', '#FBBF24', '#FCD34D', '#FDE68A', '#FCD34D', '#FBBF24'];
@@ -1103,8 +1105,9 @@ export class UnifiedUIRenderer extends EventEmitter {
       return true;
     }
     if (key?.name === 'return' || key?.name === 'enter') {
+      // During paste, Enter should just add a newline to the paste buffer, not submit
       this.appendToPasteBuffer('paste', '\n');
-      return true;
+      return true; // Consume the key to prevent it from reaching normal key handling
     }
     if (key?.name === 'backspace') {
       this.pasteBuffer = this.pasteBuffer.slice(0, -1);
@@ -1123,17 +1126,23 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   private captureCollapsedPaste(content: string, lineCount: number, wasTruncated: boolean): void {
     const charDisplay = wasTruncated ? `${content.length}+` : `${content.length}`;
+    // Preserve any existing buffer content before the paste
+    const prePasteBuffer = this.buffer;
+    const prePasteCursor = this.cursor;
     this.collapsedPaste = {
       text: content,
       lines: lineCount,
       charDisplay,
       truncated: wasTruncated,
+      prePasteBuffer,
+      prePasteCursor,
     };
     this.buffer = '';
     this.cursor = 0;
     this.updateSuggestions();
     this.emitInputChange();
-    const hint = `Paste captured: ${lineCount} line${lineCount === 1 ? '' : 's'}${wasTruncated ? ' (truncated)' : ''}. Enter to send, Ctrl+L to edit, Backspace to discard.`;
+    const existingTextNote = prePasteBuffer ? ' (existing text preserved)' : '';
+    const hint = `Paste captured: ${lineCount} line${lineCount === 1 ? '' : 's'}${wasTruncated ? ' (truncated)' : ''}${existingTextNote}. Enter to send, Ctrl+L to edit, Backspace to discard.`;
     this.updateStatusBundle({ main: hint });
     this.renderPrompt();
   }
@@ -1184,6 +1193,14 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     const now = Date.now();
     this.trackPlainPasteBurst(chunk.length, now);
+
+    // Handle Enter/Return key specifically during paste
+    if (this.inPlainPaste && (key?.name === 'return' || key?.name === 'enter')) {
+      // During paste, Enter should just add a newline to the paste buffer, not submit
+      this.appendToPasteBuffer('plainPaste', '\n');
+      this.schedulePlainPasteCommit();
+      return true; // Consume the key to prevent it from reaching normal key handling
+    }
 
     if (!this.inPlainPaste) {
       this.recordRecentPlainChunk(chunk, now);
@@ -1505,10 +1522,8 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (!content) return;
     const normalized = this.normalizeEventType(type);
     if (!normalized) return;
-    // Drop thinking/reasoning blocks entirely from scrollback
-    if (normalized === 'thought') {
-      return;
-    }
+    // Note: 'thought' events are handled in formatContent() which checks debug mode
+    // and thinking mode - don't drop them here so they can be displayed when appropriate
 
     // When pinned loading UI is active, suppress all non-prompt events to keep the
     // initial layout intact across streaming/typing/post-stream.
@@ -1651,7 +1666,8 @@ export class UnifiedUIRenderer extends EventEmitter {
         target &&
           !target.isCompacted &&
           ((target.type === 'response' && target.rawType === 'response') ||
-            (target.type === 'thought' && target.rawType === 'thought'))
+            (target.type === 'thought' && target.rawType === 'thought') ||
+            (target.type === 'stream' && target.rawType === 'stream'))
       );
 
     if (!isMergeable(event)) {
@@ -1660,9 +1676,14 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     while (this.eventQueue.length > 0 && isMergeable(this.eventQueue[0])) {
       const next = this.eventQueue.shift()!;
-      const needsSeparator =
-        event.content.length > 0 && !event.content.endsWith('\n') && !next.content.startsWith('\n');
-      event.content = needsSeparator ? `${event.content}\n${next.content}` : `${event.content}${next.content}`;
+      // For stream events, don't add separators - they should be concatenated directly
+      if (event.type === 'stream') {
+        event.content = event.content + next.content;
+      } else {
+        const needsSeparator =
+          event.content.length > 0 && !event.content.endsWith('\n') && !next.content.startsWith('\n');
+        event.content = needsSeparator ? `${event.content}\n${next.content}` : `${event.content}${next.content}`;
+      }
     }
 
     return event;
@@ -1719,11 +1740,18 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     // Clear the prompt area before writing new content
     if (this.pinnedStatus) {
-      // Keep the loading overlay intact; skip rendering content to avoid clearing UI.
-      if (event.type === 'prompt' && this.output.isTTY && this.interactive && !this.disposed) {
-        this.renderPromptOverlay(true);
+      // Keep the loading overlay intact for non-content events
+      // BUT allow through: tools, tool results, stream (response content), and response events
+      const allowedWhilePinned = event.type === 'tool' || event.type === 'tool-result' ||
+                                  event.type === 'stream' || event.type === 'response';
+      if (!allowedWhilePinned) {
+        if (event.type === 'prompt' && this.output.isTTY && this.interactive && !this.disposed) {
+          this.renderPromptOverlay(true);
+        }
+        return;
       }
-      return;
+      // For allowed events, clear pinned status and continue rendering
+      this.clearPinnedStatus();
     }
 
     if (this.promptHeight > 0 || this.lastOverlay) {
@@ -1741,7 +1769,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     this.lastOutputEndedWithNewline = formatted.endsWith('\n');
 
     // Immediately restore the prompt overlay so the chat box stays pinned during streaming
-    if (this.output.isTTY && this.interactive && !this.disposed) {
+    // EXCEPT for stream events - let them flow naturally without overlay interference
+    // The overlay will be rendered after the queue is empty (in processQueue)
+    if (this.output.isTTY && this.interactive && !this.disposed && event.type !== 'stream') {
       this.renderPromptOverlay(true);
     }
   }
@@ -1751,7 +1781,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       case 'prompt':
         return 'prompt';
       case 'thought':
-        return null; // suppress thinking blocks
+        return 'thought';
       case 'stream':
       case 'streaming':
         return 'stream';
@@ -1787,6 +1817,12 @@ export class UnifiedUIRenderer extends EventEmitter {
       return `${lines.join('\n')}\n`;
     }
 
+    if (event.rawType === 'raw') {
+      // Raw events bypass all filtering - display content directly
+      // Used for fallback greetings that must always be shown
+      return `${event.content}\n`;
+    }
+
     // Compact, user-friendly formatting
     switch (event.type) {
       case 'prompt':
@@ -1794,8 +1830,10 @@ export class UnifiedUIRenderer extends EventEmitter {
         return `${theme.primary('>')} ${event.content}\n`;
 
       case 'thought': {
-        // Hide thinking/reasoning output unless debug mode is enabled
-        if (!this.toggleState.debugEnabled) {
+        // Show thinking/reasoning output in extended thinking mode or debug mode
+        const thinkingLabel = (this.toggleState.thinkingModeLabel || 'balanced').trim().toLowerCase();
+        const thinkingIsDeep = thinkingLabel === 'extended' || thinkingLabel === 'deep';
+        if (!this.toggleState.debugEnabled && !thinkingIsDeep) {
           return '';
         }
         // Programmatic filter: reject content that looks like internal/garbage output
@@ -1834,15 +1872,25 @@ export class UnifiedUIRenderer extends EventEmitter {
         return this.wrapBulletText(event.content, { label: 'test', labelColor: theme.info });
 
       case 'stream': {
-        // Streaming content is the model's response - pass through directly
-        // IMPORTANT: Don't filter streaming chunks with isGarbageOutput because:
-        // 1. Chunks arrive character-by-character or in small pieces
-        // 2. Small chunks like "." or ":" are valid parts of sentences
-        // 3. Filtering would break the streaming display
-        // Only filter completely empty content
+        // Streaming content is the model's response - pass through with filtering
         if (!event.content) {
           return '';
         }
+
+        const trimmed = event.content.trim();
+        const hasWordChar = /[\p{L}\p{N}]/u.test(trimmed);
+
+        // Filter leading garbage until we have meaningful content
+        // Models like deepseek-reasoner emit punctuation-only chunks before/instead of real content
+        if (!this.hasRenderedMeaningfulStream) {
+          // Skip ANY content that has no letters or numbers (punctuation, whitespace, symbols)
+          if (!hasWordChar) {
+            return '';
+          }
+          // Mark that we've rendered meaningful content
+          this.hasRenderedMeaningfulStream = true;
+        }
+
         return event.content;
       }
 
@@ -1913,7 +1961,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       const lineTrimmed = line.trim();
       if (!lineTrimmed) return false;
       // Line must have at least 30% alphanumeric content
-      const alphaNum = (lineTrimmed.match(/[a-zA-Z0-9]/g) || []).length;
+      const alphaNum = (lineTrimmed.match(/[\p{L}\p{N}]/gu) || []).length;
       return lineTrimmed.length > 0 && alphaNum / lineTrimmed.length >= 0.3;
     });
     // If less than 30% of lines are meaningful, it's garbage
@@ -2800,6 +2848,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (mode === 'streaming' && !wasStreaming) {
       this.streamingStartTime = Date.now();
       this.streamingTokens = 0; // Reset token count
+      this.hasRenderedMeaningfulStream = false; // Reset for new stream
       // Clear inline panel when entering streaming mode to prevent stale menus
       if (this.inlinePanel.length > 0) {
         this.inlinePanel = [];
@@ -3010,7 +3059,10 @@ export class UnifiedUIRenderer extends EventEmitter {
     ) {
       this.hotkeysInToggleLine.clear();
     }
-    this.renderPrompt();
+    // Only re-render prompt in non-plain mode to avoid polluting output
+    if (!this.plainMode) {
+      this.renderPrompt();
+    }
   }
 
   /**
@@ -4255,14 +4307,19 @@ export class UnifiedUIRenderer extends EventEmitter {
   /**
    * Expand collapsed paste into the buffer without submitting (Ctrl+L).
    * Allows user to edit the pasted content before submission.
+   * Preserves any existing text that was in the buffer before the paste.
    */
   private expandCollapsedPasteToBuffer(): void {
     if (!this.collapsedPaste) return;
-    const text = this.collapsedPaste.text;
+    const pasteText = this.collapsedPaste.text;
+    const prePasteBuffer = this.collapsedPaste.prePasteBuffer;
+    const prePasteCursor = this.collapsedPaste.prePasteCursor;
     this.collapsedPaste = null;
-    // Put the pasted content into the buffer for editing
-    this.buffer = text;
-    this.cursor = text.length;
+    // Insert pasted content at the original cursor position, preserving existing text
+    const before = prePasteBuffer.slice(0, prePasteCursor);
+    const after = prePasteBuffer.slice(prePasteCursor);
+    this.buffer = before + pasteText + after;
+    this.cursor = before.length + pasteText.length;
     this.updateSuggestions();
     this.renderPrompt();
     this.emitInputChange();
@@ -4271,19 +4328,26 @@ export class UnifiedUIRenderer extends EventEmitter {
   /**
    * Expand collapsed paste and submit immediately (Enter).
    * Used when user wants to send the pasted content as-is.
+   * Combines any existing text that was in the buffer before the paste.
    */
   private expandCollapsedPaste(): void {
     if (!this.collapsedPaste) return;
-    const text = this.collapsedPaste.text;
+    const pasteText = this.collapsedPaste.text;
+    const prePasteBuffer = this.collapsedPaste.prePasteBuffer;
+    const prePasteCursor = this.collapsedPaste.prePasteCursor;
     this.collapsedPaste = null;
+    // Combine existing text with pasted content at the original cursor position
+    const before = prePasteBuffer.slice(0, prePasteCursor);
+    const after = prePasteBuffer.slice(prePasteCursor);
+    const combinedText = before + pasteText + after;
     // Clear the buffer first to avoid any visual duplication
     this.buffer = '';
     this.cursor = 0;
     this.updateSuggestions();
     this.renderPrompt();
     this.emitInputChange();
-    // Submit the paste content (displayUserPrompt is called within submitText for non-slash commands)
-    this.submitText(text);
+    // Submit the combined content (displayUserPrompt is called within submitText for non-slash commands)
+    this.submitText(combinedText);
   }
 
   captureInput(options: { allowEmpty?: boolean; trim?: boolean; resetBuffer?: boolean } = {}): Promise<string> {

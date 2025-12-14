@@ -210,6 +210,8 @@ export class AgentController implements IAgentController {
   private selection: ModelSelection;
   /** Set of providers that have failed with non-retryable errors in this session */
   private failedProviders: Set<ProviderId> = new Set();
+  /** Tracks whether any meaningful stream content has been emitted for the current run */
+  private hasStreamedContent = false;
   /** Maximum fallback attempts per send() call */
   private static readonly MAX_FALLBACK_ATTEMPTS = 3;
   /** Optional timeout for a single agent run (ms); 0 disables */
@@ -257,11 +259,14 @@ export class AgentController implements IAgentController {
         this.externalCallbacks?.onAssistantMessage?.(content, metadata);
       },
       onStreamChunk: (chunk, type) => {
+        logDebug(`[DEBUG controller] onStreamChunk: type=${type}, chunk length=${chunk?.length || 0}, preview="${chunk?.slice(0, 80)}"`);
         if (type === 'content') {
           // Content chunks go to message.delta for streaming display
+          logDebug(`[DEBUG controller] Calling emitDelta with content type`);
           this.emitDelta(chunk, false);
         } else if (type === 'reasoning') {
           // Reasoning chunks go to reasoning event for thought display
+          logDebug(`[DEBUG controller] Calling emitReasoning with reasoning type`);
           this.emitReasoning(chunk);
         }
         // Pass all chunks to external callbacks
@@ -314,10 +319,12 @@ export class AgentController implements IAgentController {
     if (/^[\s\n\r]+$/.test(trimmed)) return true;
 
     // Short fragments with high punctuation ratio (likely leaked formatting)
+    // Use Unicode-aware letter/number detection to support non-Latin languages
     if (trimmed.length < 15) {
-      const alphaCount = (trimmed.match(/[a-zA-Z0-9]/g) || []).length;
-      if (alphaCount === 0) return true;
-      if (alphaCount / trimmed.length < 0.2) return true;
+      // Count Unicode letters and digits (supports Chinese, Japanese, Arabic, etc.)
+      const wordCharCount = (trimmed.match(/[\p{L}\p{N}]/gu) || []).length;
+      if (wordCharCount === 0) return true;
+      if (wordCharCount / trimmed.length < 0.2) return true;
     }
 
     return false;
@@ -325,16 +332,37 @@ export class AgentController implements IAgentController {
 
   private emitDelta(content: string, isFinal: boolean): void {
     logDebug(`[DEBUG controller] emitDelta called: content="${content?.slice(0, 50)}", isFinal=${isFinal}, hasSink=${!!this.activeSink}`);
-    if (!content?.trim()) {
-      logDebug('[DEBUG controller] emitDelta: skipping empty content');
+    // Allow empty-ish content through for streaming - punctuation like "," or "." is valid
+    // Only skip completely empty/null content
+    if (content == null || content === '') {
+      logDebug('[DEBUG controller] emitDelta: skipping null/empty content');
       return;
     }
 
-    // Filter out garbage/leaked reasoning fragments
-    if (this.isGarbageContent(content)) {
-      logDebug('[DEBUG controller] emitDelta: filtering garbage content');
-      return;
+    // Guard against leading garbage-only chunks when no content has been streamed yet.
+    // Models like deepseek-reasoner can emit stray punctuation before the real reply.
+    if (!this.hasStreamedContent) {
+      const trimmed = content.trim();
+      const hasWordChar = /[\p{L}\p{N}]/u.test(trimmed);
+      const isTinyPunctuation = trimmed.length > 0 && trimmed.length <= 3 && !hasWordChar;
+      if (!trimmed || isTinyPunctuation) {
+        logDebug('[DEBUG controller] emitDelta: skipping leading trivial chunk');
+        return;
+      }
     }
+
+    // IMPORTANT: Don't filter garbage during streaming except for the leading trivial chunk above.
+    // Filtering during streaming can remove legitimate punctuation. Apply garbage filter only for
+    // final content or large chunks.
+    if (isFinal || content.length > 20) {
+      if (this.isGarbageContent(content)) {
+        logDebug('[DEBUG controller] emitDelta: filtering garbage content');
+        return;
+      }
+    }
+
+    // Mark that we've emitted meaningful stream content
+    this.hasStreamedContent = true;
 
     logDebug('[DEBUG controller] emitDelta: pushing to sink');
     this.activeSink?.push({
@@ -402,21 +430,24 @@ export class AgentController implements IAgentController {
     if (!this.activeSink) {
       return;
     }
-    if (!content.trim()) {
-      return;
-    }
     if (metadata.suppressDisplay) {
       return;
     }
+    // For non-final messages, require content to emit delta
     if (!metadata.isFinal) {
+      if (!content.trim()) {
+        return;
+      }
       this.emitDelta(content, false);
       return;
     }
+    // For final messages, always emit message.complete so interactiveShell can run fallback logic
+    // even if content is empty (reasoning-only models like deepseek-reasoner)
     const elapsedMs = metadata.elapsedMs ?? 0;
     this.activeSink.push({
       type: 'message.complete',
       timestamp: Date.now(),
-      content,
+      content: content || '', // Ensure content is at least empty string, not undefined
       elapsedMs,
     });
     this.emitUsage(metadata.usage ?? null);
@@ -447,6 +478,8 @@ export class AgentController implements IAgentController {
     message: string,
     sink: EventStream<AgentEventUnion>
   ): Promise<void> {
+    // Reset streaming state for this run
+    this.hasStreamedContent = false;
     sink.push({ type: 'message.start', timestamp: Date.now() });
     const runPromise = agent.send(message, true);
 

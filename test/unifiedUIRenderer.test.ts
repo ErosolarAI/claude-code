@@ -237,10 +237,15 @@ describe('UnifiedUIRenderer event coalescing', () => {
   it('formats thoughts with a thinking label and tidy wrapping', async () => {
     setPlainOutputMode(true);
     const { renderer, output } = createRenderer();
+    // Make output non-TTY to prevent prompt rendering from interfering with test
+    (output as any).isTTY = false;
     try {
       output.setEncoding('utf8');
       const thought = Array(6).fill('Reasoning through the requested steps to keep UX stable and readable.').join(' ');
 
+      // Enable debug mode so thoughts are rendered
+      renderer.updateModeToggles({ debugEnabled: true });
+      
       renderer.addEvent('thought', thought);
       await renderer.flushEvents();
 

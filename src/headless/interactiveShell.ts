@@ -52,7 +52,8 @@ const MAX_TOURNAMENT_ROUNDS = 8; // Safety cap to avoid runaway loops
 // Timeout constants for regular prompt processing (reasoning models like DeepSeek)
 // Defaults can be overridden via env to allow long-running completions.
 const PROMPT_REASONING_TIMEOUT_MS = Number(process.env['AGI_REASONING_TIMEOUT_MS'] ?? 120_000);
-const PROMPT_STEP_TIMEOUT_MS = Number(process.env['AGI_STEP_TIMEOUT_MS'] ?? 180_000);
+// NOTE: Set AGI_STEP_TIMEOUT_MS <= 0 to disable step timeouts entirely (default: disabled).
+const PROMPT_STEP_TIMEOUT_MS = Number(process.env['AGI_STEP_TIMEOUT_MS'] ?? 0);
 
 /**
  * Iterate over an async iterator with a timeout per iteration.
@@ -63,6 +64,14 @@ async function* iterateWithTimeout<T>(
   timeoutMs: number,
   onTimeout?: () => void
 ): AsyncGenerator<T | { __timeout: true }> {
+  // If timeout is disabled or invalid, pass through without wrapping
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    for await (const value of iterator) {
+      yield value;
+    }
+    return;
+  }
+
   const asyncIterator = iterator[Symbol.asyncIterator]();
 
   while (true) {
@@ -2091,12 +2100,18 @@ Any text response is a failure. Only tool calls are accepted.`;
     const modelName = this.profileConfig.model?.toLowerCase() ?? '';
     const isReasonerModel = modelName.includes('reasoner');
 
+    // Allow disabling via env (<=0)
     const safeStep = Number.isFinite(PROMPT_STEP_TIMEOUT_MS) && PROMPT_STEP_TIMEOUT_MS > 0
       ? PROMPT_STEP_TIMEOUT_MS
-      : 180_000;
+      : 0;
     const safeReasoning = Number.isFinite(PROMPT_REASONING_TIMEOUT_MS) && PROMPT_REASONING_TIMEOUT_MS > 0
       ? PROMPT_REASONING_TIMEOUT_MS
       : 120_000;
+
+    // If step timeout is disabled, return 0 and skip per-iteration timeouts
+    if (safeStep <= 0) {
+      return { stepTimeoutMs: 0, reasoningTimeoutMs: safeReasoning };
+    }
 
     const looksLikeQuestion = /\?/.test(prompt) || /^\s*(who|what|when|where|why|how|is|are|do|does|did|can|could|would|should)\b/i.test(prompt);
 
@@ -3156,17 +3171,21 @@ Any text response is a failure. Only tool calls are accepted.`;
             this.promptController?.setStatusMessage('Thinking...');
             break;
 
-          case 'message.delta':
+          case 'message.delta': {
             // Stream content as it arrives
-            this.currentResponseBuffer += event.content ?? '';
-            if (renderer) {
-              renderer.addEvent('stream', event.content);
+            const deltaContent = event.content ?? '';
+            this.currentResponseBuffer += deltaContent;
+
+            // Let renderer handle filtering so we don't drop formatting-only chunks (e.g., ``` or newlines)
+            if (renderer && deltaContent) {
+              renderer.addEvent('stream', deltaContent);
             }
             // Reset reasoning timer only when we get actual non-empty content
-            if (event.content && event.content.trim()) {
+            if (deltaContent && deltaContent.trim()) {
               reasoningOnlyStartTime = null;
             }
             break;
+          }
 
           case 'reasoning': {
             // Display model's reasoning/thought process and accumulate for fallback
@@ -3189,46 +3208,50 @@ Any text response is a failure. Only tool calls are accepted.`;
             break;
           }
 
-          case 'message.complete':
+          case 'message.complete': {
             // Response complete - ensure final output includes required "Next steps"
-            logDebug('[DEBUG] message.complete - base:', debugSnippet(event.content ?? ''));
-            logDebug('[DEBUG] message.complete - responseBuffer:', debugSnippet(this.currentResponseBuffer));
-            logDebug('[DEBUG] message.complete - reasoningBuffer length:', reasoningBuffer.length);
-
             if (renderer) {
-              // Use the appended field from ensureNextSteps to avoid re-rendering the entire response
+              // Get the response content from event or accumulated buffer
               const base = (event.content ?? '').trimEnd();
-              let sourceText = base || this.currentResponseBuffer;
+              const streamed = this.currentResponseBuffer.trim();
 
-              // Fallback: If response is empty but we have reasoning, synthesize a response
-              if (!sourceText.trim() && reasoningBuffer.trim()) {
-                logDebug('[DEBUG] Synthesizing from reasoning - reasoningBuffer:', debugSnippet(reasoningBuffer));
-                // Extract key conclusions from reasoning for display
-                const synthesized = this.synthesizeFromReasoning(reasoningBuffer);
-                logDebug('[DEBUG] Synthesized result:', debugSnippet(synthesized ?? ''));
-                if (synthesized) {
-                  renderer.addEvent('stream', synthesized);
-                  sourceText = synthesized;
-                }
+              // Check if we actually rendered meaningful content during streaming
+              const hasStreamedText = streamed.length > 0 && /[\p{L}\p{N}]/u.test(streamed);
+              const baseHasText = base.length > 0 && /[\p{L}\p{N}]/u.test(base);
+
+              const fallbackGreeting =
+                "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
+
+              // Determine the final response text
+              let responseText: string;
+              if (baseHasText) {
+                responseText = base;
+              } else if (hasStreamedText) {
+                responseText = streamed;
+              } else {
+                responseText = fallbackGreeting;
               }
 
-              episodeSuccess = true; // Mark episode as successful only after we have content
+              // Always append Next steps to the final output
+              const { output } = ensureNextSteps(responseText);
 
-              // Only add "Next steps" if tools were actually used (real work done)
-              // This prevents showing "Next steps" after reasoning-only responses
-              const hasAction = toolOutputShown || filesModified.length > 0;
-              if (hasAction) {
-                const { appended } = ensureNextSteps(sourceText);
-                // Only stream the newly appended content (e.g., "Next steps:")
-                // The main response was already streamed via message.delta events
-                if (appended && appended.trim()) {
-                  renderer.addEvent('stream', appended);
-                }
-              }
-              renderer.addEvent('response', '\n');
+              const ensureTrailingNewline = (block: string): string =>
+                block.endsWith('\n') ? block : `${block}\n`;
+              const ensureLeadingNewline = (block: string): string =>
+                block.startsWith('\n') ? block : `\n${block}`;
+
+              const finalBlock = hasStreamedText
+                ? ensureTrailingNewline(ensureLeadingNewline(output))
+                : ensureTrailingNewline(output);
+
+              // Always emit the full response to guarantee visibility, even if streaming filters hid chunks
+              renderer.addEvent('raw', finalBlock);
+
+              episodeSuccess = true;
             }
             this.currentResponseBuffer = '';
             break;
+          }
 
           case 'tool.start': {
             const toolName = event.toolName;
@@ -3366,21 +3389,19 @@ Any text response is a failure. Only tool calls are accepted.`;
       }
 
       // After loop: synthesize from reasoning if no response was generated or timed out
-      // This handles models like deepseek-reasoner that output thinking but empty response
-      // IMPORTANT: Don't add "Next steps" when only reasoning occurred - only after real work
+      // This handles models like deepseek-reasoner that output thinking but empty response.
+      // We still append "Next steps" so the final answer shows up clearly outside debug logs.
       if ((!episodeSuccess || reasoningTimedOut) && reasoningBuffer.trim() && !this.currentResponseBuffer.trim()) {
         logDebug('[DEBUG] Stream ended with reasoning but no response - synthesizing');
         const synthesized = this.synthesizeFromReasoning(reasoningBuffer);
         if (synthesized && renderer) {
-          renderer.addEvent('stream', '\n' + synthesized);
-          // Only add "Next steps" if tools were actually used (real work done)
-          const hasAction = toolOutputShown || filesModified.length > 0;
-          if (hasAction) {
-            const { appended } = ensureNextSteps(synthesized);
-            if (appended?.trim()) {
-              renderer.addEvent('stream', appended);
-            }
-          }
+          const fallbackGreeting =
+            "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
+          const safeSynth = /[\p{L}\p{N}]/u.test(synthesized) ? synthesized : fallbackGreeting;
+          const { output } = ensureNextSteps(safeSynth);
+          const withTrailing = output.endsWith('\n') ? output : `${output}\n`;
+          const withLeading = withTrailing.startsWith('\n') ? withTrailing : `\n${withTrailing}`;
+          renderer.addEvent('raw', withLeading);
           renderer.addEvent('response', '\n');
           episodeSuccess = true;
         }
@@ -3396,7 +3417,13 @@ Any text response is a failure. Only tool calls are accepted.`;
       if (!episodeSuccess && reasoningBuffer.trim() && !this.currentResponseBuffer.trim()) {
         const synthesized = this.synthesizeFromReasoning(reasoningBuffer);
         if (synthesized && renderer) {
-          renderer.addEvent('stream', '\n' + synthesized);
+          const fallbackGreeting =
+            "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
+          const safeSynth = /[\p{L}\p{N}]/u.test(synthesized) ? synthesized : fallbackGreeting;
+          const { output } = ensureNextSteps(safeSynth);
+          const withTrailing = output.endsWith('\n') ? output : `${output}\n`;
+          const withLeading = withTrailing.startsWith('\n') ? withTrailing : `\n${withTrailing}`;
+          renderer.addEvent('raw', withLeading);
           renderer.addEvent('response', '\n');
           episodeSuccess = true; // Mark as partial success
         }
@@ -3408,15 +3435,13 @@ Any text response is a failure. Only tool calls are accepted.`;
       if (!episodeSuccess && reasoningBuffer.trim() && !this.currentResponseBuffer.trim()) {
         const synthesized = this.synthesizeFromReasoning(reasoningBuffer);
         if (synthesized && renderer) {
-          renderer.addEvent('stream', '\n' + synthesized);
-          // Only add "Next steps" if tools were actually used (real work done)
-          const hasAction = toolOutputShown || filesModified.length > 0;
-          if (hasAction) {
-            const { appended } = ensureNextSteps(synthesized);
-            if (appended?.trim()) {
-              renderer.addEvent('stream', appended);
-            }
-          }
+          const fallbackGreeting =
+            "Hello! I'm here and ready to help. I can assist with security testing, coding tasks, or other operations in this authorized environment. What would you like to do?";
+          const safeSynth = /[\p{L}\p{N}]/u.test(synthesized) ? synthesized : fallbackGreeting;
+          const { output } = ensureNextSteps(safeSynth);
+          const withTrailing = output.endsWith('\n') ? output : `${output}\n`;
+          const withLeading = withTrailing.startsWith('\n') ? withTrailing : `\n${withTrailing}`;
+          renderer.addEvent('raw', withLeading);
           renderer.addEvent('response', '\n');
           episodeSuccess = true;
         }

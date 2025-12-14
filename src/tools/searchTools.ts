@@ -398,7 +398,8 @@ function searchContent(
           matches.push({
             file: filePath,
             line: i + 1,
-            content: lines[i]!.trim(),
+            // Preserve original line spacing so output mirrors standard grep
+            content: lines[i] ?? '',
           });
         }
         regex.lastIndex = 0; // Reset for next test
@@ -418,7 +419,7 @@ function searchContent(
   for (const m of limited) {
     const relPath = relative(workingDir, m.file);
     const displayPath = relPath && !relPath.startsWith('..') ? relPath : m.file;
-    lines.push(`${displayPath}:${m.line}: ${m.content}`);
+    lines.push(`${displayPath}:${m.line}:${m.content}`);
   }
 
   let result = lines.join('\n');

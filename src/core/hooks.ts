@@ -95,14 +95,14 @@ interface SettingsFile {
 export function loadHooks(workingDir: string): HooksConfig {
   const hooks: HooksConfig = {};
 
-  // Load from user settings (~/.claude/settings.json, ~/.agi/settings.json, ~/.erosolar/settings.json)
+  // Load from user settings (~/.agi/settings.json plus legacy locations)
   const userSettingsPaths = [
     join(homedir(), '.claude', 'settings.json'),
     join(homedir(), '.agi', 'settings.json'),
     join(homedir(), '.erosolar', 'settings.json'),
   ];
 
-  // Load from project settings (.claude/settings.json, .agi/settings.json, .erosolar/settings.json)
+  // Load from project settings (.agi/settings.json plus legacy locations)
   const projectSettingsPaths = [
     join(workingDir, '.claude', 'settings.json'),
     join(workingDir, '.agi', 'settings.json'),
