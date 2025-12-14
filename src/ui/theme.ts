@@ -41,6 +41,14 @@ const palette = {
   neonCyan: '#00FFFF',
   neonYellow: '#FFFF00',
   neonOrange: '#FF6B00',
+  
+  // Offensive security colors
+  attackRed: '#FF0033',
+  exploitOrange: '#FF6600',
+  persistencePurple: '#AA00FF',
+  c2Green: '#00FF66',
+  reconBlue: '#0066FF',
+  destructionCrimson: '#CC0000',
 
   // Status colors
   emerald: '#10B981',
@@ -106,6 +114,13 @@ export const theme = {
     matrix: gradientString(['#003300', '#00FF00', '#00FF00', '#003300']) as GradientFunction,
     synthwave: gradientString(['#FF00FF', '#00FFFF', '#FF00FF']) as GradientFunction,
     cyberpunk: gradientString([palette.neonPink, palette.neonCyan, palette.neonYellow]) as GradientFunction,
+    // Offensive security gradients
+    attack: gradientString([palette.attackRed, palette.exploitOrange, palette.destructionCrimson]) as GradientFunction,
+    recon: gradientString([palette.reconBlue, palette.neonCyan, palette.blue]) as GradientFunction,
+    persistence: gradientString([palette.persistencePurple, palette.purple, palette.violet]) as GradientFunction,
+    exploitation: gradientString([palette.exploitOrange, palette.neonOrange, palette.amber]) as GradientFunction,
+    destruction: gradientString([palette.destructionCrimson, palette.red, palette.attackRed]) as GradientFunction,
+    c2: gradientString([palette.c2Green, palette.neonGreen, palette.emerald]) as GradientFunction,
   } as Record<string, GradientFunction>,
 
   // Neon text styles for special effects
@@ -453,6 +468,14 @@ export function getToolColor(toolName: string): (text: string) => string {
   // User interaction - Rose
   if (name.includes('ask') || name.includes('question')) {
     return theme.toolColors.ask;
+  }
+
+  // Security/Attack tools - Offensive colors
+  if (name.includes('security') || name.includes('attack') || name.includes('exploit') || 
+      name.includes('recon') || name.includes('scan') || name.includes('nmap') ||
+      name.includes('phishing') || name.includes('c2') || name.includes('backdoor') ||
+      name.includes('destruction') || name.includes('ddos') || name.includes('persistence')) {
+    return theme.neon.orange; // Use neon orange for offensive tools
   }
 
   // Default - Green

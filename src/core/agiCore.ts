@@ -158,6 +158,7 @@ export type PromptCategory =
   | 'legal'
   | 'financial'
   | 'operations'
+  | 'general_coding'
   ;
 
 // ============================================================================
@@ -541,7 +542,7 @@ export class AGICore extends EventEmitter {
       'automate': 'automation',
       'monitor': 'operations',
       // Generic
-      'generic_task': 'automation',
+      'generic_task': 'general_coding',
     };
     return mapping[intent];
   }

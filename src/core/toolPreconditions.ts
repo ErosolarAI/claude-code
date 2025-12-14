@@ -154,7 +154,7 @@ export function validateAIFlowPatterns(
   const warnings: PreflightWarning[] = [];
   const toolLower = toolName.toLowerCase();
 
-  // Pattern: Edit without prior Read
+  // Pattern: Edit without prior Read - Critical for hallucination reduction
   if (toolLower === 'edit') {
     const targetPath = normalizeFilePath(args['file_path']);
     const isNewFileCreation = isNewFileEdit(args['old_string']);
@@ -163,9 +163,9 @@ export function validateAIFlowPatterns(
     if (!isNewFileCreation && !hasRecentRead) {
       warnings.push({
         code: EDIT_WITHOUT_READ,
-        message: 'Edit attempted without prior file read',
+        message: 'Edit attempted without prior file read - HIGH HALLUCINATION RISK',
         severity: 'critical',
-        suggestion: 'Always use Read tool first to get exact text including whitespace and indentation.',
+        suggestion: 'ALWAYS use Read tool first to get exact text including whitespace and indentation. Never guess file content.',
       });
     }
   }
