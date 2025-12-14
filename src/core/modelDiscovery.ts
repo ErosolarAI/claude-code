@@ -35,6 +35,29 @@ interface DiscoveredModelsCache {
   models: ModelConfig[];
 }
 
+const MODEL_PROVIDER_HINTS: Array<{ provider: ProviderId; patterns: RegExp[] }> = [
+  { provider: 'openai', patterns: [/^gpt-/i, /^o[13]/i, /^text-/i] },
+  { provider: 'anthropic', patterns: [/^claude/i] },
+  { provider: 'google', patterns: [/^gemini/i] },
+  { provider: 'deepseek', patterns: [/^deepseek/i] },
+  { provider: 'xai', patterns: [/^grok/i, /^xai-/i] },
+  { provider: 'ollama', patterns: [/^llama/i, /:/] },
+];
+
+/**
+ * Infer provider from a model identifier.
+ */
+export function inferProviderFromModelId(modelId: string | null | undefined): ProviderId | null {
+  if (!modelId) return null;
+  const normalized = modelId.trim().toLowerCase();
+  for (const hint of MODEL_PROVIDER_HINTS) {
+    if (hint.patterns.some((pattern) => pattern.test(normalized))) {
+      return hint.provider;
+    }
+  }
+  return null;
+}
+
 /**
  * Model discovery result for a single provider
  */
@@ -559,12 +582,12 @@ const PROVIDER_CONFIGS: Array<{
   altEnvVars?: string[];
   defaultLatestModel: string;
 }> = [
-  { id: 'anthropic', name: 'Anthropic', envVar: 'ANTHROPIC_API_KEY', defaultLatestModel: 'claude-opus-4-5-20251101' },
-  { id: 'openai', name: 'OpenAI', envVar: 'OPENAI_API_KEY', defaultLatestModel: 'gpt-5.1-codex' },
-  { id: 'google', name: 'Google', envVar: 'GEMINI_API_KEY', altEnvVars: ['GOOGLE_API_KEY'], defaultLatestModel: 'gemini-3.0-pro' },
+  { id: 'anthropic', name: 'Anthropic', envVar: 'ANTHROPIC_API_KEY', defaultLatestModel: 'claude-3-5-sonnet-20241022' },
+  { id: 'openai', name: 'OpenAI', envVar: 'OPENAI_API_KEY', defaultLatestModel: 'gpt-4o' },
+  { id: 'google', name: 'Google', envVar: 'GEMINI_API_KEY', altEnvVars: ['GOOGLE_API_KEY'], defaultLatestModel: 'gemini-2.5-flash' },
   { id: 'deepseek', name: 'DeepSeek', envVar: 'DEEPSEEK_API_KEY', defaultLatestModel: 'deepseek-reasoner' },
   { id: 'xai', name: 'xAI', envVar: 'XAI_API_KEY', defaultLatestModel: 'grok-4-1-fast-reasoning' },
-  { id: 'ollama', name: 'Ollama', envVar: 'OLLAMA_BASE_URL', defaultLatestModel: 'llama3.3:70b' },
+  { id: 'ollama', name: 'Ollama', envVar: 'OLLAMA_BASE_URL', defaultLatestModel: 'llama3.2:3b' },
 ];
 
 /**

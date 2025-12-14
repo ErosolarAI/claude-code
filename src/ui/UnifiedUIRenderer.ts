@@ -1497,11 +1497,9 @@ export class UnifiedUIRenderer extends EventEmitter {
   // ------------ Event queue ------------
 
   addEvent(type: RendererEventType, content: string): void {
-    logDebug(`[DEBUG renderer] addEvent called: type=${type}, content length=${content?.length || 0}`);
     if (!content) return;
     const normalized = this.normalizeEventType(type);
     if (!normalized) return;
-    logDebug(`[DEBUG renderer] normalized type=${normalized}`);
     if (
       normalized === 'prompt' ||
       normalized === 'response' ||
@@ -1675,9 +1673,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private async renderEvent(event: UIEvent): Promise<void> {
-    logDebug(`[DEBUG renderer] renderEvent: type=${event.type}, content length=${event.content?.length || 0}`);
     if (this.plainMode) {
-      logDebug('[DEBUG renderer] plainMode - writing directly');
       const formattedPlain = this.formatContent(event);
       if (formattedPlain) {
         const text = formattedPlain.endsWith('\n') ? formattedPlain : `${formattedPlain}\n`;
@@ -1688,7 +1684,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     const formatted = this.formatContent(event);
-    logDebug(`[DEBUG renderer] formatted length=${formatted?.length || 0}`);
     if (!formatted) return;
 
     // Allow prompts and responses to always render (don't deduplicate)

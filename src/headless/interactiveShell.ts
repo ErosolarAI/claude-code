@@ -50,7 +50,7 @@ const MIN_SUCCESS_SCORE = 5; // Minimum score to consider tournament successful
 const MAX_TOURNAMENT_ROUNDS = 8; // Safety cap to avoid runaway loops
 
 // Timeout constants for regular prompt processing (reasoning models like DeepSeek)
-const PROMPT_REASONING_TIMEOUT_MS = 10_000; // 10s max for reasoning-only without action
+const PROMPT_REASONING_TIMEOUT_MS = 8_000; // 8s max for reasoning-only without action
 const PROMPT_STEP_TIMEOUT_MS = 15_000; // 15s per event
 
 /**
@@ -567,6 +567,12 @@ class InteractiveShell {
       // Continue until we achieve minimum success score
       while (!checkSuccess(primaryWins + refinerWins) && roundNumber < MAX_TOURNAMENT_ROUNDS) {
         roundNumber++;
+
+        // CRITICAL: Force-clear any lingering state at the start of EACH round
+        // This prevents "already processing" errors between rounds
+        this.controller.forceReset();
+        this.controller.sanitizeHistory();
+
         let primaryRoundScore = 0;
         let primaryRoundActions = 0;
         let refinerRoundScore = 0;
@@ -577,8 +583,6 @@ class InteractiveShell {
         }
 
         // ==================== PRIMARY AGENT ====================
-        // Sanitize history before starting new agent to fix any orphaned tool calls from previous timeout
-        this.controller.sanitizeHistory();
 
         if (renderer) {
           renderer.addEvent('banner', chalk.hex('#0EA5E9')('🔵 PRIMARY Agent Starting...'));
@@ -765,7 +769,8 @@ class InteractiveShell {
 
       // ==================== REFINER AGENT ====================
       if (!skipRefinerLLM) {
-        // Sanitize history to fix any orphaned tool calls from PRIMARY timeout
+        // Force-clear and sanitize before REFINER to ensure clean state
+        this.controller.forceReset();
         this.controller.sanitizeHistory();
 
         if (renderer) {
@@ -2182,9 +2187,6 @@ Any text response is a failure. Only tool calls are accepted.`;
     const trimmed = command.trim();
     const lower = trimmed.toLowerCase();
 
-    logDebug('[DEBUG] handleSlashCommand called with:', debugSnippet(trimmed));
-    logDebug('[DEBUG] lower starts with /attack:', lower.startsWith('/attack'));
-
     // Handle /model with arguments - silent model switch
     if (lower.startsWith('/model ') || lower.startsWith('/m ')) {
       const arg = trimmed.slice(trimmed.indexOf(' ') + 1).trim();
@@ -2254,7 +2256,6 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Dual-RL tournament attack with self-modifying reward
     if (lower.startsWith('/attack')) {
-      logDebug('[DEBUG] /attack command detected, args:', trimmed.split(/\s+/).slice(1).slice(0, 3).join(' '));
       const args = trimmed.split(/\s+/).slice(1);
       void this.runDualRLAttack(args);
       return true;
@@ -2970,10 +2971,6 @@ Any text response is a failure. Only tool calls are accepted.`;
   private handleSubmit(text: string): void {
     const trimmed = text.trim();
 
-    logDebug('[DEBUG] handleSubmit called with:', debugSnippet(text));
-    logDebug('[DEBUG] trimmed starts with /:', trimmed.startsWith('/'));
-    logDebug('[DEBUG] first 20 chars:', JSON.stringify(trimmed.slice(0, 20)));
-
     // Handle secret input mode - capture the API key value
     if (this.secretInputMode.active && this.secretInputMode.secretId) {
       this.handleSecretValue(trimmed);
@@ -2986,25 +2983,19 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Handle slash commands first - these don't go to the AI
     if (trimmed.startsWith('/')) {
-      logDebug('[DEBUG] Detected slash command, calling handleSlashCommand');
       if (this.handleSlashCommand(trimmed)) {
-        logDebug('[DEBUG] handleSlashCommand returned true');
         return;
       }
       // Unknown slash command - silent status flash, dismiss inline panel
-      logDebug('[DEBUG] handleSlashCommand returned false - unknown command');
       this.dismissInlinePanel();
       this.promptController?.setStatusMessage(`Unknown: ${trimmed.slice(0, 30)}`);
       setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
       return;
     }
 
-    logDebug('[DEBUG] Not a slash command, processing as prompt');
-
     // Auto-detect attack-like prompts and route to /attack command
     const attackPatterns = /\b(attack|dos|ddos|exploit|arp\s*spoof|deauth|syn\s*flood|udp\s*flood|crash|disable|nmap|port\s*scan|vulnerability|penetration|pentest)\b/i;
     if (attackPatterns.test(trimmed)) {
-      logDebug('[DEBUG] Auto-detected attack prompt, routing to /attack');
       void this.runDualRLAttack([trimmed]);
       return;
     }
@@ -3046,8 +3037,12 @@ Any text response is a failure. Only tool calls are accepted.`;
     let reasoningOnlyStartTime: number | null = null;
     let reasoningTimedOut = false;
 
+    // Track total prompt processing time to prevent infinite loops
+    const promptStartTime = Date.now();
+    const TOTAL_PROMPT_TIMEOUT_MS = 15_000; // 15s max for entire prompt without meaningful content
+    let hasReceivedMeaningfulContent = false;
+
     try {
-      logDebug('[DEBUG] Starting send loop for prompt:', debugSnippet(prompt));
       // Use timeout-wrapped iterator to prevent hanging on slow/stuck models
       for await (const eventOrTimeout of iterateWithTimeout(
         this.controller.send(prompt),
@@ -3060,12 +3055,20 @@ Any text response is a failure. Only tool calls are accepted.`;
       )) {
         // Check for timeout marker
         if (eventOrTimeout && typeof eventOrTimeout === 'object' && '__timeout' in eventOrTimeout) {
-          logDebug('[DEBUG] Step timeout triggered');
+          break;
+        }
+
+        // Check total elapsed time - bail out if too long without meaningful content
+        const totalElapsed = Date.now() - promptStartTime;
+        if (!hasReceivedMeaningfulContent && totalElapsed > TOTAL_PROMPT_TIMEOUT_MS) {
+          if (renderer) {
+            renderer.addEvent('response', chalk.yellow(`\n⏱ Response timeout (${Math.round(totalElapsed / 1000)}s) - completing\n`));
+          }
+          reasoningTimedOut = true;
           break;
         }
 
         const event = eventOrTimeout as AgentEventUnion;
-        logDebug('[DEBUG] Received event:', this.describeEventForDebug(event));
         if (this.shouldExit) {
           break;
         }
@@ -3073,7 +3076,6 @@ Any text response is a failure. Only tool calls are accepted.`;
         switch (event.type) {
           case 'message.start':
             // AI has started processing - update status to show activity
-            logDebug('[DEBUG] message.start - setting Thinking status');
             this.currentResponseBuffer = '';
             reasoningBuffer = '';
             reasoningOnlyStartTime = null; // Reset on new message
@@ -3089,6 +3091,7 @@ Any text response is a failure. Only tool calls are accepted.`;
             // Reset reasoning timer only when we get actual non-empty content
             if (event.content && event.content.trim()) {
               reasoningOnlyStartTime = null;
+              hasReceivedMeaningfulContent = true;
             }
             break;
 
@@ -3097,40 +3100,29 @@ Any text response is a failure. Only tool calls are accepted.`;
             reasoningBuffer += event.content ?? '';
             // Update status to show reasoning is actively streaming
             this.promptController?.setActivityMessage('Thinking');
-
-            // Track reasoning-only time - abort if reasoning too long without action
+            // Start the reasoning timer on first reasoning event
             if (!reasoningOnlyStartTime) {
               reasoningOnlyStartTime = Date.now();
-              logDebug('[DEBUG] Reasoning started timing');
-            }
-            const reasoningElapsed = Date.now() - reasoningOnlyStartTime;
-            // Use a reasonable timeout (30s default) - don't cut off prematurely
-            if (reasoningElapsed > PROMPT_REASONING_TIMEOUT_MS) {
-              logDebug(`[DEBUG] Reasoning timeout: ${reasoningElapsed}ms > ${PROMPT_REASONING_TIMEOUT_MS}ms`);
-              if (renderer) {
-                renderer.addEvent('response', chalk.yellow(`\n⏱ Reasoning timeout (${Math.round(reasoningElapsed / 1000)}s)\n`));
-              }
-              reasoningTimedOut = true;
             }
             break;
 
           case 'message.complete':
             // Response complete - ensure final output includes required "Next steps"
-            logDebug('[DEBUG] message.complete - base:', debugSnippet(event.content ?? ''));
-            logDebug('[DEBUG] message.complete - responseBuffer:', debugSnippet(this.currentResponseBuffer));
-            logDebug('[DEBUG] message.complete - reasoningBuffer length:', reasoningBuffer.length);
-
             if (renderer) {
               // Use the appended field from ensureNextSteps to avoid re-rendering the entire response
               const base = (event.content ?? '').trimEnd();
               let sourceText = base || this.currentResponseBuffer;
 
+              // If content came via message.complete but NOT via deltas, render it now
+              // This handles models that don't stream deltas (e.g., deepseek-reasoner)
+              if (base && !this.currentResponseBuffer.trim()) {
+                renderer.addEvent('stream', base);
+              }
+
               // Fallback: If response is empty but we have reasoning, synthesize a response
               if (!sourceText.trim() && reasoningBuffer.trim()) {
-                logDebug('[DEBUG] Synthesizing from reasoning - reasoningBuffer:', debugSnippet(reasoningBuffer));
                 // Extract key conclusions from reasoning for display
                 const synthesized = this.synthesizeFromReasoning(reasoningBuffer);
-                logDebug('[DEBUG] Synthesized result:', debugSnippet(synthesized ?? ''));
                 if (synthesized) {
                   renderer.addEvent('stream', synthesized);
                   sourceText = synthesized;
@@ -3161,6 +3153,7 @@ Any text response is a failure. Only tool calls are accepted.`;
 
             // Reset reasoning timer when tools are being called (model is taking action)
             reasoningOnlyStartTime = null;
+            hasReceivedMeaningfulContent = true;
 
             // Track tool usage for episodic memory
             if (!toolsUsed.includes(toolName)) {
@@ -3266,9 +3259,20 @@ Any text response is a failure. Only tool calls are accepted.`;
 
         }
 
+        // Check reasoning timeout on EVERY iteration (not just when reasoning events arrive)
+        // This ensures we bail out even if events are sparse
+        if (reasoningOnlyStartTime && !hasReceivedMeaningfulContent) {
+          const reasoningElapsed = Date.now() - reasoningOnlyStartTime;
+          if (reasoningElapsed > PROMPT_REASONING_TIMEOUT_MS) {
+            if (renderer) {
+              renderer.addEvent('response', chalk.yellow(`\n⏱ Reasoning timeout (${Math.round(reasoningElapsed / 1000)}s)\n`));
+            }
+            reasoningTimedOut = true;
+          }
+        }
+
         // Check if reasoning timeout was triggered - break out of event loop
         if (reasoningTimedOut) {
-          logDebug('[DEBUG] Breaking out of event loop due to reasoning timeout');
           break;
         }
       }
@@ -3277,7 +3281,6 @@ Any text response is a failure. Only tool calls are accepted.`;
       // This handles models like deepseek-reasoner that output thinking but empty response
       // IMPORTANT: Don't add "Next steps" when only reasoning occurred - only after real work
       if ((!episodeSuccess || reasoningTimedOut) && reasoningBuffer.trim() && !this.currentResponseBuffer.trim()) {
-        logDebug('[DEBUG] Stream ended with reasoning but no response - synthesizing');
         const synthesized = this.synthesizeFromReasoning(reasoningBuffer);
         if (synthesized && renderer) {
           renderer.addEvent('stream', '\n' + synthesized);
@@ -3293,7 +3296,6 @@ Any text response is a failure. Only tool calls are accepted.`;
         }
       }
     } catch (error) {
-      logDebug('[DEBUG] Caught error in send loop:', error);
       const message = error instanceof Error ? error.message : String(error);
       if (renderer) {
         renderer.addEvent('error', message);
@@ -3309,8 +3311,6 @@ Any text response is a failure. Only tool calls are accepted.`;
         }
       }
     } finally {
-      logDebug('[DEBUG] Finally block - cleaning up');
-
       // Final fallback: If stream ended without message.complete but we have reasoning
       if (!episodeSuccess && reasoningBuffer.trim() && !this.currentResponseBuffer.trim()) {
         const synthesized = this.synthesizeFromReasoning(reasoningBuffer);

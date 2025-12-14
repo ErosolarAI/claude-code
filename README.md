@@ -1,6 +1,6 @@
 # AGI Planning
 
-This workspace hosts development and integration tests for the AGI CLI agent. It mirrors the main CLI codebase but is used for local planning, orchestration hardening, and reliability fixes.
+This workspace hosts development and integration tests for the AGI CLI agent (distributed as `erosolar-cli`, alias `agi`). It mirrors the main CLI codebase but is used for local planning, orchestration hardening, and reliability fixes.
 
 ## Getting Started
 - Install dependencies: `npm install`

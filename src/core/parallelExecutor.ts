@@ -391,6 +391,8 @@ export class ParallelExecutor {
   async execute<T>(tasks: ParallelTask<T>[]): Promise<BatchResult<T>> {
     const batchId = `batch-${Date.now()}`;
     const batchStart = Date.now();
+    let failureEncountered = false;
+    this.cancelled = false;
 
     this.emit({
       type: 'batch.start',
@@ -412,6 +414,7 @@ export class ParallelExecutor {
     // Execute in phases
     const phases = graph.getExecutionPhases();
     const results: TaskResult<T>[] = [];
+    const executed = new Set<string>();
     let maxParallelism = 0;
 
     for (const phase of phases) {
@@ -429,13 +432,23 @@ export class ParallelExecutor {
       );
 
       results.push(...phaseResults);
+      phaseResults.forEach((r) => executed.add(r.taskId));
 
       // Check for failures if not continuing on failure
       if (!this.config.continueOnFailure) {
         const failure = phaseResults.find((r) => r.status === 'failed');
         if (failure) {
+          failureEncountered = true;
+          this.cancelled = true;
           break;
         }
+      }
+    }
+
+    if (failureEncountered || this.cancelled) {
+      const remaining = tasks.filter((t) => !executed.has(t.id));
+      for (const task of remaining) {
+        results.push(this.createResult<T>(task.id, 'cancelled', undefined, new Error('Cancelled'), Date.now(), 0));
       }
     }
 

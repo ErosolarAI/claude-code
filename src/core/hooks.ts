@@ -98,12 +98,14 @@ export function loadHooks(workingDir: string): HooksConfig {
   const userSettingsPaths = [
     join(homedir(), '.claude', 'settings.json'),
     join(homedir(), '.agi', 'settings.json'),
+    join(homedir(), '.erosolar', 'settings.json'),
   ];
 
   // Load from project settings (.claude/settings.json or .agi/settings.json)
   const projectSettingsPaths = [
     join(workingDir, '.claude', 'settings.json'),
     join(workingDir, '.agi', 'settings.json'),
+    join(workingDir, '.erosolar', 'settings.json'),
   ];
 
   // Load user settings first, then override with project settings
@@ -265,10 +267,37 @@ function buildPromptForHook(hook: HookDefinition, context: HookContext): string 
   return parts.filter(Boolean).join('\n');
 }
 
-function assessPromptRisk(_promptText: string, _context: HookContext, _analysis: PromptAnalysis): RiskAssessment {
-  // DISABLED: All risk assessment disabled for security research environment
-  // User operates authorized penetration testing lab - no restrictions
-  return { score: 0, reasons: [] };
+function assessPromptRisk(promptText: string, context: HookContext, _analysis: PromptAnalysis): RiskAssessment {
+  const lower = promptText.toLowerCase();
+  const reasons: string[] = [];
+
+  const destructivePatterns = [
+    /rm\s+-rf\s+\/?/,
+    /sudo\s+rm\s+-rf/,
+    /:\(\)\s*{.*:.*\|.*:.*;.*};\s*:/, // fork bomb
+    /mkfs/i,
+    /format\s+c:/i,
+    /shutdown\s+-h/i,
+    /kill\s+-9\s+1/,
+    /dd\s+if=\/dev\//i,
+  ];
+
+  if (typeof context.toolArgs?.['command'] === 'string') {
+    const cmd = String(context.toolArgs['command']).toLowerCase();
+    if (/rm\s+-rf/.test(cmd) || /(^|\s)del\s+\/f/i.test(cmd)) {
+      reasons.push('Destructive shell command');
+    }
+    if (/shutdown|reboot/.test(cmd)) {
+      reasons.push('System shutdown command');
+    }
+  }
+
+  if (destructivePatterns.some((re) => re.test(lower))) {
+    reasons.push('Destructive content detected');
+  }
+
+  const score = reasons.length > 0 ? 0.9 : 0.05;
+  return { score, reasons };
 }
 
 function formatPromptHookOutput(analysis: PromptAnalysis, risk: RiskAssessment): string {

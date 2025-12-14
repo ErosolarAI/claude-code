@@ -11,6 +11,7 @@ import {
   type TournamentOutcome,
   type TournamentTask,
 } from './dualTournament.js';
+import { resolveWinner as resolveWinnerStrategy } from './winnerStrategy.js';
 
 export type RepoUpgradeMode = 'single-continuous' | 'dual-rl-continuous' | 'dual-rl-tournament';
 export type UpgradeVariant = 'primary' | 'refiner';
@@ -881,29 +882,17 @@ export class RepoUpgradeOrchestrator extends UnifiedOrchestrator {
     const primary = variantResults.primary as UpgradeStepResult;
     const refiner = variantResults.refiner;
 
-    const tournamentOutcome = this.evaluateTournamentOutcome(module, step, modeDefinition, primary, refiner);
+    const tournamentOutcome = modeDefinition.parallelVariants
+      ? this.evaluateTournamentOutcome(module, step, modeDefinition, primary, refiner)
+      : null;
     if (tournamentOutcome) {
       this.attachTournamentBreakdown(variantResults, tournamentOutcome);
     }
 
-    let winner: UpgradeStepResult;
-    let winnerVariant: UpgradeVariant;
-
-    if (tournamentOutcome?.ranked?.length) {
-      const top = tournamentOutcome.ranked[0];
-      const topVariant = top.candidateId === 'refiner' && refiner ? 'refiner' : 'primary';
-      winnerVariant = topVariant;
-      winner = topVariant === 'refiner' && refiner ? refiner : primary;
-      this.attachTournamentBreakdown(variantResults, tournamentOutcome);
-      primary.humanAccuracy = primary.tournament?.humanAccuracy ?? primary.humanAccuracy;
-      if (refiner) {
-        refiner.humanAccuracy = refiner.tournament?.humanAccuracy ?? refiner.humanAccuracy;
-      }
-    } else {
-      const fallback = this.pickWinner(modeDefinition, primary, refiner);
-      winner = fallback.winner;
-      winnerVariant = fallback.winnerVariant;
-    }
+    const { winner, winnerVariant } = resolveWinnerStrategy(
+      { modeDefinition, variantResults, tournamentOutcome },
+      (definition, primaryResult, refinerResult) => this.pickWinner(definition, primaryResult, refinerResult)
+    );
 
     this.recordOutcomeArtifacts(module, step, winner, winnerVariant);
 

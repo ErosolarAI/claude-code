@@ -212,6 +212,8 @@ export class AgentController implements IAgentController {
   private failedProviders: Set<ProviderId> = new Set();
   /** Maximum fallback attempts per send() call */
   private static readonly MAX_FALLBACK_ATTEMPTS = 3;
+  private activeTimeout: NodeJS.Timeout | null = null;
+  private inflightReject: ((error: Error) => void) | null = null;
 
   constructor(dependencies: AgentControllerDependencies) {
     this.session = dependencies.runtime.session;
@@ -319,19 +321,14 @@ export class AgentController implements IAgentController {
   }
 
   private emitDelta(content: string, isFinal: boolean): void {
-    logDebug(`[DEBUG controller] emitDelta called: content="${content?.slice(0, 50)}", isFinal=${isFinal}, hasSink=${!!this.activeSink}`);
     if (!content?.trim()) {
-      logDebug('[DEBUG controller] emitDelta: skipping empty content');
       return;
     }
 
     // Filter out garbage/leaked reasoning fragments
     if (this.isGarbageContent(content)) {
-      logDebug('[DEBUG controller] emitDelta: filtering garbage content');
       return;
     }
-
-    logDebug('[DEBUG controller] emitDelta: pushing to sink');
     this.activeSink?.push({
       type: 'message.delta',
       timestamp: Date.now(),
@@ -423,6 +420,37 @@ export class AgentController implements IAgentController {
     }
   }
 
+  cancel(reason?: string): void {
+    if (!this.activeSink) {
+      return;
+    }
+    const error = new Error(reason ?? 'Run cancelled');
+    try {
+      (this.agent as any)?.cancel?.(reason);
+    } catch {
+      // ignore cancellation errors
+    }
+    this.rejectInflight(error);
+    this.activeSink.fail(error);
+    this.activeSink = null;
+    this.sinkRef.current = null;
+    this.clearActiveTimeout();
+  }
+
+  private clearActiveTimeout(): void {
+    if (this.activeTimeout) {
+      clearTimeout(this.activeTimeout);
+      this.activeTimeout = null;
+    }
+  }
+
+  private rejectInflight(error: Error): void {
+    if (this.inflightReject) {
+      this.inflightReject(error);
+      this.inflightReject = null;
+    }
+  }
+
   async *send(message: string): AsyncIterableIterator<AgentEventUnion> {
     if (this.activeSink) {
       throw new Error('Agent runtime is already processing a message. Please wait for the current run to finish.');
@@ -442,18 +470,53 @@ export class AgentController implements IAgentController {
       this.sinkRef.current = sink;
       sink.push({ type: 'message.start', timestamp: Date.now() });
 
+      const timeoutMsRaw = process.env['AGI_AGENT_RUN_TIMEOUT_MS'];
+      const timeoutMs = timeoutMsRaw ? Number(timeoutMsRaw) : NaN;
+      if (!Number.isNaN(timeoutMs) && timeoutMs > 0) {
+        this.activeTimeout = setTimeout(() => {
+          const err = new Error(`Run timed out after ${timeoutMs}ms`);
+          this.rejectInflight(err);
+          sink.fail(err);
+          try {
+            (this.agent as any)?.cancel?.('timeout');
+          } catch {
+            // ignore
+          }
+        }, timeoutMs);
+      }
+
       let caughtError: Error | null = null;
       let fallbackSucceeded = false;
 
-      const run = agent
-        .send(message, true)
+      let cancelRun: ((error: Error) => void) | null = null;
+      const cancelPromise = new Promise<never>((_, reject) => {
+        cancelRun = reject;
+      });
+      this.inflightReject = (error: Error) => {
+        cancelRun?.(error);
+      };
+
+      const run = Promise.race([
+        agent.send(message, true),
+        cancelPromise,
+      ])
         .then(() => {
           this.updateCachedHistory();
+          this.clearActiveTimeout();
           sink.close();
         })
         .catch(async (error) => {
           const errorObj = error instanceof Error ? error : new Error(String(error));
           caughtError = errorObj;
+          this.clearActiveTimeout();
+
+          const cancelled = /cancel/i.test(errorObj.message);
+          const timedOut = /timed out/i.test(errorObj.message);
+          if (cancelled || timedOut) {
+            this.emitError(errorObj.message);
+            sink.fail(errorObj);
+            return;
+          }
 
           // Check if this error is eligible for fallback
           if (isFallbackEligibleError(error) && fallbackAttempts < AgentController.MAX_FALLBACK_ATTEMPTS - 1) {
@@ -471,6 +534,8 @@ export class AgentController implements IAgentController {
           sink.fail(errorObj);
         })
         .finally(() => {
+          this.clearActiveTimeout();
+          this.inflightReject = null;
           if (this.activeSink === sink) {
             this.activeSink = null;
             this.sinkRef.current = null;

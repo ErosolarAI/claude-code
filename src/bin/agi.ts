@@ -23,9 +23,9 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
           const pkgPath = path.resolve(path.dirname(__filename), '../../package.json');
           const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
           const version = pkg.version || '0.0.0';
-          console.log(`agi v${version}`);
+          console.log(`erosolar-cli v${version} (agi)`);
         } catch {
-          console.log('agi (version unknown)');
+          console.log('erosolar-cli (version unknown)');
         }
         process.exit(0);
       });
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
 // Inline help for fast response (no imports needed)
 function printHelpFast(): void {
   console.log(`
-agi - Unified AGI Core Interactive AI Agent
+erosolar-cli (agi) - Unified AGI Core Interactive AI Agent
 
 Usage: agi [options] [prompt]
 

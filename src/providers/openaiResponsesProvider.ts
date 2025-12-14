@@ -289,11 +289,8 @@ export class OpenAIResponsesProvider implements LLMProvider {
 
     let stream: AsyncIterable<ResponseStreamEvent>;
     try {
-      logDebug('[DEBUG provider] Making API request to:', this.model);
       stream = await this.client.responses.create(request) as AsyncIterable<ResponseStreamEvent>;
-      logDebug('[DEBUG provider] Got stream response');
     } catch (error) {
-      logDebug('[DEBUG provider] API error:', error);
       this.handleProviderError(error);
     }
 
@@ -301,17 +298,11 @@ export class OpenAIResponsesProvider implements LLMProvider {
     const functionCallsById = new Map<string, { callId: string; name: string; arguments: string }>();
 
     try {
-      logDebug('[DEBUG provider] Starting to iterate stream');
       for await (const event of stream) {
-        logDebug('[DEBUG provider] Stream event:', event.type);
         switch (event.type) {
           case 'response.output_text.delta':
-            logDebug('[DEBUG provider] output_text.delta - delta=', JSON.stringify(event.delta), 'event keys:', Object.keys(event));
             if (event.delta) {
-              logDebug('[DEBUG provider] Yielding content delta:', event.delta.length, 'chars');
               yield { type: 'content', content: event.delta };
-            } else {
-              logDebug('[DEBUG provider] NO delta in event!');
             }
             break;
 

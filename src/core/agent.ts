@@ -566,11 +566,9 @@ export class AgentRuntime {
         const suppressStreamNarration = this.shouldSuppressToolNarration();
         let bufferedContent = '';
 
-        logDebug('[DEBUG agent] Starting stream generation');
         const stream = this.provider.generateStream(this.messages, this.providerTools);
         const iterator = stream[Symbol.asyncIterator]();
         let streamClosed = false;
-        logDebug('[DEBUG agent] Got stream iterator');
         const closeStream = async (): Promise<void> => {
           if (streamClosed) {
             return;
@@ -611,15 +609,16 @@ export class AgentRuntime {
 
         // Simple streaming loop - no timeouts, let the stream run until done
         try {
-          logDebug('[DEBUG agent] Entering streaming loop');
           let chunkCount = 0;
           // eslint-disable-next-line no-constant-condition
           while (true) {
-            logDebug('[DEBUG agent] Awaiting next chunk...');
             const result = await iterator.next();
             chunkCount++;
-            const chunkLabel = result.done ? 'done' : describeChunk(result.value);
-            logDebug(`[DEBUG agent] Got chunk ${chunkCount}: ${chunkLabel}`);
+            // Only log significant chunks (tool calls, done), not every content/reasoning token
+            if (result.done || result.value?.type === 'tool_call') {
+              const chunkLabel = result.done ? 'done' : describeChunk(result.value);
+              logDebug(`[agent] chunk ${chunkCount}: ${chunkLabel}`);
+            }
 
             // Check for cancellation during streaming
             if (this.cancellationRequested) {

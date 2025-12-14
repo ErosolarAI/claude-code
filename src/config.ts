@@ -11,6 +11,7 @@ import {
 } from './core/agentProfiles.js';
 import { buildAgentRulebookPrompt, loadAgentRulebook } from './core/agentRulebook.js';
 import { getAgentProfileManifest } from './core/agentProfileManifest.js';
+import { inferProviderFromModelId } from './core/modelDiscovery.js';
 
 export type { ProfileName } from './core/agentProfiles.js';
 
@@ -58,12 +59,26 @@ export function resolveProfileConfig(profile: ProfileName, workspaceContext: str
   const modelEnv = process.env[`${envPrefix}_MODEL`];
   const modelLocked = typeof modelEnv === 'string' && modelEnv.trim().length > 0;
   const model = modelLocked ? modelEnv!.trim() : blueprint.defaultModel;
+  const inferredProvider = inferProviderFromModelId(model);
 
   const systemPrompt = process.env[`${envPrefix}_SYSTEM_PROMPT`] ?? blueprint.defaultSystemPrompt;
 
   const providerEnv = process.env[`${envPrefix}_PROVIDER`];
-  const providerLocked = isProviderValue(providerEnv);
-  const provider = providerLocked ? providerEnv!.trim() : blueprint.defaultProvider;
+  const providerCandidate = isProviderValue(providerEnv) ? (providerEnv!.trim() as ProviderId) : null;
+  const providerLocked = Boolean(providerCandidate) && (!inferredProvider || providerCandidate === inferredProvider);
+  const provider: ProviderId = ((): ProviderId => {
+    if (providerCandidate && inferredProvider && providerCandidate !== inferredProvider) {
+      // Prefer the model-aligned provider over a mismatched env override
+      return inferredProvider;
+    }
+    if (providerCandidate) {
+      return providerCandidate;
+    }
+    if (inferredProvider) {
+      return inferredProvider;
+    }
+    return blueprint.defaultProvider;
+  })();
   const rulebook = loadRulebookMetadata(blueprint);
 
   const contextBlock = workspaceContext?.trim()

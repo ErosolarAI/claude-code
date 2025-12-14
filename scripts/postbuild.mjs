@@ -14,6 +14,7 @@ const EXECUTABLES = [
 ];
 
 copyJsonContracts(SRC_CONTRACTS_DIR, DIST_CONTRACTS_DIR);
+ensureAliasExecutable();
 markExecutables(EXECUTABLES);
 
 function copyJsonContracts(sourceDir, targetDir) {
@@ -32,6 +33,15 @@ function copyJsonContracts(sourceDir, targetDir) {
     }
     mkdirSync(dirname(targetPath), { recursive: true });
     copyFileSync(sourcePath, targetPath);
+  }
+}
+
+function ensureAliasExecutable() {
+  const agiBin = resolve(ROOT_DIR, 'dist/bin/agi.js');
+  const aliasBin = resolve(ROOT_DIR, 'dist/bin/erosolar.js');
+  if (existsSync(agiBin) && !existsSync(aliasBin)) {
+    mkdirSync(dirname(aliasBin), { recursive: true });
+    copyFileSync(agiBin, aliasBin);
   }
 }
 

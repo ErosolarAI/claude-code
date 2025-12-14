@@ -7,7 +7,7 @@ import { theme } from './theme.js';
 
 /**
  * Highlight file paths (AGI CLI style)
- * Example: src/ui/display.ts
+ * Example: src/ui/UnifiedUIRenderer.ts
  */
 export function highlightFilePath(path: string): string {
   const parts = path.split('/');

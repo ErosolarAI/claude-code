@@ -299,7 +299,7 @@ describe('CLI End-to-End Integration', () => {
       'core/types.ts',
       'core/agent.ts',
       'shell/interactiveShell.ts',
-      'ui/display.ts',
+      'ui/UnifiedUIRenderer.ts',
     ];
 
     coreFiles.forEach(srcFile => {

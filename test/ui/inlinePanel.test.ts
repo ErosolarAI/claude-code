@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
 import { UnifiedUIRenderer } from '../../src/ui/UnifiedUIRenderer.js';
-import { Display } from '../../src/ui/display.js';
 
 type WritableLike = NodeJS.WriteStream & { isTTY?: boolean; rows?: number; columns?: number };
 type ReadableLike = NodeJS.ReadStream & { isTTY?: boolean };
@@ -41,18 +40,6 @@ describe('inline panel clamping', () => {
 
     const expectedMax = Math.max(4, Math.min((renderer as any).maxInlinePanelLines, Math.max(2, 32 - 8)));
     const expectedTailCount = Math.max(1, expectedMax - 1);
-
-    expect(result[0]).toContain('more lines');
-    expect(result.length).toBe(expectedTailCount + 1);
-    expect(result.slice(1)).toEqual(input.slice(-expectedTailCount));
-  });
-
-  test('Display.clampInlinePanel trims and annotates overflow', () => {
-    const display = new Display(makeMockStream(), makeMockStream());
-    const input = makeLines(70);
-
-    const result = (display as any).clampInlinePanel(input) as string[];
-    const expectedTailCount = 63; // maxLines (64) minus the overflow indicator
 
     expect(result[0]).toContain('more lines');
     expect(result.length).toBe(expectedTailCount + 1);
