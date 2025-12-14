@@ -249,6 +249,13 @@ export class AgentController implements IAgentController {
 
   private createAgentCallbacks(): AgentCallbacks {
     return {
+      onRequestReceived: (requestPreview) => {
+        // Acknowledge user request before any processing
+        if (requestPreview?.trim()) {
+          this.emitDelta(`I'll help with: "${requestPreview.slice(0, 100)}${requestPreview.length > 100 ? '...' : ''}"\n\n`, false);
+        }
+        this.externalCallbacks?.onRequestReceived?.(requestPreview);
+      },
       onAssistantMessage: (content, metadata) => {
         this.handleAssistantMessage(content, metadata);
         this.externalCallbacks?.onAssistantMessage?.(content, metadata);
@@ -299,24 +306,19 @@ export class AgentController implements IAgentController {
   /**
    * Check if content looks like garbage/leaked reasoning fragments.
    * Returns true if the content should be filtered out.
+   * NOTE: Keep this minimal to avoid suppressing legitimate short responses.
    */
   private isGarbageContent(content: string): boolean {
     const trimmed = content.trim();
     if (!trimmed) return true;
 
-    // Single or repeated punctuation/markdown artifacts
+    // Only filter pure punctuation/markdown artifacts
     if (/^[)\]}>*`'".:,!?|│┃─━═\s]+$/.test(trimmed)) return true;
 
     // Just newlines or whitespace
     if (/^[\s\n\r]+$/.test(trimmed)) return true;
 
-    // Short fragments with high punctuation ratio (likely leaked formatting)
-    if (trimmed.length < 15) {
-      const alphaCount = (trimmed.match(/[a-zA-Z0-9]/g) || []).length;
-      if (alphaCount === 0) return true;
-      if (alphaCount / trimmed.length < 0.2) return true;
-    }
-
+    // Removed aggressive short fragment filtering - was suppressing legitimate content
     return false;
   }
 
@@ -707,7 +709,8 @@ export class AgentController implements IAgentController {
     const currentProvider = this.selection.provider;
 
     // Provider preference order (excluding current and failed)
-    const preferenceOrder: ProviderId[] = ['xai', 'anthropic', 'openai', 'google', 'deepseek', 'ollama'];
+    // deepseek-reasoner is default, grok (xai) is backup
+    const preferenceOrder: ProviderId[] = ['deepseek', 'xai'];
 
     for (const providerId of preferenceOrder) {
       // Skip current provider and already failed providers

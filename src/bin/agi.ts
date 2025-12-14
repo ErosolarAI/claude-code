@@ -134,16 +134,17 @@ Examples:
   echo "run npm test" | agi              # Pipe mode
 
 Commands:
-  /attack                    Dual-RL attack tournament (security assessment)
+  /attack                    Dual-RL attack tournament (requires AGI_ENABLE_ATTACKS=1)
   /upgrade                   Dual-RL upgrade tournament (code improvement)
   /model                     Switch AI model
   /help                      Show available commands
 
 Environment Variables:
-  ANTHROPIC_API_KEY    Anthropic API key
-  OPENAI_API_KEY       OpenAI API key
-  GOOGLE_API_KEY       Google AI API key
-  XAI_API_KEY          xAI (Grok) API key
-  DEEPSEEK_API_KEY     DeepSeek API key
+  ANTHROPIC_API_KEY       Anthropic API key
+  OPENAI_API_KEY          OpenAI API key
+  GOOGLE_API_KEY          Google AI API key
+  XAI_API_KEY             xAI (Grok) API key
+  DEEPSEEK_API_KEY        DeepSeek API key
+  AGI_ENABLE_ATTACKS      Set to 1 to enable /attack command
 `);
 }

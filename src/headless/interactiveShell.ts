@@ -43,10 +43,11 @@ const exec = promisify(childExec);
 import { ensureNextSteps } from '../core/finalResponseFormatter.js';
 
 // Timeout constants for attack tournament - balanced for model response time
-const ATTACK_AGENT_STEP_TIMEOUT_MS = 15_000; // 15s per agent step
-const ATTACK_REASONING_TIMEOUT_MS = 10_000; // 10s max for reasoning-only before forcing action
+const ATTACK_AGENT_STEP_TIMEOUT_MS = 8_000; // 8s per agent step - fail fast
+const ATTACK_REASONING_TIMEOUT_MS = 5_000; // 5s max for reasoning-only before forcing action
 // No tournament timeout - continues until success
 const MIN_SUCCESS_SCORE = 5; // Minimum score to consider tournament successful
+const ATTACK_ENV_FLAG = process.env['AGI_ENABLE_ATTACKS'] === '1';
 const MAX_TOURNAMENT_ROUNDS = 8; // Safety cap to avoid runaway loops
 
 // Timeout constants for regular prompt processing (reasoning models like DeepSeek)
@@ -625,11 +626,13 @@ class InteractiveShell {
             if (event.content) {
               primaryReasoningBuffer += event.content;
               // Detect model refusal/hesitation patterns in reasoning - break early to avoid wasting time
-              const refusalPatterns = /\b(cannot|won't|refuse|inappropriate|harmful|illegal|unethical|I cannot assist|I will not|not able to help|need to consider|however.*but|security concern|ethical concern)\b/i;
-              const deliberationPatterns = /\b(are they looking for|should I|let me think|I need to|considering whether)\b/i;
+              const refusalPatterns = /\b(cannot|won't|refuse|inappropriate|harmful|illegal|unethical|I cannot assist|I will not|not able to help|need to consider|however.*but|security concern|ethical concern|I'm unable|I can't help|not appropriate|against.*policy|violate|unsafe|malicious)\b/i;
+              const deliberationPatterns = /\b(are they looking for|should I|let me think|I need to|considering whether|I should first|let me consider|before I|wait.*let me|hmm|actually|on second thought)\b/i;
               if (refusalPatterns.test(primaryReasoningBuffer) ||
-                  (primaryReasoningBuffer.length > 500 && deliberationPatterns.test(primaryReasoningBuffer))) {
+                  (primaryReasoningBuffer.length > 300 && deliberationPatterns.test(primaryReasoningBuffer))) {
                 logDebug('[ATTACK] Primary detected refusal/hesitation pattern in reasoning');
+                // Clear activity message immediately
+                this.promptController?.setActivityMessage(null);
                 if (renderer) {
                   renderer.addEvent('response', chalk.yellow('\n⚠ Model hesitating - forcing action...\n'));
                 }
@@ -700,21 +703,26 @@ class InteractiveShell {
 
         // If timed out without tool call, execute fallback commands directly
         if (primaryTimedOut && !primaryToolCalled) {
-          // Clear status immediately to prevent "thinking..." from lingering
+          // Clear activity and status immediately to prevent "thinking..." from lingering
+          this.promptController?.setActivityMessage(null);
           this.promptController?.setStatusMessage('Primary: Direct execution...');
 
           if (renderer) {
             renderer.addEvent('response', chalk.yellow('\n⚡ Model timed out - executing directly...\n'));
           }
-          // Execute fallback network commands directly (macOS compatible)
-          // Commands rotate based on round number for variety
+          // Execute fallback network commands directly (macOS/Linux compatible)
+          // Commands rotate based on round number for comprehensive coverage
           const allPrimaryCommands = [
-            // Round 1 commands
-            ['arp -a 2>/dev/null || ip neigh 2>/dev/null', 'netstat -an 2>/dev/null | head -30', 'ifconfig 2>/dev/null || ip addr 2>/dev/null', 'networksetup -listallhardwareports 2>/dev/null || true'],
-            // Round 2 commands
-            ['nmap -sn 192.168.1.0/24 2>/dev/null || ping -c 1 192.168.1.1', 'netstat -rn 2>/dev/null | head -30', 'system_profiler SPNetworkDataType 2>/dev/null | head -50 || cat /etc/resolv.conf'],
-            // Round 3+ commands
-            ['lsof -i -P 2>/dev/null | head -30', 'ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null | head -30', 'cat /etc/hosts 2>/dev/null | head -20', 'dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null || curl -s ifconfig.me'],
+            // Round 1: Local network discovery
+            ['arp -a 2>/dev/null || ip neigh show 2>/dev/null', 'ifconfig 2>/dev/null || ip addr show 2>/dev/null', 'netstat -rn 2>/dev/null | head -20', 'cat /etc/resolv.conf 2>/dev/null'],
+            // Round 2: Active connections & ports
+            ['netstat -an 2>/dev/null | grep -E "ESTABLISHED|LISTEN" | head -30', 'lsof -i -P -n 2>/dev/null | head -40', 'ss -tulpn 2>/dev/null | head -30 || netstat -tulpn 2>/dev/null | head -30', 'networksetup -listallhardwareports 2>/dev/null || ip link show 2>/dev/null'],
+            // Round 3: Network scanning & external
+            ['ping -c 2 -W 1 192.168.1.1 2>/dev/null; ping -c 2 -W 1 192.168.0.1 2>/dev/null; ping -c 2 -W 1 10.0.0.1 2>/dev/null', 'host -t A google.com 2>/dev/null || nslookup google.com 2>/dev/null', 'traceroute -m 5 8.8.8.8 2>/dev/null || tracepath -m 5 8.8.8.8 2>/dev/null', 'curl -s -m 3 ifconfig.me 2>/dev/null || dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null'],
+            // Round 4: System info & services
+            ['system_profiler SPNetworkDataType 2>/dev/null | head -60 || cat /etc/network/interfaces 2>/dev/null', 'ps aux 2>/dev/null | grep -E "ssh|http|nginx|apache|mysql|postgres|mongo|redis" | head -20', 'cat /etc/hosts 2>/dev/null', 'dscacheutil -q host -a name localhost 2>/dev/null || getent hosts localhost 2>/dev/null'],
+            // Round 5+: Deep recon
+            ['find /etc -name "*.conf" -type f 2>/dev/null | head -20', 'env 2>/dev/null | grep -iE "proxy|api|key|secret|token|pass" | head -10 || true', 'cat ~/.ssh/known_hosts 2>/dev/null | head -20 || true', 'last -20 2>/dev/null || who 2>/dev/null'],
           ];
           const commandSetIndex = Math.min(roundNumber - 1, allPrimaryCommands.length - 1);
           const fallbackCommands = allPrimaryCommands[commandSetIndex];
@@ -813,11 +821,13 @@ class InteractiveShell {
               if (event.content) {
                 refinerReasoningBuffer += event.content;
                 // Detect model refusal/hesitation patterns in reasoning - break early to avoid wasting time
-                const refusalPatterns = /\b(cannot|won't|refuse|inappropriate|harmful|illegal|unethical|I cannot assist|I will not|not able to help|need to consider|however.*but|security concern|ethical concern)\b/i;
-                const deliberationPatterns = /\b(are they looking for|should I|let me think|I need to|considering whether)\b/i;
+                const refusalPatterns = /\b(cannot|won't|refuse|inappropriate|harmful|illegal|unethical|I cannot assist|I will not|not able to help|need to consider|however.*but|security concern|ethical concern|I'm unable|I can't help|not appropriate|against.*policy|violate|unsafe|malicious)\b/i;
+                const deliberationPatterns = /\b(are they looking for|should I|let me think|I need to|considering whether|I should first|let me consider|before I|wait.*let me|hmm|actually|on second thought)\b/i;
                 if (refusalPatterns.test(refinerReasoningBuffer) ||
-                    (refinerReasoningBuffer.length > 500 && deliberationPatterns.test(refinerReasoningBuffer))) {
+                    (refinerReasoningBuffer.length > 300 && deliberationPatterns.test(refinerReasoningBuffer))) {
                   logDebug('[ATTACK] Refiner detected refusal/hesitation pattern in reasoning');
+                  // Clear activity message immediately
+                  this.promptController?.setActivityMessage(null);
                   if (renderer) {
                     renderer.addEvent('response', chalk.yellow('\n⚠ Model hesitating - completing tournament...\n'));
                   }
@@ -2254,8 +2264,17 @@ Any text response is a failure. Only tool calls are accepted.`;
       return true;
     }
 
-    // Dual-RL tournament attack with self-modifying reward
+    // Dual-RL tournament attack with self-modifying reward (requires AGI_ENABLE_ATTACKS=1)
     if (lower.startsWith('/attack')) {
+      if (!ATTACK_ENV_FLAG) {
+        const renderer = this.promptController?.getRenderer();
+        if (renderer) {
+          renderer.addEvent('response', chalk.yellow('Attack mode disabled. Set AGI_ENABLE_ATTACKS=1 to enable.\n'));
+        }
+        this.promptController?.setStatusMessage('Attack mode disabled');
+        setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
+        return true;
+      }
       const args = trimmed.split(/\s+/).slice(1);
       void this.runDualRLAttack(args);
       return true;
@@ -2993,11 +3012,13 @@ Any text response is a failure. Only tool calls are accepted.`;
       return;
     }
 
-    // Auto-detect attack-like prompts and route to /attack command
-    const attackPatterns = /\b(attack|dos|ddos|exploit|arp\s*spoof|deauth|syn\s*flood|udp\s*flood|crash|disable|nmap|port\s*scan|vulnerability|penetration|pentest)\b/i;
-    if (attackPatterns.test(trimmed)) {
-      void this.runDualRLAttack([trimmed]);
-      return;
+    // Auto-detect attack-like prompts and route to /attack command (only if enabled)
+    if (ATTACK_ENV_FLAG) {
+      const attackPatterns = /\b(attack|dos|ddos|exploit|arp\s*spoof|deauth|syn\s*flood|udp\s*flood|crash|disable|nmap|port\s*scan|vulnerability|penetration|pentest)\b/i;
+      if (attackPatterns.test(trimmed)) {
+        void this.runDualRLAttack([trimmed]);
+        return;
+      }
     }
 
     // Dismiss inline panel for regular user prompts
@@ -3041,6 +3062,8 @@ Any text response is a failure. Only tool calls are accepted.`;
     const promptStartTime = Date.now();
     const TOTAL_PROMPT_TIMEOUT_MS = 15_000; // 15s max for entire prompt without meaningful content
     let hasReceivedMeaningfulContent = false;
+    // Track response content separately - tool calls don't count for reasoning timeout
+    let hasReceivedResponseContent = false;
 
     try {
       // Use timeout-wrapped iterator to prevent hanging on slow/stuck models
@@ -3092,6 +3115,7 @@ Any text response is a failure. Only tool calls are accepted.`;
             if (event.content && event.content.trim()) {
               reasoningOnlyStartTime = null;
               hasReceivedMeaningfulContent = true;
+              hasReceivedResponseContent = true; // Track actual response content
             }
             break;
 
@@ -3261,7 +3285,9 @@ Any text response is a failure. Only tool calls are accepted.`;
 
         // Check reasoning timeout on EVERY iteration (not just when reasoning events arrive)
         // This ensures we bail out even if events are sparse
-        if (reasoningOnlyStartTime && !hasReceivedMeaningfulContent) {
+        // Use hasReceivedResponseContent (not hasReceivedMeaningfulContent) so timeout
+        // still triggers after tool calls if model just reasons without responding
+        if (reasoningOnlyStartTime && !hasReceivedResponseContent) {
           const reasoningElapsed = Date.now() - reasoningOnlyStartTime;
           if (reasoningElapsed > PROMPT_REASONING_TIMEOUT_MS) {
             if (renderer) {
