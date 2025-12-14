@@ -11,6 +11,17 @@
 
 </div>
 
+## 🎯 **What is AGI Core?**
+
+AGI Core is an advanced AI coding assistant that goes beyond simple chat. It's a **production-ready framework** that can:
+
+- **🧠 Understand your codebase** and make intelligent edits
+- **🔧 Execute tools autonomously** (edit files, run commands, search web)
+- **🏆 Run competitive AI tournaments** (Dual-RL mode for better solutions)
+- **🛡️ Perform security scanning** (authorized red-teaming with TAO Suite)
+- **📚 Learn from past work** (episodic memory system)
+- **⚡ Parallelize operations** for faster task completion
+
 ## ✨ Features
 
 ### 🎨 **Premium UI/UX**

@@ -68,7 +68,7 @@ export interface AgentWorkerPoolConfig {
   workers: AgentWorkerConfig[];
   /** Load balancing strategy (default: 'least-busy') */
   balanceStrategy?: BalanceStrategy;
-  /** Default task timeout in ms (default: 60000) */
+  /** Default task timeout in ms (default: 24 hours - 86400000ms) */
   defaultTimeout?: number;
   /** Maximum queue size before rejecting tasks (default: 100) */
   maxQueueSize?: number;

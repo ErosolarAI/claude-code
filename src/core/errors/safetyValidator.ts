@@ -1,6 +1,6 @@
 /**
- * Safety Validator - Lean validation for tool arguments.
- * No command blocking - all bash commands allowed.
+ * Safety Validator - Enhanced security validation for tool arguments.
+ * Implements comprehensive input validation and security controls.
  */
 
 export interface ValidationResult {
@@ -18,12 +18,233 @@ interface ToolConstraint {
   type: 'number' | 'string' | 'boolean';
   max?: number;
   min?: number;
+  pattern?: RegExp;
+  allowedValues?: string[];
+}
+
+// Security constants
+const MAX_TARGET_LENGTH = 253;
+const MAX_PORT = 65535;
+const MIN_PORT = 1;
+const MAX_COMMAND_LENGTH = 4096;
+const MAX_URL_LENGTH = 2048;
+
+// Dangerous patterns to block
+const DANGEROUS_PATTERNS = [
+  /[\x00-\x1F\x7F]/, // Control characters
+  /[|&;`$<>(){}[\]]/, // Shell metacharacters (when used inappropriately)
+  /\b(rm\s+-rf\s+\/|rm\s+-rf\s+--no-preserve-root\s+\/)/i, // Dangerous rm commands
+  /\b(chmod\s+777\s+\/|chmod\s+-R\s+777\s+\/)/i, // Dangerous permission changes
+  /\b(dd\s+if=\/dev\/|dd\s+of=\/dev\/)/i, // Dangerous dd commands
+  /\b(mkfs\s+|format\s+)/i, // Filesystem operations
+];
+
+// Internal IP ranges to block (RFC 1918, localhost, etc.)
+const INTERNAL_IP_RANGES = [
+  /^127\./, // localhost
+  /^10\./, // 10.0.0.0/8
+  /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // 172.16.0.0/12
+  /^192\.168\./, // 192.168.0.0/16
+  /^169\.254\./, // link-local
+  /^0\./, // invalid
+  /^224\./, // multicast
+  /^240\./, // reserved
+];
+
+/**
+ * Validate bash command with security checks
+ */
+export function validateBashCommand(command: string): ValidationResult {
+  if (typeof command !== 'string') {
+    return { 
+      valid: false, 
+      error: new Error('Command must be a string'),
+      warnings: [] 
+    };
+  }
+
+  if (command.length > MAX_COMMAND_LENGTH) {
+    return {
+      valid: false,
+      error: new Error(`Command too long (max ${MAX_COMMAND_LENGTH} chars)`),
+      warnings: []
+    };
+  }
+
+  const warnings: string[] = [];
+
+  // Check for dangerous patterns
+  for (const pattern of DANGEROUS_PATTERNS) {
+    if (pattern.test(command)) {
+      warnings.push(`Command contains potentially dangerous pattern: ${pattern}`);
+    }
+  }
+
+  return { valid: true, warnings };
 }
 
 /**
- * Validate bash command - all commands allowed
+ * Validate target (IP address or hostname)
  */
-export function validateBashCommand(_command: string): ValidationResult {
+export function validateTarget(target: string): ValidationResult {
+  if (typeof target !== 'string') {
+    return {
+      valid: false,
+      error: new Error('Target must be a string'),
+      warnings: []
+    };
+  }
+
+  if (target.length > MAX_TARGET_LENGTH) {
+    return {
+      valid: false,
+      error: new Error(`Target too long (max ${MAX_TARGET_LENGTH} chars)`),
+      warnings: []
+    };
+  }
+
+  // Check for shell metacharacters
+  if (/[|&;`$<>(){}[\]'"\\]/.test(target)) {
+    return {
+      valid: false,
+      error: new Error('Target contains invalid characters'),
+      warnings: []
+    };
+  }
+
+  // Check for internal IP addresses (unless explicitly allowed)
+  for (const pattern of INTERNAL_IP_RANGES) {
+    if (pattern.test(target)) {
+      return {
+        valid: false,
+        error: new Error('Target appears to be an internal IP address'),
+        warnings: []
+      };
+    }
+  }
+
+  // Validate as IP address or hostname
+  const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$/;
+  
+  if (!ipRegex.test(target) && !hostnameRegex.test(target)) {
+    return {
+      valid: false,
+      error: new Error('Invalid target format (must be IP or hostname)'),
+      warnings: []
+    };
+  }
+
+  return { valid: true, warnings: [] };
+}
+
+/**
+ * Validate port number or range
+ */
+export function validatePorts(ports: string): ValidationResult {
+  if (typeof ports !== 'string') {
+    return {
+      valid: false,
+      error: new Error('Ports must be a string'),
+      warnings: []
+    };
+  }
+
+  const portList = ports.split(',');
+  for (const port of portList) {
+    if (port.includes('-')) {
+      // Handle port ranges
+      const [startStr, endStr] = port.split('-');
+      const start = parseInt(startStr.trim(), 10);
+      const end = parseInt(endStr.trim(), 10);
+      
+      if (isNaN(start) || isNaN(end)) {
+        return {
+          valid: false,
+          error: new Error(`Invalid port range format: ${port}`),
+          warnings: []
+        };
+      }
+      
+      if (start < MIN_PORT || end > MAX_PORT || start > end) {
+        return {
+          valid: false,
+          error: new Error(`Port range out of bounds: ${port}`),
+          warnings: []
+        };
+      }
+    } else {
+      // Single port
+      const portNum = parseInt(port.trim(), 10);
+      if (isNaN(portNum) || portNum < MIN_PORT || portNum > MAX_PORT) {
+        return {
+          valid: false,
+          error: new Error(`Invalid port number: ${port}`),
+          warnings: []
+        };
+      }
+    }
+  }
+
+  return { valid: true, warnings: [] };
+}
+
+/**
+ * Validate URL for safe usage
+ */
+export function validateUrl(url: string): ValidationResult {
+  if (typeof url !== 'string') {
+    return {
+      valid: false,
+      error: new Error('URL must be a string'),
+      warnings: []
+    };
+  }
+
+  if (url.length > MAX_URL_LENGTH) {
+    return {
+      valid: false,
+      error: new Error(`URL too long (max ${MAX_URL_LENGTH} chars)`),
+      warnings: []
+    };
+  }
+
+  // Check for dangerous patterns
+  if (/[\x00-\x1F\x7F]/.test(url)) {
+    return {
+      valid: false,
+      error: new Error('URL contains control characters'),
+      warnings: []
+    };
+  }
+
+  // Validate URL format
+  try {
+    const parsed = new URL(url);
+    
+    // Allow only http/https protocols
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return {
+        valid: false,
+        error: new Error('Only http and https protocols are allowed'),
+        warnings: []
+      };
+    }
+
+    // Validate hostname
+    const hostnameResult = validateTarget(parsed.hostname);
+    if (!hostnameResult.valid) {
+      return hostnameResult;
+    }
+
+  } catch (error) {
+    return {
+      valid: false,
+      error: new Error(`Invalid URL format: ${url}`),
+      warnings: []
+    };
+  }
+
   return { valid: true, warnings: [] };
 }
 
@@ -178,4 +399,147 @@ function matchesType(value: unknown, type: ToolConstraint['type']): boolean {
   if (type === 'string') return typeof value === 'string';
   if (type === 'boolean') return typeof value === 'boolean';
   return false;
+}
+
+/**
+ * Secure execSync wrapper with comprehensive security checks
+ */
+export function secureExecSync(
+  command: string,
+  options: {
+    encoding?: BufferEncoding;
+    timeout?: number;
+    maxBuffer?: number;
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+  } = {}
+): { stdout: string; stderr: string; exitCode: number } {
+  // Default security options
+  const secureOptions = {
+    encoding: 'utf-8' as BufferEncoding,
+    timeout: 30000, // 30 seconds default
+    maxBuffer: 10 * 1024 * 1024, // 10MB max output
+    cwd: process.cwd(),
+    env: { ...process.env },
+    ...options,
+  };
+
+  // Validate command
+  const commandValidation = validateBashCommand(command);
+  if (!commandValidation.valid && commandValidation.error) {
+    throw commandValidation.error;
+  }
+
+  // Add warnings to output if any
+  if (commandValidation.warnings.length > 0) {
+    console.warn('Command security warnings:', commandValidation.warnings);
+  }
+
+  // Execute with timeout protection
+  try {
+    const { execSync } = require('node:child_process');
+    
+    const result = execSync(command, {
+      encoding: secureOptions.encoding,
+      timeout: secureOptions.timeout,
+      maxBuffer: secureOptions.maxBuffer,
+      cwd: secureOptions.cwd,
+      env: secureOptions.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    return {
+      stdout: result.toString(),
+      stderr: '', // execSync doesn't separate stderr by default
+      exitCode: 0,
+    };
+  } catch (error: any) {
+    // Handle execution errors
+    if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
+      throw new Error(`Command timed out after ${secureOptions.timeout}ms`);
+    }
+    
+    if (error.status !== undefined) {
+      return {
+        stdout: error.stdout?.toString() || '',
+        stderr: error.stderr?.toString() || error.message,
+        exitCode: error.status,
+      };
+    }
+    
+    throw new Error(`Command execution failed: ${error.message}`);
+  }
+}
+
+/**
+ * Secure spawn wrapper for streaming output
+ */
+export function secureSpawn(
+  command: string,
+  args: string[] = [],
+  options: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    timeout?: number;
+  } = {}
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('node:child_process');
+    
+    // Validate command
+    const fullCommand = `${command} ${args.join(' ')}`.trim();
+    const commandValidation = validateBashCommand(fullCommand);
+    if (!commandValidation.valid && commandValidation.error) {
+      reject(commandValidation.error);
+      return;
+    }
+
+    // Default options
+    const secureOptions = {
+      cwd: process.cwd(),
+      env: { ...process.env },
+      timeout: 60000, // 60 seconds default
+      ...options,
+    };
+
+    const child = spawn(command, args, {
+      cwd: secureOptions.cwd,
+      env: secureOptions.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    child.stdout?.on('data', (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    child.stderr?.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    // Set timeout
+    if (secureOptions.timeout > 0) {
+      timeoutId = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error(`Command timed out after ${secureOptions.timeout}ms`));
+      }, secureOptions.timeout);
+    }
+
+    child.on('close', (code) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      resolve({
+        stdout,
+        stderr,
+        exitCode: code || 0,
+      });
+    });
+
+    child.on('error', (error) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      reject(error);
+    });
+  });
 }

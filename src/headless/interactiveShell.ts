@@ -355,7 +355,10 @@ class InteractiveShell {
       commandChip('🐛 /debug', '#22D3EE'),
     ].join('  ');
 
-    const usageHint = chalk.dim('  hint: type a prompt to start, /help for commands, or -q for headless runs');
+    // Enhanced usage hints
+    const capabilityHint = chalk.dim('  ✨ Capabilities: Code editing • Git management • Security tools • Dual-Agent RL');
+    const exampleHint = chalk.dim('  📝 Examples: "fix this bug", "add new feature", "/upgrade tournament"');
+    const quickHint = chalk.dim('  🚀 Quick mode: agi -q "your prompt" for non-interactive use');
 
     const welcomeContent = [
       AGI_GLOW_RENDERED,
@@ -364,7 +367,12 @@ class InteractiveShell {
       '  ' + header,
       '  ' + modelChip + chalk.dim(' · ') + providerChip,
       '  ' + commands,
-      usageHint,
+      '',
+      capabilityHint,
+      exampleHint,
+      quickHint,
+      '',
+      chalk.dim('  Type a prompt to start or /help for full command list...'),
       ''
     ].join('\n');
 
@@ -2799,23 +2807,40 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Show help in inline panel (no chat output)
     const lines = [
-      chalk.bold.hex('#6366F1')('Commands') + chalk.dim('  (press any key to dismiss)'),
+      chalk.bold.hex('#6366F1')('AGI Core Help') + chalk.dim('  (press any key to dismiss)'),
       '',
-      chalk.hex('#FBBF24')('/model') + chalk.dim(' - Cycle provider') + '  ' +
-        chalk.hex('#FBBF24')('/model <name>') + chalk.dim(' - Switch model'),
-      chalk.hex('#FBBF24')('/secrets') + chalk.dim(' - Show API keys') + '  ' +
-        chalk.hex('#FBBF24')('/secrets set') + chalk.dim(' - Configure keys'),
-      chalk.hex('#FBBF24')('/bash') + chalk.dim(' - Run local command'),
-      chalk.hex('#FBBF24')('/upgrade <direction>') +
-        chalk.dim(' - Repo upgrade (dual|tournament, --validate, --parallel-variants, --continue-on-failure)'),
-      chalk.hex('#FF6B6B')('/attack [target]') +
-        chalk.dim(' - Dual-RL attack tournament (network scan, exploit, self-modify reward)'),
-      chalk.hex('#FBBF24')('/clear') + chalk.dim(' - Clear screen') + '  ' +
-        chalk.hex('#FBBF24')('/debug') + chalk.dim(' - Toggle debug'),
-      chalk.hex('#FBBF24')('/memory') + chalk.dim(' - Episodic memory') + '  ' +
-        chalk.hex('#FBBF24')('/keys') + chalk.dim(' - Keyboard shortcuts'),
-      chalk.hex('#FBBF24')('/help') + chalk.dim(' - This help') + '  ' +
-        chalk.hex('#FBBF24')('/exit') + chalk.dim(' - Exit AGI'),
+      chalk.bold.hex('#8B5CF6')('📚 What is AGI Core?'),
+      chalk.dim('  A premium AI agent framework with multi-provider support, advanced orchestration,'),
+      chalk.dim('  and offensive security tooling for authorized red-teaming.'),
+      '',
+      chalk.bold.hex('#8B5CF6')('⚡ Core Capabilities:'),
+      chalk.dim('  • Code editing & analysis'),
+      chalk.dim('  • Git management & multi-worktree'),
+      chalk.dim('  • Security scanning (TAO Suite)'),
+      chalk.dim('  • Dual-Agent RL tournaments'),
+      chalk.dim('  • Episodic memory & learning'),
+      '',
+      chalk.bold.hex('#8B5CF6')('🔧 Essential Commands:'),
+      chalk.hex('#FBBF24')('/model') + chalk.dim(' - Cycle provider or /model <name> to switch'),
+      chalk.hex('#FBBF24')('/secrets') + chalk.dim(' - Show/set API keys (OpenAI, Anthropic, Google, etc.)'),
+      chalk.hex('#FBBF24')('/upgrade') + chalk.dim(' - Repo upgrade (dual|tournament modes)'),
+      chalk.hex('#FF6B6B')('/attack') + chalk.dim(' - Dual-RL attack tournament (AGI_ENABLE_ATTACKS=1)'),
+      chalk.hex('#FBBF24')('/memory') + chalk.dim(' - View episodic memory & search past work'),
+      '',
+      chalk.bold.hex('#8B5CF6')('🛠️ Development Tools:'),
+      chalk.hex('#FBBF24')('/bash <cmd>') + chalk.dim(' - Run local shell command'),
+      chalk.hex('#FBBF24')('/debug') + chalk.dim(' - Toggle debug mode'),
+      chalk.hex('#FBBF24')('/clear') + chalk.dim(' - Clear screen'),
+      '',
+      chalk.bold.hex('#8B5CF6')('🚀 Quick Start:'),
+      chalk.dim('  1. Type any prompt to get started (e.g., "fix this bug")'),
+      chalk.dim('  2. Use /secrets set to configure API keys'),
+      chalk.dim('  3. Try /upgrade tournament for multi-agent code improvement'),
+      chalk.dim('  4. Press Ctrl+C anytime to interrupt'),
+      '',
+      chalk.hex('#22D3EE')('💡 Pro tip: Use agi -q "your prompt" for headless/non-interactive mode'),
+      '',
+      chalk.dim('Need more? See README.md or run with --help for CLI options.'),
     ];
 
     this.promptController.setInlinePanel(lines);
@@ -3112,7 +3137,7 @@ Any text response is a failure. Only tool calls are accepted.`;
     this.isProcessing = true;
     this.currentResponseBuffer = '';
     this.promptController?.setStreaming(true);
-    this.promptController?.setStatusMessage('Processing...');
+    this.promptController?.setStatusMessage('🔄 Analyzing request...');
 
     const renderer = this.promptController?.getRenderer();
 
@@ -3286,7 +3311,22 @@ Any text response is a failure. Only tool calls are accepted.`;
             if (renderer) {
               renderer.addEvent('tool', toolDisplay);
             }
-            this.promptController?.setStatusMessage(`Running ${toolName}...`);
+            
+            // Provide explanatory status messages for different tool types
+            let statusMsg = '';
+            if (toolName === 'Bash') {
+              statusMsg = `⚡ Executing command: ${args?.['command'] ? String(args['command']).slice(0, 40) : '...'}`;
+            } else if (toolName === 'Edit' || toolName === 'Write') {
+              statusMsg = `📝 Editing file: ${args?.['file_path'] || '...'}`;
+            } else if (toolName === 'Read') {
+              statusMsg = `📖 Reading file: ${args?.['file_path'] || '...'}`;
+            } else if (toolName === 'Search' || toolName === 'Grep') {
+              statusMsg = `🔍 Searching: ${args?.['pattern'] ? String(args['pattern']).slice(0, 30) : '...'}`;
+            } else {
+              statusMsg = `🔧 Running ${toolName}...`;
+            }
+            
+            this.promptController?.setStatusMessage(statusMsg);
             break;
           }
 

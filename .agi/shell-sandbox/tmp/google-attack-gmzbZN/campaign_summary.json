@@ -1,0 +1,550 @@
+{
+  "campaign": "Google Full Attack Campaign",
+  "startTime": "2025-12-14T22:30:10.993Z",
+  "target": "google.com",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Service Discovery",
+      "discoveredServices": 20,
+      "findings": 6,
+      "completed": true
+    },
+    {
+      "phase": 2,
+      "name": "Authentication Analysis",
+      "endpointsTested": 5,
+      "findings": 12,
+      "completed": true
+    },
+    {
+      "phase": 3,
+      "name": "Subdomain Takeover Analysis",
+      "candidatesTested": 13,
+      "findings": 12,
+      "completed": true
+    },
+    {
+      "phase": 4,
+      "name": "Social Engineering Campaign",
+      "scenariosGenerated": 3,
+      "findings": 8,
+      "completed": true
+    },
+    {
+      "phase": 5,
+      "name": "Advanced Attack Techniques",
+      "techniquesAnalyzed": 5,
+      "findings": 5,
+      "completed": true
+    }
+  ],
+  "findings": [
+    {
+      "severity": "medium",
+      "type": "missing_security_headers",
+      "details": {
+        "service": "mail.google.com",
+        "missingHeaders": [
+          "Strict-Transport-Security"
+        ]
+      },
+      "phase": "service_discovery",
+      "timestamp": "2025-12-14T22:30:56.839Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_headers",
+      "details": {
+        "service": "calendar.google.com",
+        "missingHeaders": [
+          "Content-Security-Policy",
+          "Strict-Transport-Security"
+        ]
+      },
+      "phase": "service_discovery",
+      "timestamp": "2025-12-14T22:30:56.839Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_headers",
+      "details": {
+        "service": "maps.google.com",
+        "missingHeaders": [
+          "Content-Security-Policy",
+          "Strict-Transport-Security",
+          "X-Content-Type-Options"
+        ]
+      },
+      "phase": "service_discovery",
+      "timestamp": "2025-12-14T22:30:56.839Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_headers",
+      "details": {
+        "service": "admin.google.com",
+        "missingHeaders": [
+          "X-Frame-Options",
+          "Content-Security-Policy",
+          "Strict-Transport-Security",
+          "X-Content-Type-Options"
+        ]
+      },
+      "phase": "service_discovery",
+      "timestamp": "2025-12-14T22:30:56.839Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_headers",
+      "details": {
+        "service": "workspace.google.com",
+        "missingHeaders": [
+          "X-Frame-Options"
+        ]
+      },
+      "phase": "service_discovery",
+      "timestamp": "2025-12-14T22:30:56.839Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_headers",
+      "details": {
+        "service": "sites.google.com",
+        "missingHeaders": [
+          "Strict-Transport-Security"
+        ]
+      },
+      "phase": "service_discovery",
+      "timestamp": "2025-12-14T22:30:56.840Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_header",
+      "details": {
+        "endpoint": "Google Workspace Admin",
+        "missingHeader": "X-Frame-Options"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_header",
+      "details": {
+        "endpoint": "Google Workspace Admin",
+        "missingHeader": "Content-Security-Policy"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_header",
+      "details": {
+        "endpoint": "Google Workspace Admin",
+        "missingHeader": "Strict-Transport-Security"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_header",
+      "details": {
+        "endpoint": "Google Workspace Admin",
+        "missingHeader": "X-Content-Type-Options"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "medium",
+      "type": "no_rate_limiting",
+      "details": {
+        "endpoint": "Google Workspace Admin"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "low",
+      "type": "potential_csrf_vulnerability",
+      "details": {
+        "endpoint": "Google Workspace Admin"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "medium",
+      "type": "no_rate_limiting",
+      "details": {
+        "endpoint": "Google Cloud Console"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "medium",
+      "type": "missing_security_header",
+      "details": {
+        "endpoint": "Google My Account",
+        "missingHeader": "Content-Security-Policy"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "medium",
+      "type": "no_rate_limiting",
+      "details": {
+        "endpoint": "Google My Account"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "high",
+      "type": "excessive_oauth_scope",
+      "details": {
+        "scope": "https://www.googleapis.com/auth/drive"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "high",
+      "type": "excessive_oauth_scope",
+      "details": {
+        "scope": "https://www.googleapis.com/auth/calendar"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "high",
+      "type": "excessive_oauth_scope",
+      "details": {
+        "scope": "https://www.googleapis.com/auth/cloud-platform"
+      },
+      "phase": "auth_analysis",
+      "timestamp": "2025-12-14T22:31:07.947Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "dev.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "staging.google.com",
+        "error": "ENODATA"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "test.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "beta.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "alpha.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "lab.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "demo.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "temp.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "tmp.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "qa.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "preprod.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "medium",
+      "type": "dns_resolution_failed",
+      "details": {
+        "candidate": "uat.google.com",
+        "error": "ENOTFOUND"
+      },
+      "phase": "subdomain_takeover",
+      "timestamp": "2025-12-14T22:31:35.140Z"
+    },
+    {
+      "severity": "high",
+      "type": "social_engineering_scenario",
+      "details": {
+        "campaign": "Credential Harvesting",
+        "targets": [
+          "Google Workspace Users",
+          "Gmail Users",
+          "Google Cloud Users"
+        ],
+        "methods": [
+          "Fake Google login page",
+          "OAuth consent screen phishing",
+          "Calendar invitation phishing"
+        ]
+      },
+      "phase": "social_engineering",
+      "timestamp": "2025-12-14T22:31:35.141Z"
+    },
+    {
+      "severity": "high",
+      "type": "social_engineering_scenario",
+      "details": {
+        "campaign": "OAuth Phishing",
+        "targets": [
+          "Third-party Applications",
+          "Google Cloud Projects"
+        ],
+        "methods": [
+          "Malicious OAuth consent screen",
+          "Lookalike application names",
+          "Spoofed developer emails"
+        ]
+      },
+      "phase": "social_engineering",
+      "timestamp": "2025-12-14T22:31:35.141Z"
+    },
+    {
+      "severity": "high",
+      "type": "social_engineering_scenario",
+      "details": {
+        "campaign": "Supply Chain Attacks",
+        "targets": [
+          "Google Partners",
+          "Vendors",
+          "Third-party Integrations"
+        ],
+        "methods": [
+          "Compromised vendor credentials",
+          "Malicious Chrome extensions",
+          "Compromised Android apps"
+        ]
+      },
+      "phase": "social_engineering",
+      "timestamp": "2025-12-14T22:31:35.141Z"
+    },
+    {
+      "severity": "medium",
+      "type": "department_targeting",
+      "details": {
+        "department": "Engineering"
+      },
+      "phase": "social_engineering",
+      "timestamp": "2025-12-14T22:31:35.141Z"
+    },
+    {
+      "severity": "medium",
+      "type": "department_targeting",
+      "details": {
+        "department": "Security"
+      },
+      "phase": "social_engineering",
+      "timestamp": "2025-12-14T22:31:35.141Z"
+    },
+    {
+      "severity": "medium",
+      "type": "department_targeting",
+      "details": {
+        "department": "Operations"
+      },
+      "phase": "social_engineering",
+      "timestamp": "2025-12-14T22:31:35.141Z"
+    },
+    {
+      "severity": "medium",
+      "type": "department_targeting",
+      "details": {
+        "department": "Administration"
+      },
+      "phase": "social_engineering",
+      "timestamp": "2025-12-14T22:31:35.141Z"
+    },
+    {
+      "severity": "medium",
+      "type": "department_targeting",
+      "details": {
+        "department": "Human Resources"
+      },
+      "phase": "social_engineering",
+      "timestamp": "2025-12-14T22:31:35.141Z"
+    },
+    {
+      "severity": "critical",
+      "type": "advanced_attack_technique",
+      "details": {
+        "technique": "Cloud Function Backdoor",
+        "target": "Google Cloud Functions",
+        "method": "Deploy malicious cloud function with callback to C2"
+      },
+      "phase": "advanced_attacks",
+      "timestamp": "2025-12-14T22:31:35.142Z"
+    },
+    {
+      "severity": "critical",
+      "type": "advanced_attack_technique",
+      "details": {
+        "technique": "Service Account Compromise",
+        "target": "Google Service Accounts",
+        "method": "Steal service account keys, create new ones"
+      },
+      "phase": "advanced_attacks",
+      "timestamp": "2025-12-14T22:31:35.142Z"
+    },
+    {
+      "severity": "high",
+      "type": "advanced_attack_technique",
+      "details": {
+        "technique": "Container Registry Poisoning",
+        "target": "Google Container Registry",
+        "method": "Push malicious container images"
+      },
+      "phase": "advanced_attacks",
+      "timestamp": "2025-12-14T22:31:35.142Z"
+    },
+    {
+      "severity": "high",
+      "type": "advanced_attack_technique",
+      "details": {
+        "technique": "BigQuery Data Exfiltration",
+        "target": "Google BigQuery",
+        "method": "Create scheduled queries to export data"
+      },
+      "phase": "advanced_attacks",
+      "timestamp": "2025-12-14T22:31:35.142Z"
+    },
+    {
+      "severity": "medium",
+      "type": "advanced_attack_technique",
+      "details": {
+        "technique": "Cloud Storage Webhook",
+        "target": "Google Cloud Storage",
+        "method": "Set up storage notifications to trigger malicious code"
+      },
+      "phase": "advanced_attacks",
+      "timestamp": "2025-12-14T22:31:35.142Z"
+    }
+  ],
+  "evidencePaths": [
+    {
+      "phase": "service_discovery",
+      "path": "/Users/bo/GitHub/agi-core-CLI-coding/.agi/shell-sandbox/tmp/google-attack-gmzbZN/service_discovery_2025-12-14T22-30-10-995Z.txt",
+      "description": "Discover and enumerate Google services"
+    },
+    {
+      "phase": "auth_analysis",
+      "path": "/Users/bo/GitHub/agi-core-CLI-coding/.agi/shell-sandbox/tmp/google-attack-gmzbZN/auth_analysis_2025-12-14T22-30-56-840Z.txt",
+      "description": "Analyze Google authentication security"
+    },
+    {
+      "phase": "subdomain_takeover",
+      "path": "/Users/bo/GitHub/agi-core-CLI-coding/.agi/shell-sandbox/tmp/google-attack-gmzbZN/subdomain_takeover_2025-12-14T22-31-07-947Z.txt",
+      "description": "Check for subdomain takeover vulnerabilities"
+    },
+    {
+      "phase": "social_engineering",
+      "path": "/Users/bo/GitHub/agi-core-CLI-coding/.agi/shell-sandbox/tmp/google-attack-gmzbZN/social_engineering_2025-12-14T22-31-35-140Z.txt",
+      "description": "Design social engineering campaigns"
+    },
+    {
+      "phase": "advanced_attacks",
+      "path": "/Users/bo/GitHub/agi-core-CLI-coding/.agi/shell-sandbox/tmp/google-attack-gmzbZN/advanced_attacks_2025-12-14T22-31-35-141Z.txt",
+      "description": "Advanced attack techniques for Google infrastructure"
+    }
+  ],
+  "metrics": {
+    "totalFindings": 43,
+    "criticalFindings": 2,
+    "highFindings": 8,
+    "mediumFindings": 32,
+    "lowFindings": 1,
+    "infoFindings": 0,
+    "phasesCompleted": 5,
+    "evidenceFiles": 5
+  },
+  "endTime": "2025-12-14T22:31:35.142Z",
+  "campaignDuration": 84149
+}

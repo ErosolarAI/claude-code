@@ -26,6 +26,7 @@ export function registerDefaultNodeToolPlugins(): void {
   registerToolPlugin(createLocalSearchToolPlugin());
   registerToolPlugin(createLocalBashToolPlugin());
   registerToolPlugin(createEnhancedGitToolPlugin());
+  registerToolPlugin(createTaoToolPlugin());
 
   registered = true;
 }

