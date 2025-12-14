@@ -249,7 +249,7 @@ export class AgentWorkerPool {
 
   constructor(config: AgentWorkerPoolConfig) {
     this.balanceStrategy = config.balanceStrategy ?? 'least-busy';
-    this.defaultTimeout = config.defaultTimeout ?? 60000;
+    this.defaultTimeout = config.defaultTimeout ?? 24 * 60 * 60 * 1000; // 24 hours default timeout
     this.maxQueueSize = config.maxQueueSize ?? 100;
     this.onEvent = config.onEvent ?? (() => {});
 

@@ -252,7 +252,7 @@ async function discoverGoogleModels(apiKey: string): Promise<ProviderDiscoveryRe
       headers: {
         'x-goog-api-key': apiKey,
       },
-      signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(24 * 60 * 60 * 1000),
     });
 
     if (!response.ok) {
@@ -396,7 +396,7 @@ async function discoverOllamaModels(): Promise<ProviderDiscoveryResult> {
 
   try {
     const response = await fetch(`${baseURL}/api/tags`, {
-      signal: AbortSignal.timeout(2000), // 2 second timeout
+        signal: AbortSignal.timeout(24 * 60 * 60 * 1000), // 24 hour timeout
     });
 
     if (!response.ok) {
@@ -828,7 +828,7 @@ export interface QuickProviderStatus {
 async function quickFetchProviderModels(
   providerId: ProviderId,
   apiKey: string,
-  timeoutMs: number = 3000
+  timeoutMs: number = 24 * 60 * 60 * 1000
 ): Promise<string[]> {
   try {
     switch (providerId) {
@@ -921,7 +921,7 @@ export async function quickCheckProviders(): Promise<QuickProviderStatus[]> {
         try {
           const baseURL = process.env['OLLAMA_BASE_URL'] || 'http://localhost:11434';
           const response = await fetch(`${baseURL}/api/tags`, {
-            signal: AbortSignal.timeout(1500),
+            signal: AbortSignal.timeout(24 * 60 * 60 * 1000),
           });
           if (response.ok) {
             const data = await response.json() as { models?: Array<{ name: string }> };

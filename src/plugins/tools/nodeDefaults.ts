@@ -4,6 +4,7 @@ import { createEditToolPlugin } from './edit/editPlugin.js';
 import { createLocalSearchToolPlugin } from './search/localSearchPlugin.js';
 import { createLocalBashToolPlugin } from './bash/localBashPlugin.js';
 import { createEnhancedGitToolPlugin } from './enhancedGit/enhancedGitPlugin.js';
+import { createTaoToolPlugin } from './tao/taoPlugin.js';
 
 let registered = false;
 

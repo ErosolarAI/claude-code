@@ -36,7 +36,7 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
     });
   });
 } else if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
-  printHelpFast();
+  printHelpFast(invokedAs);
   process.exit(0);
 } else {
   const knownFlags = new Set([

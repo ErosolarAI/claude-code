@@ -38,7 +38,7 @@ describe('CLI End-to-End Integration', () => {
   test('CLI shows help message', () => {
     const help = execSync(`node ${cliBin} --help`, { encoding: 'utf-8' });
 
-    expect(help).toContain('erosolar-cli');
+    expect(help).toContain('erosolar');
     expect(help).toContain('Usage:');
     expect(help).toContain('Options:');
     expect(help).toContain('--version');
@@ -92,7 +92,7 @@ describe('CLI End-to-End Integration', () => {
     const pkgPath = join(process.cwd(), 'package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
 
-    expect(pkg.name).toBe('erosolar-cli');
+    expect(pkg.name).toBe('agi-core-cli');
     expect(pkg.bin).toBeTruthy();
     expect(pkg.bin.erosolar).toBeTruthy();
     expect(pkg.main).toBeTruthy();

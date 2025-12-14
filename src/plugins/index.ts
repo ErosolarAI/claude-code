@@ -132,4 +132,5 @@ export const BUILTIN_PLUGINS = [
   'tool.search.local',
   'tool.edit',
   'tool.enhanced-git',
+  'tool.tao',
 ] as const;

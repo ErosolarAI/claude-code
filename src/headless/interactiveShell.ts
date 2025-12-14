@@ -3132,7 +3132,7 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Track total prompt processing time to prevent infinite loops
     const promptStartTime = Date.now();
-    const TOTAL_PROMPT_TIMEOUT_MS = 120_000; // 2 min max for entire prompt without meaningful content
+    const TOTAL_PROMPT_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours max for entire prompt without meaningful content
     let hasReceivedMeaningfulContent = false;
     // Track response content separately - tool calls don't count for reasoning timeout
     let hasReceivedResponseContent = false;
