@@ -1,7 +1,11 @@
+export type LiveStatusTone = 'info' | 'success' | 'warning' | 'error';
+
 export interface LiveStatusState {
   text: string;
   detail?: string;
   startedAt: number;
+  tone?: LiveStatusTone;
+  progress?: number;
 }
 
 type Subscriber = (state: LiveStatusState) => void;
@@ -28,10 +32,10 @@ export class LiveStatusTracker {
     this.emit();
   }
 
-  pushOverride(id: string, text: string, options?: { detail?: string }): () => void {
+  pushOverride(id: string, text: string, options?: { detail?: string; tone?: LiveStatusTone }): () => void {
     const existing = this.overrides.get(id);
     const startedAt = existing && existing.text === text ? existing.startedAt : Date.now();
-    this.overrides.set(id, { text, detail: options?.detail, startedAt });
+    this.overrides.set(id, { text, detail: options?.detail, tone: options?.tone, startedAt });
     this.emit();
     return () => this.clearOverride(id);
   }

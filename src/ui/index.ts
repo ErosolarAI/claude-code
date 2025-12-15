@@ -67,6 +67,8 @@ export { PromptController } from './PromptController.js';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export { UnifiedUIRenderer } from './UnifiedUIRenderer.js';
+export { Display } from './display.js';
+export * from './designSystem.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Layer 6 - Integration
