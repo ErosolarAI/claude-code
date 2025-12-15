@@ -2,32 +2,30 @@
 
 ## Overview
 
-The AGI Core CLI uses a **unified UI architecture** where all terminal rendering flows through a single event pipeline via `UnifiedUIRenderer`. This design consolidates competing agents UI, security audits, tournament results, and interactive shell rendering into one coherent system.
+The AGI Core CLI uses a **clean, minimalist UI architecture** designed for developer productivity. The system focuses on clear communication of agent actions, tool executions, and coding workflows.
 
 ## Architecture
 
 ### Main Components
 
-1. **UnifiedUIRenderer** (`UnifiedUIRenderer.ts`)
-   - **The primary UI system** for all AGI Core operations
+1. **UI Rendering System** (`toolDisplay.ts`, `animatedStatus.ts`, `richText.ts`)
+   - **Clean, informative tool execution display**
    - Single event pipeline for consistent rendering
    - Handles all UI concerns:
      - Agent streaming (tool calls, thinking, responses)
      - Competing agents tournaments (dual RL)
      - Variant comparisons (primary vs refiner)
-     - Security audit findings and remediation
      - Progress tracking and status lines
      - Real-time scoring and reward metrics
 
 2. **PromptController** (`PromptController.ts`)
    - User input handling
    - Keyboard event management
-   - Works in tandem with UnifiedUIRenderer
+   - Works in tandem with the UI system
 
-3. **Theme & Primitives** (`theme.ts`, `layout.ts`, `uiConstants.ts`)
-   - Color schemes and typography
-   - Layout helpers and spacing
-   - Consistent UI constants
+3. **Theme & Primitives** (`theme.ts`, `uiConstants.ts`)
+   - Professional color schemes and typography
+   - Consistent UI constants and layout helpers
 
 ## Competing Agents UI Integration
 

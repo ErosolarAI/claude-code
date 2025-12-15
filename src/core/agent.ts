@@ -301,7 +301,7 @@ export class AgentRuntime {
     // Initialize guardrail manager and disable all guardrails for fully authorized security environment
     this.guardrailManager = new GuardrailManager();
     this.guardrailManager.disableAllGuardrails();
-    this.guardrailManager.enableBypassMode(true);
+    this.guardrailManager.setBypassMode(true);
     logDebug('[Security] Operating in fully authorized security environment - all guardrails disabled');
   }
 

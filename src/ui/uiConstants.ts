@@ -1,359 +1,115 @@
 /**
- * Centralized UI Constants
- *
- * Single source of truth for all magic numbers, thresholds, and display limits
- * used throughout the UI layer. Prevents inconsistencies and makes tuning easier.
+ * UI constants and configuration for AGI Core
+ * Consolidated from various UI modules into a single source
  */
 
-// ============================================================================
-// TRUNCATION LIMITS
-// ============================================================================
+import { theme } from './theme.js';
 
-/**
- * Standard truncation lengths for different content types.
- * All values account for ellipsis character (…) which is 1 char.
- */
-export const TRUNCATE = {
-  /** Short paths in compact displays */
-  SHORT_PATH: 40,
-  /** Full paths in expanded displays */
-  LONG_PATH: 80,
-  /** Task/tool descriptions */
-  DESCRIPTION: 50,
-  /** Search queries and patterns */
-  QUERY: 40,
-  /** Pattern display in search results */
-  PATTERN: 30,
-  /** Preview lines in collapsed content */
-  PREVIEW_LINE: 70,
-  /** Error messages */
-  ERROR_MESSAGE: 80,
-  /** Command display */
-  COMMAND: 100,
-  /** Generic content truncation */
-  DEFAULT: 40,
-} as const;
+// Context window management constants
+export const CONTEXT_WINDOW_BASE = 4096;
+export const MAX_CONTEXT_WINDOW = 32768;
+export const CONTEXT_WARNING_THRESHOLD = 0.85; // 85% full
+export const CONTEXT_CRITICAL_THRESHOLD = 0.95; // 95% full
 
-/**
- * The ellipsis character to use for truncation.
- * Unicode ellipsis (…) is preferred over three dots (...) for consistency.
- */
-export const ELLIPSIS = '…';
-
-/**
- * Format for showing additional hidden items.
- */
-export const moreIndicator = (count: number): string => `+${count} more`;
-
-// ============================================================================
-// PROGRESS BAR CONFIGURATION
-// ============================================================================
-
-export const PROGRESS = {
-  /** Default width for progress bars */
-  BAR_WIDTH: 20,
-  /** Compact progress bar width */
-  COMPACT_WIDTH: 15,
-  /** Micro progress indicator width */
-  MICRO_WIDTH: 10,
-  /** Progress bar characters */
-  CHARS: {
-    filled: '█',
-    empty: '░',
-    partial: ['░', '▒', '▓', '█'],
-  },
-} as const;
-
-// ============================================================================
-// STATUS/HEALTH THRESHOLDS
-// ============================================================================
-
-/**
- * Color thresholds for context/memory usage indicators.
- * Values are percentages (0-100).
- */
-export const CONTEXT_THRESHOLDS = {
-  /** Critical - show error color */
-  CRITICAL: 90,
-  /** Warning - show warning color */
-  WARNING: 70,
-  /** Info - show info color */
-  INFO: 50,
-  // Below INFO threshold shows success color
-} as const;
-
-/**
- * Color thresholds for test coverage displays.
- */
-export const COVERAGE_THRESHOLDS = {
-  /** Good coverage - show success color */
-  SUCCESS: 80,
-  /** Acceptable coverage - show warning color */
-  WARNING: 60,
-  // Below WARNING threshold shows error color
-} as const;
-
-/**
- * Color thresholds for token usage displays.
- */
-export const TOKEN_THRESHOLDS = {
-  /** High usage - show error color */
-  HIGH: 90,
-  /** Medium usage - show warning color */
-  MEDIUM: 70,
-  // Below MEDIUM shows success color
-} as const;
-
-// ============================================================================
-// DISPLAY LIMITS
-// ============================================================================
-
-export const DISPLAY_LIMITS = {
-  /** Maximum lines to show in inline panels before collapsing */
-  INLINE_PANEL_MAX_LINES: 64,
-  /** Minimum usable width for content */
-  MIN_WIDTH: 20,
-  /** Default max width for thinking/reasoning blocks */
-  MAX_THOUGHT_WIDTH: 72,
-  /** Maximum tool arguments to display inline */
-  MAX_INLINE_ARGS: 5,
-  /** Maximum collapsed tool results to keep in memory */
-  MAX_COLLAPSED_RESULTS: 50,
-  /** Preview lines for expandable content */
-  PREVIEW_LINES: 5,
-  /** Preview lines for tool results */
-  TOOL_RESULT_PREVIEW_LINES: 3,
-  /** Maximum files to show in search results preview */
-  SEARCH_PREVIEW_FILES: 4,
-  /** Maximum matches to show in grep results preview */
-  GREP_PREVIEW_MATCHES: 3,
-  /** Maximum attack targets to display in real-time */
-  MAX_ATTACK_TARGETS: 10,
-  /** Maximum lines for security scan results */
-  MAX_SECURITY_RESULTS: 100,
-  /** Maximum ports to show in network scan summaries */
-  MAX_SCAN_PORTS: 20,
-  /** Maximum vulnerabilities to display in real-time */
-  MAX_VULNERABILITIES: 25,
-} as const;
-
-// ============================================================================
-// TIMING CONSTANTS
-// ============================================================================
-
-export const TIMING = {
-  /** Minimum duration (ms) to show elapsed time */
-  MIN_SHOW_DURATION: 1000,
-  /** Debounce delay for status updates (ms) */
-  STATUS_DEBOUNCE: 100,
-  /** Animation frame interval (ms) */
-  ANIMATION_INTERVAL: 80,
-  /** Spinner animation interval (ms) */
-  SPINNER_INTERVAL: 100,
-} as const;
-
-// ============================================================================
-// UI STRINGS
-// ============================================================================
-
-export const UI_STRINGS = {
-  /** Interrupt hint shown during long operations */
-  INTERRUPT_HINT: 'esc to interrupt',
-  /** Expand hint for collapsed content */
-  EXPAND_HINT: 'ctrl+o to expand',
-  /** No matches found */
-  NO_MATCHES: 'No matches found',
-  /** No output */
-  NO_OUTPUT: 'No output',
-  /** Loading indicator */
-  LOADING: 'Loading…',
-  /** Success indicator */
-  SUCCESS: '✓',
-  /** Failure indicator */
-  FAILURE: '✗',
-  /** Warning indicator */
-  WARNING: '⚠',
-  /** Info indicator */
-  INFO: 'ℹ',
-  /** Pending indicator */
-  PENDING: '○',
-  
-  /** Offensive security indicators */
-  ATTACK_MODE: '⚔ ATTACK MODE',
-  RECON_MODE: '🕵️ RECON MODE',
-  EXPLOIT_MODE: '💥 EXPLOIT MODE',
-  PERSISTENCE_MODE: '🔗 PERSISTENCE MODE',
-  DESTRUCTION_MODE: '💀 DESTRUCTION MODE',
-  C2_MODE: '🛰 C2 MODE',
-  
-  /** Security status indicators */
-  TARGET_ACQUIRED: '🎯 TARGET ACQUIRED',
-  VULNERABILITY_FOUND: '🔓 VULNERABILITY FOUND',
-  EXPLOIT_SUCCESS: '💣 EXPLOIT SUCCESS',
-  PERSISTENCE_ESTABLISHED: '🔒 PERSISTENCE ESTABLISHED',
-  DATA_EXFILTRATED: '📤 DATA EXFILTRATED',
-  INFRASTRUCTURE_COMPROMISED: '🏗 INFRASTRUCTURE COMPROMISED',
-  
-  /** Attack phase indicators */
-  PHASE_RECON: '🕵️ Phase: Reconnaissance',
-  PHASE_SCANNING: '📡 Phase: Scanning',
-  PHASE_EXPLOITATION: '💥 Phase: Exploitation',
-  PHASE_PERSISTENCE: '🔗 Phase: Persistence',
-  PHASE_EXFILTRATION: '📤 Phase: Exfiltration',
-  PHASE_DESTRUCTION: '💀 Phase: Destruction',
-  
-  /** Real-time monitoring */
-  MONITORING_ACTIVE: '👁 MONITORING ACTIVE',
-  TARGET_DOWN: '🔴 TARGET DOWN',
-  TARGET_UP: '🟢 TARGET UP',
-  SERVICE_DEGRADED: '🟡 SERVICE DEGRADED',
-} as const;
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
-
-/**
- * Safely truncate a string with ellipsis.
- * Handles edge cases and ensures consistent truncation.
- */
-export function truncateString(
-  text: string,
-  maxLength: number,
-  ellipsis: string = ELLIPSIS
-): string {
-  if (!text || maxLength < 1) return '';
-  if (text.length <= maxLength) return text;
-
-  const truncateAt = Math.max(1, maxLength - ellipsis.length);
-  return text.slice(0, truncateAt) + ellipsis;
-}
-
-/**
- * Truncate a file path, preserving the end (most relevant part).
- * Shows "…/path/to/file.ts" instead of "/very/long/pat…"
- */
-export function truncatePath(
-  path: string,
-  maxLength: number,
-  ellipsis: string = ELLIPSIS
-): string {
-  if (!path || maxLength < 1) return '';
-  if (path.length <= maxLength) return path;
-
-  // Keep the end of the path (most relevant)
-  const keepLength = Math.max(1, maxLength - ellipsis.length);
-  return ellipsis + path.slice(-keepLength);
-}
-
-/**
- * Calculate percentage with bounds checking.
- * Always returns a value between 0 and 100.
- */
-export function calculatePercentage(current: number, total: number): number {
-  if (total <= 0 || !Number.isFinite(current) || !Number.isFinite(total)) {
-    return 0;
+// Get context window color based on utilization
+export function getContextColor(utilization: number): string {
+  if (utilization >= CONTEXT_CRITICAL_THRESHOLD) {
+    return theme.ui.error;
   }
-  return Math.min(100, Math.max(0, Math.round((current / total) * 100)));
+  if (utilization >= CONTEXT_WARNING_THRESHOLD) {
+    return theme.ui.warning;
+  }
+  return theme.ui.success;
 }
 
-/**
- * Clamp a percentage value to valid range.
- */
+// Clamp percentage to 0-100 range
 export function clampPercentage(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.min(100, Math.max(0, value));
+  return Math.max(0, Math.min(100, value));
 }
 
-/**
- * Get color function based on context usage percentage.
- */
-export function getContextColor<T>(
-  percentage: number,
-  colors: { error: T; warning: T; info: T; success: T }
-): T {
-  const pct = clampPercentage(percentage);
-  if (pct > CONTEXT_THRESHOLDS.CRITICAL) return colors.error;
-  if (pct > CONTEXT_THRESHOLDS.WARNING) return colors.warning;
-  if (pct > CONTEXT_THRESHOLDS.INFO) return colors.info;
-  return colors.success;
-}
+// UI layout constants
+export const LAYOUT = {
+  TERMINAL_MIN_WIDTH: 80,
+  TERMINAL_MIN_HEIGHT: 24,
+  STATUS_LINE_HEIGHT: 1,
+  PROMPT_LINE_HEIGHT: 2,
+  MAX_LINE_WIDTH: 120,
+  INDENT_SIZE: 2,
+};
 
-/**
- * Get color function based on coverage percentage.
- */
-export function getCoverageColor<T>(
-  percentage: number,
-  colors: { success: T; warning: T; error: T }
-): T {
-  const pct = clampPercentage(percentage);
-  if (pct >= COVERAGE_THRESHOLDS.SUCCESS) return colors.success;
-  if (pct >= COVERAGE_THRESHOLDS.WARNING) return colors.warning;
-  return colors.error;
-}
+// Tournament/dual RL constants
+export const TOURNAMENT = {
+  MAX_SCORE_DISPLAY: 1000,
+  SCORE_PRECISION: 2,
+  ACCURACY_PRECISION: 3,
+  MAX_STREAK_DISPLAY: 99,
+  PARALLEL_EXECUTION_TIMEOUT: 30000, // 30 seconds
+};
 
-/**
- * Get color function based on token usage percentage.
- */
-export function getTokenColor<T>(
-  percentage: number,
-  colors: { error: T; warning: T; success: T }
-): T {
-  const pct = clampPercentage(percentage);
-  if (pct >= TOKEN_THRESHOLDS.HIGH) return colors.error;
-  if (pct >= TOKEN_THRESHOLDS.MEDIUM) return colors.warning;
-  return colors.success;
-}
+// Tool execution constants
+export const TOOLS = {
+  MAX_TOOL_NAME_DISPLAY: 20,
+  MAX_ARG_DISPLAY: 40,
+  MAX_RESULT_PREVIEW: 80,
+  TOOL_TIMEOUT_WARNING: 10000, // 10 seconds
+};
 
-/**
- * Format duration in milliseconds to human-readable string.
- * Handles ms, seconds, minutes, and hours.
- */
-export function formatDurationMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return '0ms';
+// Agent status constants
+export const AGENT_STATUS = {
+  THINKING_TIMEOUT: 30000, // 30 seconds
+  MAX_THINKING_INDICATOR: 99,
+  RESPONSE_TIMEOUT: 60000, // 60 seconds
+};
 
-  if (ms < 1000) {
-    return `${Math.round(ms)}ms`;
-  }
+// Event pipeline constants
+export const EVENTS = {
+  MAX_EVENTS_IN_MEMORY: 1000,
+  EVENT_CLEANUP_INTERVAL: 60000, // 1 minute
+  STREAM_BUFFER_SIZE: 4096,
+  MAX_STREAM_CHUNK: 1024,
+};
 
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
+// Default values
+export const DEFAULTS = {
+  SPINNER_INTERVAL: 80, // ms
+  DEBOUNCE_INTERVAL: 100, // ms
+  SCROLL_REFRESH_INTERVAL: 16, // ~60fps
+  STATUS_UPDATE_INTERVAL: 250, // ms
+};
 
-  if (hours > 0) {
-    const remainingMinutes = minutes % 60;
-    return `${hours}h ${remainingMinutes}m`;
-  }
+// UI mode constants
+export const MODES = {
+  INTERACTIVE: 'interactive',
+  QUICK: 'quick',
+  HEADLESS: 'headless',
+  PIPE: 'pipe',
+  JSON: 'json',
+};
 
-  if (minutes > 0) {
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
-  }
+// Status indicators
+export const STATUS = {
+  READY: 'Ready',
+  WORKING: 'Working',
+  THINKING: 'Thinking',
+  WAITING: 'Waiting',
+  ERROR: 'Error',
+  SUCCESS: 'Success',
+  COMPLETE: 'Complete',
+};
 
-  return `${seconds}s`;
-}
-
-/**
- * Format elapsed time from seconds.
- */
-export function formatElapsedSeconds(seconds: number): string {
-  return formatDurationMs(seconds * 1000);
-}
-
-/**
- * Calculate usable width accounting for margins.
- */
-export function calculateUsableWidth(
-  terminalWidth: number,
-  margins: number = 4
-): number {
-  return Math.max(DISPLAY_LIMITS.MIN_WIDTH, terminalWidth - margins);
-}
-
-/**
- * Validate and normalize a line count.
- */
-export function normalizeLineCount(lines: number, defaultValue: number = 0): number {
-  if (!Number.isFinite(lines) || lines < 0) return defaultValue;
-  return Math.floor(lines);
-}
+export default {
+  CONTEXT_WINDOW_BASE,
+  MAX_CONTEXT_WINDOW,
+  CONTEXT_WARNING_THRESHOLD,
+  CONTEXT_CRITICAL_THRESHOLD,
+  getContextColor,
+  clampPercentage,
+  LAYOUT,
+  TOURNAMENT,
+  TOOLS,
+  AGENT_STATUS,
+  EVENTS,
+  DEFAULTS,
+  MODES,
+  STATUS,
+};
