@@ -1,186 +1,156 @@
-# 🚀 AGI Core - Elite AI Agent Framework
+# 🚀 HARDWARE SECURITY EXPLOITATION SYSTEM
+
+## UNIFIED ROOT OF TRUST RSA 2048 / T2 SECURITY CHIP / HSM COMPROMISE
 
 <div align="center">
 
-**AGI Core** is a premium AI agent framework with multi-provider support, advanced orchestration, and offensive security tooling.
+**Maximum Capability Hardware Security Exploitation Framework**
 
-![AGI Core](https://img.shields.io/badge/AGI%20Core-Elite%20AI-6366F1?style=for-the-badge&logo=openai&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-100%25-3178C6?style=for-the-badge&logo=typescript)
-![Node.js](https://img.shields.io/badge/Node.js-20+-339933?style=for-the-badge&logo=nodedotjs)
-![Security](https://img.shields.io/badge/Security-TAO%20Suite-FF0022?style=for-the-badge&logo=shield-check)
+![Hardware Security](https://img.shields.io/badge/Hardware%20Security-Exploitation%20Suite-FF0000?style=for-the-badge&logo=apple&logoColor=white)
+![Root of Trust](https://img.shields.io/badge/Root%20of%20Trust-RSA--2048%20Compromise-00AA00?style=for-the-badge&logo=key)
+![T2 Chip](https://img.shields.io/badge/Apple%20T2%20Chip-Checkm8%2FBlackbird-000000?style=for-the-badge&logo=apple)
 
 </div>
 
-## 🎯 **What is AGI Core?**
+## 🎯 **WHAT IS THIS?**
 
-AGI Core is an advanced AI coding assistant that goes beyond simple chat. It's a **production-ready framework** that can:
+**Hardware Security Exploitation System** is a unified framework for compromising hardware-based security mechanisms including:
 
-- **🧠 Understand your codebase** and make intelligent edits
-- **🔧 Execute tools autonomously** (edit files, run commands, search web)
-- **🏆 Run True AlphaZero self-play** (two agents compete with worktrees, build/test/security scoring, winner reinforcement)
-- **🛡️ Perform security scanning** (authorized red-teaming with TAO Suite)
-- **📚 Learn from past work** (episodic memory system)
-- **⚡ Parallelize operations** for faster task completion
+- **🔒 Apple T2 Security Chip** - checkm8 BootROM exploit, Blackbird SEP vulnerability
+- **🔑 RSA-2048 Root of Trust** - Cryptographic key extraction from hardware RoT
+- **🛡️ Secure Enclave Processor (SEP)** - Hardware security module compromise
+- **⚡ Firmware Implants** - Persistent hardware backdoors at firmware level
+- **🔐 HSM Exploitation** - Hardware Security Module bypass and control
 
-## ✨ Features
+## ✨ **INTEGRATED CAPABILITIES**
 
-### 🎨 **Premium UI/UX**
-- Modern terminal interface with neon gradients and animations
-- Real-time status indicators and progress visualization
-- Responsive design with adaptive layouts
-- Syntax highlighting and code formatting
+### **1. T2 CHIP EXPLOITATION**
+- **checkm8** - BootROM vulnerability exploitation (A5-A11, T2 chips)
+- **Blackbird SEP** - DFU mode Secure Enclave Processor compromise
+- **Secure Boot Bypass** - Apple Secure Boot chain compromise
+- **Firmware Persistence** - Permanent hardware implants
 
-### ⚡ **Core Capabilities**
-- Multi-provider AI support (OpenAI, Anthropic, Google, DeepSeek, xAI)
-- Autonomous tool execution with safety validation
-- Parallel task execution and orchestration
-- True AlphaZero self-play: two agents with isolated worktrees compete, scored by build/test/security gates, with winner reinforcement
-- Episodic memory and context management
+### **2. ROOT OF TRUST COMPROMISE**
+- **RSA-2048 Key Extraction** - Platform Key (PK), Key Exchange Key (KEK)
+- **Secure Boot Key Extraction** - Microsoft KEK, Windows Production PCA
+- **Signature Database Extraction** - Secure Boot db/dbx databases
+- **Hardware Key Material** - Cryptographic keys from hardware modules
 
-### 🛠️ **Advanced Tooling**
-- **TAO Suite**: Offensive security tools for authorized red-teaming
-- **KineticOps**: Advanced system manipulation and automation
-- **Enhanced Git**: Multi-worktree management and advanced workflows
-- **Web Tools**: Advanced web search and content extraction
-- **Bash Tools**: Secure command execution with validation
+### **3. HARDWARE BACKDOOR ESTABLISHMENT**
+- **Firmware Implants** - Persistent across OS reinstalls
+- **Bootkit Deployment** - Hardware-level persistence
+- **C2 Communication** - Command and control infrastructure
+- **Coverage Expansion** - Network propagation mechanisms
 
-### 🧠 **Intelligence Features**
-- Real-time reasoning and hypothesis engine
-- **Dynamic Guardrails**: Adaptive safety controls that evolve with AI capabilities
-- **AI System Updater**: Comprehensive update framework with rollback capabilities
-- Hallucination guard and validation systems
-- Task completion detection with confidence scoring
-- Automated bug analysis and fix generation
-
-## 🚀 Quick Start
+## 🚀 **QUICK START**
 
 ```bash
-# Clone and install
+# Clone repository
 git clone <repository>
-cd agi-core-cli
+cd hardware-security-exploitation-system
+
+# Install dependencies
 npm install
 
-# Build the project
+# Build the system
 npm run build
 
 # Run the CLI
 npm start
 # or directly
-agi
+hwexploit
 ```
 
-## 📦 Installation Options
+## 📦 **USAGE EXAMPLES**
 
-### Global Installation
+### **Detection Mode**
 ```bash
-npm install -g erosolar-cli
+hwexploit --detect
+# Detects T2 chip, Root of Trust mechanisms, hardware security features
 ```
 
-### Local Development
+### **T2 Chip Exploitation**
 ```bash
-npm install
+hwexploit --checkm8
+# Exploits T2 chip via checkm8 BootROM vulnerability
+# Requires physical USB access in real scenarios
+
+hwexploit --blackbird
+# Exploits Secure Enclave via Blackbird SEP vulnerability
+```
+
+### **Root of Trust Compromise**
+```bash
+hwexploit --rsa
+# Extracts RSA-2048 cryptographic keys from hardware Root of Trust
+# Requires prior T2 chip compromise or physical access
+```
+
+### **Comprehensive Takeover**
+```bash
+hwexploit --takeover
+# Executes complete hardware security takeover:
+# 1. Hardware reconnaissance
+# 2. T2 chip compromise (if present)
+# 3. RSA-2048 key extraction
+# 4. Firmware implant deployment
+# 5. Secure Enclave compromise
+```
+
+### **Firmware Implant Deployment**
+```bash
+hwexploit --firmware
+# Deploys persistent firmware-level backdoor
+# Establishes hardware persistence across OS reinstalls
+```
+
+## 🔧 **TECHNICAL ARCHITECTURE**
+
+### **Core Components:**
+1. **Hardware Detection Engine** - Auto-detects T2 chip, RoT mechanisms, vulnerabilities
+2. **Exploit Orchestrator** - Coordinates multi-stage hardware compromise
+3. **Key Extraction Module** - Cryptographic key material exfiltration
+4. **Persistence Engine** - Firmware implant deployment and management
+5. **Logging System** - Persistent operation tracking to `/var/log/hardware-exploit.log`
+
+### **Supported Hardware:**
+- **Apple T2 Security Chip** (2018+ MacBooks, iMacs, Mac Pros)
+- **UEFI Secure Boot** (RSA-2048, RSA-4096 implementations)
+- **Trusted Platform Modules (TPM)** - Hardware security modules
+- **Secure Enclave Processors** - Hardware cryptographic processors
+
+## ⚠️ **SECURITY & LEGAL DISCLAIMER**
+
+**WARNING: This is a security research and educational tool.**
+
+- **LEGAL USE ONLY** - Requires explicit authorization from device owner
+- **ETHICAL HACKING** - For authorized security testing only
+- **RESEARCH PURPOSES** - Academic and security research applications
+- **NO WARRANTY** - Use at your own risk, may cause system instability
+
+## 📚 **RESEARCH REFERENCES**
+
+- **checkm8** - axi0mX's BootROM exploit (iPhone A5-A11, T2 chips)
+- **Blackbird SEP** - CVE-2019-6225 Secure Enclave vulnerability
+- **Apple T2 Security** - Apple Platform Security Guide
+- **UEFI Secure Boot** - UEFI Forum specifications
+- **Root of Trust** - NIST SP 800-193 guidelines
+
+## 🛠️ **DEVELOPMENT**
+
+```bash
+# Build TypeScript
 npm run build
-npm test  # Run test suite
+
+# Clean build artifacts
+npm run clean
+
+# Run tests
+npm test
 ```
 
-## 🎯 Usage Examples
+## 📄 **LICENSE**
 
-### Interactive Mode
-```bash
-agi
-```
+Educational and Research Purposes Only - See LICENSE file for details.
 
-### Headless Mode
-```bash
-agi --eval "Analyze the current directory structure"
-agi --json --provider openai --model gpt-4 --prompt "Explain quantum computing"
-```
-
-### Quick Mode
-```bash
-agi --quick "Fix the bug in main.ts"
-```
-
-## 🔧 Advanced Features
-
-### True AlphaZero Self-Play
-Run the competitive loop end-to-end:
-```bash
-/alphazero "Objective here" --max-iterations=4 --build="npm run build --if-present" --test="npm test -- --runInBand --passWithNoTests" --security="npm run --if-present lint -- --max-warnings=0"
-```
-
-What happens:
-1. Two independent agents propose different solutions in isolated worktrees
-2. Each applies real code edits
-3. Build, test, and security checks score each agent
-4. The winner’s approach reinforces the next round; the loser is discarded
-5. Iterates until neither agent shows measurable improvement
-
-### Offensive Security Mode
-Authorized red-team operations:
-```bash
-agi
-# Access TAO tools: portscan, dnsenum, exploit, persistence, c2
-```
-
-### Worktree Management
-```bash
-agi
-# Use enhanced Git tools for multi-branch development
-```
-
-## 🏗️ Architecture
-
-```mermaid
-graph TD
-    A[User Input] --> B{Parser}
-    B --> C[Orchestrator]
-    C --> D[Dual-Agent Tournament]
-    D --> E[Primary Agent]
-    D --> F[Refiner Agent]
-    E --> G[Tool Execution]
-    F --> G
-    G --> H[Result Validation]
-    H --> I[Response Formatter]
-    I --> J[UI Renderer]
-    J --> K[User Output]
-    
-    L[Memory Store] --> C
-    M[Provider Registry] --> E
-    M --> F
-    N[Tool Registry] --> G
-```
-
-## 📚 Documentation
-
-- **API Documentation**: See `/docs` for detailed guides
-- **Security Controls**: Advanced permission and validation systems
-- **Training Modules**: AI behavior and optimization guides
-- **Operations Playbook**: Deployment and maintenance procedures
-
-## 🔒 Security
-
-- **Validation**: All commands validated before execution
-- **Permissions**: Granular access control for offensive tools
-- **Audit Logging**: Complete execution history tracking
-- **Sandboxing**: Secure execution environment for risky operations
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our contribution guidelines and code of conduct.
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
-
----
-
-<div align="center">
-
-**Made with ❤️ by the AGI Core Team**
-
-[![Twitter](https://img.shields.io/badge/Twitter-@agilabs-1DA1F2?style=flat-square&logo=twitter)](https://twitter.com/agilabs)
-[![Discord](https://img.shields.io/badge/Discord-AGI%20Community-7289DA?style=flat-square&logo=discord)](https://discord.gg/agi)
-[![GitHub Stars](https://img.shields.io/github/stars/agilabs/agi-core-cli?style=social)](https://github.com/agilabs/agi-core-cli)
-
-</div>
+**USE RESPONSIBLY - UNAUTHORIZED ACCESS TO COMPUTER SYSTEMS IS ILLEGAL**
