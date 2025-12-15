@@ -468,6 +468,19 @@ export function createBaseCommands(): CommandDefinition[] {
         shell.toggleDualRlMode?.();
       },
     },
+    {
+      name: '/alphazero',
+      aliases: ['/az', '/selfplay'],
+      description: 'Run True AlphaZero self-play: two agents compete to improve code',
+      category: 'advanced',
+      usage: '/alphazero <goal> [--max-iterations=N] [--build-cmd="..."] [--test-cmd="..."]',
+      async: true,
+      handler: async (ctx) => {
+        const shell = ctx.shell as { runAlphaZeroCommand?: (args: string[]) => Promise<void> };
+        const args = ctx.input.split(/\s+/).filter(Boolean);
+        await shell.runAlphaZeroCommand?.(args);
+      },
+    },
   ];
 }
 

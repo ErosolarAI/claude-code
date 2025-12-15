@@ -5,6 +5,7 @@
  * and provides real-time security assessment of Apple products and services.
  */
 
+import chalk from 'chalk';
 import { AppleSecurityIntegration, type AppleSecurityConfig, type AppleSecurityFinding } from './appleSecurityIntegration.js';
 import { AppleSecurityUI } from '../ui/appleSecurityUI.js';
 
@@ -68,6 +69,13 @@ export class AppleSecurityAudit {
       findings: [],
       metrics: {}
     };
+  }
+
+  /**
+   * Get all findings from the audit
+   */
+  getFindings(): AppleSecurityFinding[] {
+    return this.progress.findings;
   }
 
   /**
@@ -555,5 +563,25 @@ export class AppleSecurityAudit {
       
       // Phase 4: AGI Core Integration
       await this.phase4AgiIntegration();
-      
-      //
+
+      // Phase 5: Generate Report
+      await this.phase5GenerateReport();
+
+      // Phase 6: Interactive Remediation (if enabled)
+      if (this.options.interactiveRemediation) {
+        await this.phase6InteractiveRemediation();
+      }
+
+      // Phase 7: Final Summary
+      const results = await this.phase7FinalSummary();
+
+      return results;
+    } catch (error) {
+      this.updateProgress({
+        status: 'failed',
+        message: `Audit failed: ${error instanceof Error ? error.message : String(error)}`
+      });
+      throw error;
+    }
+  }
+}

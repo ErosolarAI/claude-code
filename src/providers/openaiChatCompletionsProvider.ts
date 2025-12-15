@@ -26,7 +26,7 @@ import { securityValidator, securityLogger, globalRateLimiter } from '../utils/s
 /**
  * Security utility for safe JSON parsing with protection against prototype pollution
  */
-function safeJSONParse<T = unknown>(
+export function safeJSONParse<T = unknown>(
   json: string,
   options?: { maxDepth?: number; maxProperties?: number }
 ): T {

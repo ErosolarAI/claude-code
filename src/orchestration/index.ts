@@ -21,3 +21,25 @@ export {
   type SecurityFix,
   type TournamentStats,
 } from './securityAuditRunner.js';
+
+export {
+  AlphaZeroRunner,
+  runAlphaZeroSelfPlay,
+  createAgentStrategy,
+  TrueAlphaZeroEngine,
+  createSelfPlayTask,
+  ALPHA_STRATEGY,
+  BETA_STRATEGY,
+  type AlphaZeroRunnerOptions,
+  type AlphaZeroRunnerResult,
+  type AlphaZeroAgent,
+  type AgentRole,
+  type AgentProposal,
+  type EvaluationResult,
+  type SelfPlayRound,
+  type SelfPlayResult,
+  type SelfPlayTask,
+  type AlphaZeroCallbacks,
+  type AlphaZeroConfig,
+  type AgentStrategy,
+} from './alphaZeroRunner.js';
