@@ -415,6 +415,8 @@ export class UnifiedUIRenderer extends EventEmitter {
   private collapsedPaste: { text: string; lines: number; chars: number } | null = null;
 
   private mode: 'idle' | 'streaming' = 'idle';
+  /** Queue for input received during streaming - processed after streaming ends */
+  private streamingInputQueue: string[] = [];
   /** Buffer to accumulate streaming content for post-processing */
   private streamingContentBuffer: string = '';
   /** Track lines written during streaming for potential reformat */
@@ -1212,8 +1214,13 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (key.name === 'return' || key.name === 'enter') {
-      // Block submissions during streaming - wait for response to complete
+      // During streaming, queue the input for processing after AI completes
       if (this.mode === 'streaming') {
+        const queuedInput = this.streamingInputQueue.join('').trim();
+        if (queuedInput) {
+          this.emit('queue', queuedInput);
+          this.streamingInputQueue = [];
+        }
         return;
       }
       // If there's a collapsed paste, expand and submit in one action
@@ -1370,8 +1377,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (str && !normalizedKey.ctrl && !normalizedKey.meta) {
-      // Block text input during streaming - only allow control keys (Ctrl+C, etc.)
+      // Queue text input during streaming - process after AI completes
       if (this.mode === 'streaming') {
+        this.streamingInputQueue.push(str);
         return;
       }
       // Defer insertion to allow paste detection window to catch rapid input
@@ -1475,10 +1483,6 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private handleBracketedPaste(str: string, key: readline.Key): boolean {
-    // Block paste during streaming
-    if (this.mode === 'streaming') {
-      return true; // Consume the paste event but don't process it
-    }
     const sequence = key?.sequence || str;
     if (sequence === ESC.ENABLE_BRACKETED_PASTE || sequence === ESC.DISABLE_BRACKETED_PASTE) {
       return true;
@@ -1587,10 +1591,6 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private handlePlainPaste(str: string, key: readline.Key): boolean {
-    // Block paste during streaming
-    if (this.mode === 'streaming') {
-      return true; // Consume the paste event but don't process it
-    }
     // Fallback paste capture when bracketed paste isn't supported
     if (this.inBracketedPaste || key?.ctrl || key?.meta) {
       this.resetPlainPasteBurst();
@@ -3387,6 +3387,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       this.streamingTokens = 0; // Reset token count
       this.streamingContentBuffer = ''; // Reset streaming buffer
       this.streamingLinesWritten = 0;
+      this.streamingInputQueue = []; // Clear any stale queued input
       // Clear inline panel when entering streaming mode to prevent stale menus
       if (this.inlinePanel.length > 0) {
         this.inlinePanel = [];
@@ -3413,6 +3414,8 @@ export class UnifiedUIRenderer extends EventEmitter {
       // Clear the buffer after processing
       this.streamingContentBuffer = '';
       this.streamingLinesWritten = 0;
+      // Clear any remaining queued input (user didn't press Enter to queue it)
+      this.streamingInputQueue = [];
     }
 
     if (!this.plainMode) {
