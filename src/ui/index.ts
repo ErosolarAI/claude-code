@@ -70,6 +70,7 @@ export { PromptController } from './PromptController.js';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export { UnifiedUIRenderer } from './UnifiedUIRenderer.js';
+export * from './modern-ui-system.js';
 // export * from './designSystem.js'; // File doesn't exist
 
 // ═══════════════════════════════════════════════════════════════════════════════
