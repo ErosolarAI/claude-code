@@ -1,14 +1,19 @@
 /**
- * Apple Security UI Component
- * 
- * Provides rich UI components for displaying Apple security findings,
- * vulnerabilities, exploits, and audit results in AGI Core.
+ * Apple Security UI Component (Shim)
+ *
+ * @deprecated This UI component is deprecated. Use UnifiedUIRenderer instead.
+ *
+ * The UnifiedUIRenderer consolidates all UI functionality including:
+ * - Apple security findings and vulnerabilities
+ * - Competing agents and dual RL tournaments
+ * - Variant comparisons (primary vs refiner)
+ * - Real-time progress and scoring
+ *
+ * This file is a minimal shim maintained for backward compatibility only.
+ * All new code should use UnifiedUIRenderer from './UnifiedUIRenderer.js'
  */
 
 import chalk from 'chalk';
-import { theme } from './theme.js';
-// Note: formatError and ErrorInfo imported for type compatibility
-import { formatError, type ErrorInfo } from './errorFormatter.js';
 
 export interface AppleSecurityUIComponents {
   formatSecurityFinding: (finding: AppleSecurityFinding) => string;

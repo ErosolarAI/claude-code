@@ -1,9 +1,20 @@
 /**
  * Universal Security UI Component
  *
+ * @deprecated This UI component is deprecated. Use UnifiedUIRenderer instead.
+ *
+ * The UnifiedUIRenderer consolidates all UI functionality including:
+ * - Security audit results and findings
+ * - Competing agents and dual RL tournaments
+ * - Variant comparisons (primary vs refiner)
+ * - Real-time progress and scoring
+ *
+ * This file is maintained for backward compatibility only.
+ * All new code should use UnifiedUIRenderer from './UnifiedUIRenderer.js'
+ *
+ * Legacy description:
  * Provides rich UI components for displaying security findings,
  * vulnerabilities, and audit results for ALL cloud providers.
- * This is the DEFAULT UI for AGI Core security operations.
  */
 
 import chalk from 'chalk';
