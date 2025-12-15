@@ -1370,5 +1370,6 @@ function buildDefaultSteps(moduleId: string): RepoUpgradeStep[] {
 }
 
 function getModeDefinition(mode: RepoUpgradeMode): RepoUpgradeModeDefinition {
-  return REPO_UPGRADE_MODE_DEFINITIONS[mode] ?? REPO_UPGRADE_MODE_DEFINITIONS['single-continuous'];
+  // AlphaZero dual-agent tournament is now the default mode
+  return REPO_UPGRADE_MODE_DEFINITIONS[mode] ?? REPO_UPGRADE_MODE_DEFINITIONS['dual-rl-tournament'];
 }

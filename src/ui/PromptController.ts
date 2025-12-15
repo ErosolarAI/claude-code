@@ -51,7 +51,7 @@ export class PromptController {
     verificationEnabled: false,
     autoContinueEnabled: false,
     criticalApprovalMode: 'auto',
-    dualRlEnabled: false,
+    dualRlEnabled: true,  // AlphaZero dual-agent tournament mode ON by default
   };
   private started = false;
   private disposed = false;

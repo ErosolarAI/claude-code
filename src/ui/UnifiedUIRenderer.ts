@@ -247,7 +247,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     verificationEnabled: false,
     autoContinueEnabled: false,
     criticalApprovalMode: 'auto',
-    dualRlEnabled: false,
+    dualRlEnabled: true,  // AlphaZero dual-agent tournament mode ON by default
     debugEnabled: false,
   };
 
@@ -3423,12 +3423,11 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Build unified toggle segments with DISTINCT colors for each toggle
     const toggles: string[] = [];
 
-    // 1. RL mode (CYAN) - multi-agent vs single-pass
-    const rlOn = this.toggleState.dualRlEnabled;
-    const rlIcon = rlOn ? '🤖' : '⚡';
-    const rlStatus = rlOn ? theme.info('dual') : theme.ui.muted('single');
-    const rlExplain = rlOn ? 'multi-agent' : 'one-pass';
-    toggles.push(`${rlIcon} ${rlStatus} ${theme.ui.muted('[⌥D]')} ${theme.ui.muted(rlExplain)}`);
+    // 1. AlphaZero mode (always active) - dual-agent tournament
+    const rlIcon = '🤖';
+    const rlStatus = theme.info('AlphaZero');
+    const rlExplain = 'dual-agent';
+    toggles.push(`${rlIcon} ${rlStatus} ${theme.ui.muted(rlExplain)}`);
 
     // 2. Auto-continue (MAGENTA/PURPLE) - keep going until done
     const contIcon = autoContinueActive ? '🔄' : '⏸';
@@ -3850,9 +3849,8 @@ export class UnifiedUIRenderer extends EventEmitter {
     const thinkingActive = thinkingLabel.length > 0;
     addToggle('Thinking', thinkingActive, this.toggleState.thinkingHotkey, thinkingLabel);
 
-    const dualRlActive = this.toggleState.dualRlEnabled ?? false;
-    const modeValue = dualRlActive ? 'dual-rl-cont' : 'single-cont';
-    addToggle('Mode', dualRlActive, this.toggleState.dualRlHotkey, modeValue);
+    // AlphaZero mode is always active
+    addToggle('Mode', true, undefined, 'AlphaZero');
 
     const buildLine = (includeHotkeys: boolean): string => {
       return toggles

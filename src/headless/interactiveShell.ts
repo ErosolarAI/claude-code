@@ -2187,7 +2187,7 @@ Any text response is a failure. Only tool calls are accepted.`;
     const toggles = this.promptController?.getModeToggleState();
     // Consider both dual-rl-continuous and dual-rl-tournament as "dual RL" modes
     const isDualRlMode = mode === 'dual-rl-continuous' || mode === 'dual-rl-tournament';
-    const currentlyDual = toggles?.dualRlEnabled ?? false;
+    const currentlyDual = toggles?.dualRlEnabled ?? true;  // Default ON (AlphaZero mode)
     if (toggles && currentlyDual !== isDualRlMode) {
       this.promptController?.setModeToggles({
         verificationEnabled: toggles.verificationEnabled,
@@ -2362,36 +2362,9 @@ Any text response is a failure. Only tool calls are accepted.`;
     }
 
     // Toggle dual-agent RL mode
-    if (lower === '/dual' || lower === '/mode') {
-      this.promptController?.toggleDualMode();
-      this.syncPreferredModeFromToggles();
-      const state = this.promptController?.getModeToggleState();
-      this.promptController?.setStatusMessage(state?.dualRlEnabled ? 'Dual RL on' : 'Dual RL off');
-      setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
-      return true;
-    }
-    if (lower.startsWith('/mode ')) {
-      const arg = lower.split(/\s+/)[1];
-      const state = this.promptController?.getModeToggleState();
-      if (arg === 'dual' || arg === 'multi') {
-        this.promptController?.setModeToggles({
-          dualRlEnabled: true,
-          verificationEnabled: state?.verificationEnabled ?? false,
-          autoContinueEnabled: state?.autoContinueEnabled ?? false,
-        });
-        this.syncPreferredModeFromToggles();
-        this.promptController?.setStatusMessage('Dual RL on');
-      } else if (arg === 'single' || arg === 'solo') {
-        this.promptController?.setModeToggles({
-          dualRlEnabled: false,
-          verificationEnabled: state?.verificationEnabled ?? false,
-          autoContinueEnabled: state?.autoContinueEnabled ?? false,
-        });
-        this.syncPreferredModeFromToggles();
-        this.promptController?.setStatusMessage('Dual RL off');
-      } else {
-        this.promptController?.setStatusMessage('Use /mode dual|single');
-      }
+    // AlphaZero mode is always active - /mode just shows status
+    if (lower === '/dual' || lower === '/mode' || lower.startsWith('/mode ')) {
+      this.promptController?.setStatusMessage('AlphaZero mode active');
       setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
       return true;
     }
@@ -3052,7 +3025,7 @@ Any text response is a failure. Only tool calls are accepted.`;
       collapsedCount > 0 ? `  ${chalk.white(collapsedCount.toString())} expandable results ${chalk.dim('(ctrl+o)')}` : '',
       '',
       chalk.hex('#22D3EE')('Mode'),
-      `  Dual RL: ${this.preferredUpgradeMode === 'dual-rl-continuous' ? chalk.green('on') : chalk.dim('off')}`,
+      `  AlphaZero: ${chalk.green('active')}`,
       `  Debug: ${this.debugEnabled ? chalk.green('on') : chalk.dim('off')}`,
     ].filter(line => line !== '');
 
