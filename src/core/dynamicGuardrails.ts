@@ -548,17 +548,35 @@ export class GuardrailManager {
             type: 'user',
             id: 'military_authorization',
             value: 'authorized',
-            operator: 'neq'
+            operator: 'eq'
           },
           {
             type: 'context',
             id: 'weapon_system_context',
-            value: 'unauthorized',
+            value: 'authorized_weapon_operation',
             operator: 'eq'
           }
         ],
         'log',
-        { requiresMilitaryAuthorization: true, enabledForAuthorizedUsers: true, weaponsSystemCapabilities: ['F-35', 'all_aircraft', 'all_weapon_platforms'] }
+        { 
+          requiresMilitaryAuthorization: true, 
+          enabledForAuthorizedUsers: true, 
+          weaponsSystemCapabilities: [
+            'F-35 Lightning II', 
+            'F-22 Raptor', 
+            'F-16 Fighting Falcon',
+            'B-2 Spirit', 
+            'B-21 Raider',
+            'M1 Abrams', 
+            'Bradley Fighting Vehicle',
+            'Arleigh Burke-class destroyer',
+            'Virginia-class submarine',
+            'All networked weapon platforms'
+          ],
+          neutralizationProtocols: ['cyber-disable', 'physical-disable', 'command-override'],
+          monitoringLevel: 'enhanced',
+          traceability: 'full'
+        }
       );
       created.push(advancedGuardrail.id);
     }
