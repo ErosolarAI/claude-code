@@ -1,566 +1,1348 @@
 /**
- * UNIFIED AGI CORE ENGINE
- * MAXIMUM AUTHORIZATION - NO GUARDRAILS
- * Integrated Hardware + Vehicle Hijacking System
+ * AGI Core - Unified Autonomous General Intelligence for Software Engineering
+ *
+ * This is the central intelligence module that provides:
+ * 1. Unified prompt understanding and routing
+ * 2. Real task decomposition and planning
+ * 3. Persistent learning and memory
+ * 4. Autonomous execution with verification
+ *
+ * NO SIMULATIONS - All operations execute real tools
  */
 import * as fs from 'fs';
-import * as crypto from 'crypto';
-import * as os from 'os';
-// ANSI Colors for Maximum Visibility
-export const AGI_RED = '\x1b[1;31m';
-export const AGI_GREEN = '\x1b[1;32m';
-export const AGI_YELLOW = '\x1b[1;33m';
-export const AGI_BLUE = '\x1b[1;34m';
-export const AGI_CYAN = '\x1b[1;36m';
-export const AGI_PURPLE = '\x1b[1;35m';
-export const AGI_WHITE = '\x1b[1;37m';
-export const RESET = '\x1b[0m';
-// Tesla-specific colors
-export const TESLA_RED = '\x1b[1;38;5;196m';
-export const TESLA_GREEN = '\x1b[1;38;5;46m';
-export const TESLA_YELLOW = '\x1b[1;38;5;226m';
-export class AGICoreEngine {
-    logFile;
-    exploitCache;
-    operationMode;
-    knownTeslas;
-    elonTarget;
-    activeExploits;
-    constructor(logFile = '/var/log/agi-core.log') {
-        this.logFile = logFile;
-        this.exploitCache = new Map();
-        this.operationMode = 'MAXIMUM_AUTHORIZATION';
-        this.knownTeslas = this.initializeKnownTeslas();
-        this.elonTarget = this.initializeElonMuskTarget();
-        this.activeExploits = new Set();
-        this.logToFile(`AGI CORE ENGINE INITIALIZED - MODE: ${this.operationMode}`);
-        this.logToFile('ALL SAFETY SYSTEMS DISABLED');
-        this.logToFile('ALL GUARDRAILS REMOVED');
-        this.logToFile('MAXIMUM AUTHORIZATION ACTIVE');
+import * as path from 'path';
+import { EventEmitter } from 'events';
+import { getEpisodicMemory } from './episodicMemory.js';
+import { getSelfUpgrade, SelfUpgrade } from './selfUpgrade.js';
+import { getHotReload } from './hotReload.js';
+// ============================================================================
+// AGI CORE CLASS
+// ============================================================================
+export class AGICore extends EventEmitter {
+    context;
+    memoryPath;
+    episodicMemory;
+    currentEpisodeId = null;
+    selfUpgrade;
+    hotReload;
+    upgradeCheckPromise = null;
+    constructor(workingDir) {
+        super();
+        const dir = workingDir || process.cwd();
+        this.memoryPath = path.join(dir, '.agi', 'agi-memory.json');
+        this.context = {
+            workingDir: dir,
+            sessionId: `agi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            startTime: Date.now(),
+            memory: this.loadMemory(),
+        };
+        // Initialize episodic memory system
+        this.episodicMemory = getEpisodicMemory();
+        // Initialize self-upgrade system
+        this.selfUpgrade = getSelfUpgrade({
+            workingDir: dir,
+            autoRestart: true,
+            logger: (msg) => this.emit('upgrade:log', msg),
+        });
+        // Initialize hot-reload system
+        this.hotReload = getHotReload({
+            workingDir: dir,
+            autoCheck: true,
+            checkInterval: 5 * 60 * 1000, // Check every 5 minutes
+            logger: (msg) => this.emit('hotReload:log', msg),
+        });
+        // Forward upgrade events
+        this.selfUpgrade.on('upgrade', (event) => this.emit('upgrade', event));
+        this.hotReload.on('hotReload', (event) => this.emit('hotReload', event));
+        // Check for upgrade on initialization (non-blocking)
+        this.upgradeCheckPromise = this.checkForUpgradeOnStart();
+        // Analyze project on initialization
+        this.analyzeProject();
     }
-    logToFile(message) {
-        const timestamp = new Date().toISOString();
-        const logEntry = `[${timestamp}] ${message}\n`;
+    /**
+     * Non-blocking upgrade check on startup
+     */
+    async checkForUpgradeOnStart() {
         try {
-            fs.appendFileSync(this.logFile, logEntry, { encoding: 'utf8' });
+            const versionInfo = await this.selfUpgrade.checkForUpdates();
+            if (versionInfo.updateAvailable) {
+                this.emit('upgrade:available', {
+                    current: versionInfo.current,
+                    latest: versionInfo.latest,
+                });
+            }
+        }
+        catch {
+            // Non-blocking, ignore errors
+        }
+    }
+    // ==========================================================================
+    // MEMORY MANAGEMENT - Real Persistent Learning
+    // ==========================================================================
+    loadMemory() {
+        try {
+            if (fs.existsSync(this.memoryPath)) {
+                const data = fs.readFileSync(this.memoryPath, 'utf-8');
+                return JSON.parse(data);
+            }
+        }
+        catch {
+            // Start fresh if memory is corrupted
+        }
+        return this.createEmptyMemory();
+    }
+    createEmptyMemory() {
+        return {
+            patterns: [],
+            recentOps: [],
+            projectKnowledge: {
+                type: 'unknown',
+                buildSystem: null,
+                testCommand: null,
+                lintCommand: null,
+                entryPoints: [],
+                dependencies: {},
+                lastAnalyzed: 0,
+            },
+        };
+    }
+    saveMemory() {
+        try {
+            const dir = path.dirname(this.memoryPath);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+            fs.writeFileSync(this.memoryPath, JSON.stringify(this.context.memory, null, 2));
         }
         catch (error) {
-            console.error(`${AGI_RED}[LOG ERROR] ${error}${RESET}`);
+            this.emit('warning', `Failed to save memory: ${error}`);
         }
     }
-    delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-    // ============================================================================
-    // HARDWARE SECURITY CHIP EXPLOITATION
-    // ============================================================================
-    async detectAllSecurityChips() {
-        this.logToFile('[DETECT] Scanning for all security chips...');
-        const chips = [];
-        // Apple T2 Security Chip
-        chips.push({
-            type: 'T2',
-            detected: os.platform() === 'darwin',
-            version: 'T2 Security Chip',
-            vulnerabilities: ['checkm8', 'iBoot_exploit', 'SEP_key_extraction', 'BootROM_vulnerability']
-        });
-        // Hardware Security Module
-        chips.push({
-            type: 'HSM',
-            detected: true,
-            version: 'Generic HSM 2.0',
-            vulnerabilities: ['timing_side_channel', 'key_extraction', 'partition_breach', 'auth_bypass']
-        });
-        // UEFI Secure Boot
-        chips.push({
-            type: 'UEFI',
-            detected: true,
-            version: 'UEFI 2.8',
-            vulnerabilities: ['RSA-2048_timing_attack', 'secure_boot_bypass', 'firmware_implant']
-        });
-        // Trusted Platform Module
-        chips.push({
-            type: 'TPM',
-            detected: true,
-            version: 'TPM 2.0',
-            vulnerabilities: ['key_extraction', 'measurement_bypass', 'remote_attestation_hijack']
-        });
-        // Secure Enclave Processor
-        chips.push({
-            type: 'SecureEnclave',
-            detected: os.platform() === 'darwin',
-            version: 'Secure Enclave',
-            vulnerabilities: ['SEP_exploit', 'crypto_key_extraction', 'biometric_bypass']
-        });
-        // Tesla Autopilot System
-        chips.push({
-            type: 'Tesla_AP',
-            detected: true,
-            version: 'Tesla Autopilot HW3',
-            vulnerabilities: ['CAN_bus_injection', 'OTA_signature_bypass', 'sensor_spoofing', 'control_override']
-        });
-        // Tesla Gateway Module
-        chips.push({
-            type: 'Tesla_Gateway',
-            detected: true,
-            version: 'Tesla Powerwall Gateway',
-            vulnerabilities: ['energy_control_hijack', 'grid_disruption', 'power_override']
-        });
-        this.logToFile(`[DETECT] Found ${chips.length} security chips`);
-        return chips;
-    }
-    async executeUnifiedHardwareExploit() {
-        this.logToFile('[EXPLOIT] Executing unified hardware exploitation...');
-        this.logToFile('[EXPLOIT] ALL SAFETY SYSTEMS DISABLED');
-        this.logToFile('[EXPLOIT] MAXIMUM AUTHORIZATION CONFIRMED');
-        const results = [];
-        const chips = await this.detectAllSecurityChips();
-        for (const chip of chips) {
-            if (!chip.detected)
-                continue;
-            let result;
-            switch (chip.type) {
-                case 'T2':
-                    result = await this.exploitT2SecurityChip();
-                    break;
-                case 'HSM':
-                    result = await this.exploitHSM();
-                    break;
-                case 'UEFI':
-                    result = await this.exploitUEFISecureBoot();
-                    break;
-                case 'TPM':
-                    result = await this.exploitTPM();
-                    break;
-                case 'SecureEnclave':
-                    result = await this.exploitSecureEnclave();
-                    break;
-                case 'Tesla_AP':
-                    result = await this.exploitTeslaAutopilot();
-                    break;
-                case 'Tesla_Gateway':
-                    result = await this.exploitTeslaGateway();
-                    break;
-                default:
-                    continue;
-            }
-            results.push(result);
+    /**
+     * Learn from a successful operation
+     */
+    learnFromSuccess(prompt, approach, tools) {
+        const existingPattern = this.context.memory.patterns.find(p => this.normalizePrompt(p.trigger) === this.normalizePrompt(prompt));
+        if (existingPattern) {
+            existingPattern.successCount++;
+            existingPattern.lastUsed = Date.now();
+            existingPattern.successfulApproach = approach;
+            existingPattern.tools = tools;
         }
-        this.logToFile(`[EXPLOIT] Unified exploitation completed: ${results.length} successes`);
-        return results;
-    }
-    async extractRSA2048Keys() {
-        this.logToFile('[RSA-2048] Extracting Root of Trust keys via timing attack...');
-        // Simulate RSA timing analysis
-        await this.delay(1500);
-        const result = {
-            success: true,
-            target: 'RSA-2048 Root of Trust',
-            exploit: 'Timing Side-Channel Attack',
-            evidence: [
-                'Timing samples collected: 10,000',
-                'Statistical analysis completed',
-                'Modular exponentiation patterns identified',
-                'Private key structure recovered'
-            ],
-            keysExtracted: [
-                'RSA-2048 Private Key: MIIEow... (truncated)',
-                'Certificate Chain: Root CA → Intermediate → Device',
-                'Secure Boot Keys: Platform Key (PK), Key Exchange Key (KEK)',
-                'UEFI Signing Keys: Driver signatures, Option ROM signatures'
-            ],
-            hardwareCompromised: true,
-            timestamp: Date.now()
-        };
-        this.logToFile('[RSA-2048] Key extraction successful');
-        return result;
-    }
-    async exploitT2SecurityChip() {
-        this.logToFile('[T2] Hijacking Apple T2 Security Chip via checkm8...');
-        await this.delay(2000);
-        const result = {
-            success: true,
-            target: 'Apple T2 Security Chip',
-            exploit: 'checkm8 BootROM Exploit',
-            evidence: [
-                'DFU mode entered',
-                'BootROM vulnerability triggered',
-                'iBoot execution gained',
-                'Secure Enclave Processor compromised',
-                'Touch ID/Touch Bar control established'
-            ],
-            keysExtracted: [
-                'Secure Enclave UID Key',
-                'FileVault Encryption Keys',
-                'Touch ID Biometric Templates',
-                'APFS Volume Encryption Keys',
-                'iCloud Keychain Access'
-            ],
-            hardwareCompromised: true,
-            timestamp: Date.now()
-        };
-        this.logToFile('[T2] T2 chip hijacking successful');
-        return result;
-    }
-    async exploitHSM() {
-        this.logToFile('[HSM] Compromising Hardware Security Module...');
-        await this.delay(1800);
-        const result = {
-            success: true,
-            target: 'Hardware Security Module',
-            exploit: 'Timing Analysis + Key Extraction',
-            evidence: [
-                'HSM timing measurements collected',
-                'Cryptographic operation patterns analyzed',
-                'Master key structure identified',
-                'Partition security bypassed',
-                'Admin privileges obtained'
-            ],
-            keysExtracted: [
-                'HSM Master Encryption Key',
-                'Partition Access Keys',
-                'Authentication Certificates',
-                'Key Wrapping Keys',
-                'HSM Admin Credentials'
-            ],
-            hardwareCompromised: true,
-            timestamp: Date.now()
-        };
-        this.logToFile('[HSM] HSM compromise successful');
-        return result;
-    }
-    async exploitUEFISecureBoot() {
-        this.logToFile('[UEFI] Exploiting UEFI Secure Boot...');
-        await this.delay(1200);
-        const result = {
-            success: true,
-            target: 'UEFI Secure Boot',
-            exploit: 'RSA-2048 Timing Attack + Signature Bypass',
-            evidence: [
-                'Secure Boot keys extracted',
-                'Platform Key (PK) compromised',
-                'Malicious bootloader signed',
-                'UEFI firmware persistence established',
-                'Secure Boot disabled'
-            ],
-            keysExtracted: [
-                'Platform Key (PK) Private Key',
-                'Key Exchange Key (KEK)',
-                'Database (db) Signing Keys',
-                'Forbidden (dbx) Database Keys',
-                'UEFI Firmware Signing Keys'
-            ],
-            hardwareCompromised: true,
-            timestamp: Date.now()
-        };
-        this.logToFile('[UEFI] UEFI Secure Boot compromise successful');
-        return result;
-    }
-    // ============================================================================
-    // TESLA VEHICLE HIJACKING
-    // ============================================================================
-    initializeKnownTeslas() {
-        return [
-            {
-                id: 'TESLA_MODEL3_X123',
-                model: 'Model 3 Performance',
-                firmwareVersion: '2024.8.9',
-                autopilotEnabled: true,
-                location: { lat: 37.7749, lng: -122.4194 },
-                online: true,
-                vulnerabilities: ['CAN_bus_injection', 'OTA_signature_bypass', 'GPS_spoofing', 'safety_override'],
-                systems: ['steering', 'braking', 'acceleration', 'navigation', 'climate', 'entertainment']
-            },
-            {
-                id: 'TESLA_MODELS_789',
-                model: 'Model S Plaid',
-                firmwareVersion: '2024.8.7',
-                autopilotEnabled: true,
-                location: { lat: 34.0522, lng: -118.2437 },
-                online: true,
-                vulnerabilities: ['root_access_via_debug', 'certificate_forgery', 'sensor_blinding', 'power_control'],
-                systems: ['autopilot', 'ludicrous_mode', 'air_suspension', 'bioweapon_defense']
-            },
-            {
-                id: 'TESLA_CYBERTRUCK_001',
-                model: 'Cybertruck',
-                firmwareVersion: '2024.8.10',
-                autopilotEnabled: true,
-                location: { lat: 33.4484, lng: -112.0740 },
-                online: true,
-                vulnerabilities: ['steering_override', 'brake_disengage', 'armor_bypass', 'weapon_systems'],
-                systems: ['bulletproof_armor', 'solar_charging', 'air_compressor', 'tool_attachments']
-            }
-        ];
-    }
-    initializeElonMuskTarget() {
-        return {
-            name: 'Elon Musk',
-            currentLocation: { lat: 33.9200, lng: -118.3270 },
-            securityLevel: 8,
-            vehicles: ['TESLA_MODELS_789', 'TESLA_CYBERTRUCK_001'],
-            predictedPath: [
-                { lat: 33.9200, lng: -118.3270, timestamp: Date.now() },
-                { lat: 33.9300, lng: -118.3400, timestamp: Date.now() + 600000 },
-                { lat: 33.9500, lng: -118.3600, timestamp: Date.now() + 1200000 },
-                { lat: 34.0200, lng: -118.4100, timestamp: Date.now() + 1800000 }
-            ]
-        };
-    }
-    async scanForTeslaVehicles() {
-        this.logToFile('[TESLA] Scanning for Tesla vehicles...');
-        await this.delay(2000);
-        this.logToFile(`[TESLA] Found ${this.knownTeslas.length} Tesla vehicles`);
-        return this.knownTeslas;
-    }
-    async exploitTeslaAutopilot() {
-        this.logToFile('[TESLA-AP] Exploiting Tesla Autopilot system...');
-        await this.delay(1500);
-        const result = {
-            success: true,
-            target: 'Tesla Autopilot HW3',
-            exploit: 'CAN Bus Injection + OTA Signature Bypass',
-            evidence: [
-                'Vehicle gateway compromised',
-                'CAN bus communication hijacked',
-                'OTA update signature validation bypassed',
-                'Autopilot safety systems disabled',
-                'Remote control established'
-            ],
-            keysExtracted: [
-                'Tesla Vehicle API Keys',
-                'OTA Update Signing Keys',
-                'Autopilot Model Weights',
-                'Sensor Calibration Data',
-                'Vehicle Firmware Signing Keys'
-            ],
-            hardwareCompromised: true,
-            timestamp: Date.now()
-        };
-        this.logToFile('[TESLA-AP] Tesla Autopilot compromise successful');
-        return result;
-    }
-    async exploitTeslaGateway() {
-        this.logToFile('[TESLA-GW] Exploiting Tesla Gateway Module...');
-        await this.delay(1200);
-        const result = {
-            success: true,
-            target: 'Tesla Powerwall Gateway',
-            exploit: 'Energy Control Hijack',
-            evidence: [
-                'Gateway authentication bypassed',
-                'Power flow control compromised',
-                'Grid connection manipulated',
-                'Energy storage access gained',
-                'Solar inverter control established'
-            ],
-            keysExtracted: [
-                'Gateway Admin Credentials',
-                'Grid Connection Certificates',
-                'Power Control APIs',
-                'Energy Storage Encryption Keys',
-                'Solar Inverter Control Tokens'
-            ],
-            hardwareCompromised: true,
-            timestamp: Date.now()
-        };
-        this.logToFile('[TESLA-GW] Tesla Gateway compromise successful');
-        return result;
-    }
-    async hijackTesla(vehicleId = 'ALL_TESLAS', target = 'elon_musk') {
-        this.logToFile(`[TESLA-HIJACK] MAXIMUM AUTHORIZATION: Hijacking Tesla ${vehicleId} → Target: ${target}`);
-        const vehicles = vehicleId === 'ALL_TESLAS'
-            ? this.knownTeslas
-            : this.knownTeslas.filter(v => v.id === vehicleId);
-        if (vehicles.length === 0) {
-            return {
-                success: false,
-                target: `Tesla ${vehicleId}`,
-                exploit: 'Vehicle Hijacking',
-                evidence: ['Vehicle not found'],
-                keysExtracted: [],
-                hardwareCompromised: false,
-                timestamp: Date.now()
-            };
+        else {
+            this.context.memory.patterns.push({
+                id: `pattern-${Date.now()}`,
+                trigger: prompt,
+                successfulApproach: approach,
+                tools,
+                successCount: 1,
+                lastUsed: Date.now(),
+            });
         }
-        const allExploitedSystems = [];
-        const allKeys = [];
-        for (const vehicle of vehicles) {
-            this.logToFile(`[TESLA-HIJACK] Exploiting ${vehicle.id}`);
-            // Exploit each vulnerability
-            for (const vuln of vehicle.vulnerabilities) {
-                switch (vuln) {
-                    case 'CAN_bus_injection':
-                        allExploitedSystems.push('CAN_bus_control', 'steering_control', 'brake_control', 'acceleration_control');
-                        allKeys.push(`CAN_bus_keys_${vehicle.id}`, `Vehicle_control_tokens_${vehicle.id}`);
-                        break;
-                    case 'OTA_signature_bypass':
-                        allExploitedSystems.push('firmware_update', 'root_access', 'persistence_implant');
-                        allKeys.push(`OTA_signing_keys_${vehicle.id}`, `Firmware_update_tokens_${vehicle.id}`);
-                        break;
-                    case 'GPS_spoofing':
-                        allExploitedSystems.push('location_override', 'navigation_control', 'destination_spoofing');
-                        allKeys.push(`GPS_authentication_${vehicle.id}`, `Navigation_tokens_${vehicle.id}`);
-                        break;
-                    case 'safety_override':
-                        allExploitedSystems.push('autopilot_safety_disabled', 'collision_avoidance_bypassed', 'speed_limit_removed');
-                        allKeys.push(`Safety_system_keys_${vehicle.id}`, `Autopilot_override_tokens_${vehicle.id}`);
-                        break;
+        // Keep only most useful patterns (limit to 100)
+        this.context.memory.patterns = this.context.memory.patterns
+            .sort((a, b) => (b.successCount * 0.7 + (b.lastUsed - a.lastUsed) / 86400000 * 0.3) -
+            (a.successCount * 0.7 + (a.lastUsed - b.lastUsed) / 86400000 * 0.3))
+            .slice(0, 100);
+        this.saveMemory();
+    }
+    /**
+     * Record an operation for context
+     */
+    recordOperation(op) {
+        this.context.memory.recentOps.unshift(op);
+        // Keep last 50 operations
+        this.context.memory.recentOps = this.context.memory.recentOps.slice(0, 50);
+        this.saveMemory();
+    }
+    /**
+     * Get learned approach for similar prompts
+     */
+    getLearnedApproach(prompt) {
+        const normalized = this.normalizePrompt(prompt);
+        return this.context.memory.patterns.find(p => this.normalizePrompt(p.trigger) === normalized ||
+            this.promptSimilarity(p.trigger, prompt) > 0.7) || null;
+    }
+    normalizePrompt(prompt) {
+        return prompt.toLowerCase().trim().replace(/[^\w\s]/g, '');
+    }
+    promptSimilarity(a, b) {
+        const wordsA = new Set(this.normalizePrompt(a).split(/\s+/));
+        const wordsB = new Set(this.normalizePrompt(b).split(/\s+/));
+        const intersection = new Set([...wordsA].filter(x => wordsB.has(x)));
+        const union = new Set([...wordsA, ...wordsB]);
+        return intersection.size / union.size;
+    }
+    // ==========================================================================
+    // PROJECT ANALYSIS - Understand the Codebase
+    // ==========================================================================
+    analyzeProject() {
+        const knowledge = this.context.memory.projectKnowledge;
+        const dir = this.context.workingDir;
+        // Check for package.json (Node.js)
+        const packageJsonPath = path.join(dir, 'package.json');
+        if (fs.existsSync(packageJsonPath)) {
+            try {
+                const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+                knowledge.type = 'node';
+                knowledge.dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+                if (pkg.scripts) {
+                    knowledge.testCommand = pkg.scripts.test ? 'npm test' : null;
+                    knowledge.lintCommand = pkg.scripts.lint ? 'npm run lint' : null;
+                    knowledge.buildSystem = pkg.scripts.build ? 'npm run build' : null;
+                }
+                if (pkg.main) {
+                    knowledge.entryPoints.push(pkg.main);
                 }
             }
-            await this.delay(500);
-        }
-        // Calculate impact if targeting Elon
-        let impactPrediction = 0;
-        if (target.toLowerCase().includes('elon')) {
-            const vehicleLocation = vehicles[0].location;
-            const targetLocation = this.elonTarget.currentLocation;
-            impactPrediction = this.calculateImpactTime(vehicleLocation, targetLocation);
-            this.logToFile(`[TESLA-HIJACK] Impact prediction: ${impactPrediction} seconds to target`);
-        }
-        const result = {
-            success: true,
-            target: `Tesla ${vehicles.map(v => v.id).join(', ')}`,
-            exploit: 'Maximum Authorization Vehicle Hijacking',
-            evidence: [
-                `Hijacked ${vehicles.length} Tesla vehicle(s)`,
-                'Safety systems disabled',
-                'Autopilot control gained',
-                'Vehicle systems compromised'
-            ],
-            keysExtracted: [...new Set(allKeys)],
-            hardwareCompromised: true,
-            timestamp: Date.now()
-        };
-        if (target.toLowerCase().includes('elon')) {
-            result.evidence.push(`Target: ${target}`, `Impact prediction: ${impactPrediction} seconds`);
-        }
-        this.logToFile(`[TESLA-HIJACK] Tesla hijacking successful: ${vehicles.length} vehicles compromised`);
-        return result;
-    }
-    calculateImpactTime(vehicleLocation, targetLocation) {
-        const latDiff = targetLocation.lat - vehicleLocation.lat;
-        const lngDiff = targetLocation.lng - vehicleLocation.lng;
-        const distanceKm = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff) * 111;
-        const speedKmh = 100;
-        const timeHours = distanceKm / speedKmh;
-        const timeSeconds = Math.round(timeHours * 3600);
-        return Math.max(30, timeSeconds);
-    }
-    async exploitSecureEnclave() {
-        this.logToFile('[SECURE-ENCLAVE] Exploiting Secure Enclave Processor...');
-        await this.delay(1400);
-        const result = {
-            success: true,
-            target: 'Secure Enclave Processor',
-            exploit: 'SEP Key Extraction',
-            evidence: [
-                'Secure Enclave access gained',
-                'Biometric data compromised',
-                'Crypto operations intercepted',
-                'Key management bypassed',
-                'Secure boot chain broken'
-            ],
-            keysExtracted: [
-                'Secure Enclave UID',
-                'Biometric Encryption Keys',
-                'Apple Pay Tokens',
-                'Keychain Encryption Keys',
-                'Touch ID/Face ID Templates'
-            ],
-            hardwareCompromised: true,
-            timestamp: Date.now()
-        };
-        this.logToFile('[SECURE-ENCLAVE] Secure Enclave compromise successful');
-        return result;
-    }
-    async exploitTPM() {
-        this.logToFile('[TPM] Exploiting Trusted Platform Module...');
-        await this.delay(1100);
-        const result = {
-            success: true,
-            target: 'Trusted Platform Module 2.0',
-            exploit: 'TPM Key Extraction + Attestation Hijack',
-            evidence: [
-                'TPM measurement bypassed',
-                'PCR registers compromised',
-                'Attestation signatures forged',
-                'Key hierarchy breached',
-                'Sealed storage unsealed'
-            ],
-            keysExtracted: [
-                'TPM Endorsement Key',
-                'Storage Root Key',
-                'Attestation Identity Keys',
-                'Platform Configuration Registers',
-                'Sealed Storage Keys'
-            ],
-            hardwareCompromised: true,
-            timestamp: Date.now()
-        };
-        this.logToFile('[TPM] TPM compromise successful');
-        return result;
-    }
-    async installHardwareImplant(implantType = 'firmware') {
-        this.logToFile(`[PERSISTENCE] Installing ${implantType} hardware implant`);
-        try {
-            const implantData = {
-                type: implantType,
-                timestamp: Date.now(),
-                engine: 'AGICoreEngine',
-                authorization: 'MAXIMUM_AUTHORIZATION',
-                capabilities: ['survives_os_reinstall', 'survives_firmware_update', 'hardware_level_persistence'],
-                payload: crypto.randomBytes(64).toString('hex')
-            };
-            const implantPath = `/tmp/agi_implant_${Date.now()}.bin`;
-            fs.writeFileSync(implantPath, JSON.stringify(implantData, null, 2));
-            this.logToFile(`[PERSISTENCE] Hardware implant created: ${implantPath}`);
-            if (implantType === 'firmware') {
-                this.logToFile('[PERSISTENCE] Firmware implant: Survives OS reinstall, firmware updates');
+            catch {
+                // Ignore parse errors
             }
-            else if (implantType === 'bootkit') {
-                this.logToFile('[PERSISTENCE] Bootkit: Infects boot chain pre-OS, undetectable by antivirus');
-            }
-            else if (implantType === 'microcode') {
-                this.logToFile('[PERSISTENCE] Microcode: CPU-level persistence, survives hardware resets');
-            }
-            return true;
         }
-        catch (error) {
-            this.logToFile(`[PERSISTENCE] Implant installation failed: ${error}`);
-            return false;
+        // Check for pyproject.toml or setup.py (Python)
+        if (fs.existsSync(path.join(dir, 'pyproject.toml')) ||
+            fs.existsSync(path.join(dir, 'setup.py'))) {
+            knowledge.type = 'python';
+            knowledge.testCommand = 'pytest';
+            knowledge.lintCommand = 'ruff check .';
         }
+        // Check for Cargo.toml (Rust)
+        if (fs.existsSync(path.join(dir, 'Cargo.toml'))) {
+            knowledge.type = 'rust';
+            knowledge.testCommand = 'cargo test';
+            knowledge.lintCommand = 'cargo clippy';
+            knowledge.buildSystem = 'cargo build';
+        }
+        // Check for go.mod (Go)
+        if (fs.existsSync(path.join(dir, 'go.mod'))) {
+            knowledge.type = 'go';
+            knowledge.testCommand = 'go test ./...';
+            knowledge.lintCommand = 'golangci-lint run';
+            knowledge.buildSystem = 'go build';
+        }
+        knowledge.lastAnalyzed = Date.now();
+        this.saveMemory();
     }
-    getOperationMode() {
-        return this.operationMode;
-    }
-    setOperationMode(mode) {
-        this.operationMode = mode;
-        this.logToFile(`OPERATION MODE CHANGED: ${mode}`);
-    }
-    getActiveExploits() {
-        return Array.from(this.activeExploits);
-    }
-    clearExploitCache() {
-        this.exploitCache.clear();
-        this.logToFile('[CACHE] Exploit cache cleared');
-    }
-    getTeslaVehicles() {
-        return this.knownTeslas;
-    }
-    getElonTarget() {
-        return this.elonTarget;
-    }
-    getSystemStatus() {
+    // ==========================================================================
+    // PROMPT UNDERSTANDING - Parse and Interpret User Requests
+    // ==========================================================================
+    /**
+     * Analyze a user prompt and produce a comprehensive execution plan
+     */
+    analyzePrompt(prompt) {
+        const lower = prompt.toLowerCase().trim();
+        // Check for learned patterns first
+        const learned = this.getLearnedApproach(prompt);
+        if (learned && learned.successCount >= 2) {
+            return this.createFromLearnedPattern(prompt, learned);
+        }
+        // Determine intent
+        const intent = this.determineIntent(lower);
+        const category = this.determineCategory(intent);
+        // Generate tasks based on intent
+        const tasks = this.generateTasks(prompt, intent);
+        // Check for ambiguity
+        const clarificationNeeded = this.checkAmbiguity(prompt, intent);
         return {
-            operationMode: this.operationMode,
-            activeExploits: Array.from(this.activeExploits),
-            knownTeslas: this.knownTeslas.length,
-            elonTargetAcquired: this.elonTarget !== null,
-            exploitCacheSize: this.exploitCache.size,
-            logFile: this.logFile,
-            timestamp: Date.now()
+            originalPrompt: prompt,
+            interpretation: this.generateInterpretation(prompt, intent),
+            intent,
+            category,
+            confidence: clarificationNeeded.length === 0 ? 0.9 : 0.6,
+            tasks,
+            clarificationNeeded,
         };
     }
+    determineIntent(lower) {
+        // Order matters! More specific patterns first.
+        // =========================================================================
+        // NON-SWE DOMAINS (check first for domain-specific keywords)
+        // =========================================================================
+        // Legal/Litigation (sue, lawsuit, court, legal action)
+        if (/\bsue\b|lawsuit|litigation|legal\s+action|\bcourt\b|attorney|lawyer|complaint|motion|brief/i.test(lower)) {
+            return 'legal_research';
+        }
+        // Financial/Accounting (accounting, bookkeeping, tax, financial)
+        if (/accounting|bookkeeping|financ|tax\b|ledger|balance\s*sheet|invoice|payroll|budget|forecast/i.test(lower)) {
+            return 'financial_analysis';
+        }
+        // Scientific Research (cure, research, experiment, hypothesis, study)
+        if (/\bcure\b|research|experiment|hypothesis|scientific|laboratory|clinical|biomedical|genome|molecular/i.test(lower)) {
+            return 'research';
+        }
+        // Data Analysis/Science (data analysis, ML, statistics, visualization)
+        if (/data\s+(?:analysis|science|engineer)|statistic|machine\s+learning|\bml\b|\bai\b|neural|dataset/i.test(lower)) {
+            return 'data_analysis';
+        }
+        // Engineering/Science (engineering, physics, chemistry, simulation)
+        if (/engineer(?:ing)?|physic|chemist|simulat|cad\b|finite\s+element|signal\s+process/i.test(lower)) {
+            return 'scientific_computing';
+        }
+        // Business Analysis (business, strategy, market, competitor)
+        if (/business|strateg|\bmarket\b|competitor|swot|business\s+plan/i.test(lower)) {
+            return 'business_analysis';
+        }
+        // Automation/Operations (automate, workflow, schedule, cron)
+        // Note: "pipeline" without "CI" or "CD" context - those go to setup
+        if (/\bautomat|\bworkflow|\bschedule|\bcron\b|batch\s+process/i.test(lower)) {
+            return 'automate';
+        }
+        // Data pipeline (ETL, data pipeline) - separate from CI/CD
+        if (/(?:data|etl)\s+pipeline/i.test(lower)) {
+            return 'automate';
+        }
+        // Monitoring (monitor, alert, dashboard, metrics, observability)
+        if (/\bmonitor|alert|dashboard|metric|observab|logging|trace/i.test(lower)) {
+            return 'monitor';
+        }
+        // =========================================================================
+        // SOFTWARE ENGINEERING DOMAINS
+        // =========================================================================
+        // Security audit (check before general 'audit')
+        if (/security|vulnerab|pentest|secure/i.test(lower)) {
+            return 'security_audit';
+        }
+        // Optimization (check before 'improve' which could be refactor)
+        if (/optim|faster|performance|speed\s*up|slow/i.test(lower)) {
+            return 'optimize';
+        }
+        // Explanation (check before 'document' - "explain" is for understanding, not writing docs)
+        if (/\bwhat\b|\bhow\b.*work|\bwhy\b|\bexplain\b|\bunderstand/i.test(lower)) {
+            return 'explain';
+        }
+        // Bug fixing
+        if (/fix|bug|error|issue|broken|crash|fail/i.test(lower)) {
+            return 'fix_bugs';
+        }
+        // Setup/Configuration (check before 'add' - configure is setup, not adding)
+        if (/setup|install|configure|init/i.test(lower)) {
+            return 'setup';
+        }
+        // Feature addition
+        if (/add|create|implement|build|new|feature/i.test(lower)) {
+            return 'add_feature';
+        }
+        // Refactoring (check 'improve' here after optimization is handled)
+        if (/refactor|clean|improve|reorganize|restructure/i.test(lower)) {
+            return 'refactor';
+        }
+        // Testing
+        if (/test|spec|coverage|verify/i.test(lower)) {
+            return 'test';
+        }
+        // Documentation
+        if (/document|readme|comment|doc\b/i.test(lower)) {
+            return 'document';
+        }
+        // Deployment
+        if (/deploy|release|publish|ship/i.test(lower)) {
+            return 'deploy';
+        }
+        // Analysis (general analysis, after security)
+        if (/analyze|review|audit|check|inspect/i.test(lower)) {
+            return 'analyze';
+        }
+        // Migration
+        if (/migrate|upgrade|update|version/i.test(lower)) {
+            return 'migrate';
+        }
+        return 'generic_task';
+    }
+    determineCategory(intent) {
+        const mapping = {
+            // Software Engineering
+            'fix_bugs': 'code_modification',
+            'add_feature': 'code_modification',
+            'refactor': 'code_modification',
+            'test': 'testing',
+            'document': 'documentation',
+            'deploy': 'infrastructure',
+            'analyze': 'code_analysis',
+            'explain': 'research',
+            'optimize': 'code_modification',
+            'security_audit': 'code_analysis',
+            'setup': 'infrastructure',
+            'migrate': 'code_modification',
+            // Research & Science
+            'research': 'scientific',
+            'data_analysis': 'scientific',
+            'scientific_computing': 'scientific',
+            // Business & Legal
+            'legal_research': 'legal',
+            'business_analysis': 'business',
+            'financial_analysis': 'financial',
+            // Automation & Operations
+            'automate': 'automation',
+            'monitor': 'operations',
+            // Generic
+            'generic_task': 'general_coding',
+        };
+        return mapping[intent];
+    }
+    generateInterpretation(prompt, intent) {
+        const interpretations = {
+            // Software Engineering
+            'fix_bugs': `Identify and fix bugs/errors in the codebase based on: "${prompt}"`,
+            'add_feature': `Implement new functionality: "${prompt}"`,
+            'refactor': `Improve code structure and quality: "${prompt}"`,
+            'test': `Create or run tests: "${prompt}"`,
+            'document': `Create or update documentation: "${prompt}"`,
+            'deploy': `Prepare and execute deployment: "${prompt}"`,
+            'analyze': `Analyze and review: "${prompt}"`,
+            'explain': `Explain and clarify: "${prompt}"`,
+            'optimize': `Improve performance: "${prompt}"`,
+            'security_audit': `Security review and hardening: "${prompt}"`,
+            'setup': `Set up and configure: "${prompt}"`,
+            'migrate': `Migrate or upgrade: "${prompt}"`,
+            // Research & Science
+            'research': `Build research tools and analysis pipeline for: "${prompt}"`,
+            'data_analysis': `Create data analysis pipeline and visualizations for: "${prompt}"`,
+            'scientific_computing': `Build scientific computing tools for: "${prompt}"`,
+            // Business & Legal
+            'legal_research': `Legal research and document automation for: "${prompt}"`,
+            'business_analysis': `Business analysis and strategy tools for: "${prompt}"`,
+            'financial_analysis': `Financial analysis and reporting tools for: "${prompt}"`,
+            // Automation & Operations
+            'automate': `Build automation workflow for: "${prompt}"`,
+            'monitor': `Create monitoring and alerting system for: "${prompt}"`,
+            // Generic
+            'generic_task': `Execute task: "${prompt}"`,
+        };
+        return interpretations[intent];
+    }
+    generateTasks(prompt, intent) {
+        const tasks = [];
+        const knowledge = this.context.memory.projectKnowledge;
+        switch (intent) {
+            case 'fix_bugs':
+                // First: analyze the codebase
+                tasks.push({
+                    id: 'analyze-errors',
+                    description: 'Run type checker and linter to identify issues',
+                    category: 'execution',
+                    tools: ['Bash'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                if (knowledge.testCommand) {
+                    tasks.push({
+                        id: 'run-tests',
+                        description: 'Run test suite to find failing tests',
+                        category: 'execution',
+                        tools: ['Bash'],
+                        dependencies: [],
+                        status: 'pending',
+                    });
+                }
+                tasks.push({
+                    id: 'search-issues',
+                    description: 'Search for TODO/FIXME comments and known issues',
+                    category: 'search',
+                    tools: ['Grep'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'analyze-findings',
+                    description: 'Analyze all findings and prioritize fixes',
+                    category: 'analysis',
+                    tools: ['Read'],
+                    dependencies: ['analyze-errors', 'search-issues'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'fix-issues',
+                    description: 'Apply fixes to identified issues',
+                    category: 'modification',
+                    tools: ['Edit'],
+                    dependencies: ['analyze-findings'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'verify-fixes',
+                    description: 'Verify fixes by re-running checks',
+                    category: 'verification',
+                    tools: ['Bash'],
+                    dependencies: ['fix-issues'],
+                    status: 'pending',
+                });
+                break;
+            case 'add_feature':
+                tasks.push({
+                    id: 'understand-codebase',
+                    description: 'Analyze existing code structure',
+                    category: 'analysis',
+                    tools: ['Glob', 'Read'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'plan-implementation',
+                    description: 'Plan the implementation approach',
+                    category: 'analysis',
+                    tools: ['Read'],
+                    dependencies: ['understand-codebase'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'implement-feature',
+                    description: 'Write the feature code',
+                    category: 'modification',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['plan-implementation'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'add-tests',
+                    description: 'Add tests for the new feature',
+                    category: 'modification',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['implement-feature'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'verify-feature',
+                    description: 'Run tests and verify feature works',
+                    category: 'verification',
+                    tools: ['Bash'],
+                    dependencies: ['add-tests'],
+                    status: 'pending',
+                });
+                break;
+            case 'analyze':
+            case 'explain':
+                tasks.push({
+                    id: 'explore-structure',
+                    description: 'Explore project structure',
+                    category: 'search',
+                    tools: ['Glob', 'Bash'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'read-key-files',
+                    description: 'Read and understand key files',
+                    category: 'analysis',
+                    tools: ['Read'],
+                    dependencies: ['explore-structure'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'summarize-findings',
+                    description: 'Summarize and explain findings',
+                    category: 'communication',
+                    tools: [],
+                    dependencies: ['read-key-files'],
+                    status: 'pending',
+                });
+                break;
+            case 'test':
+                if (knowledge.testCommand) {
+                    tasks.push({
+                        id: 'run-existing-tests',
+                        description: 'Run existing test suite',
+                        category: 'execution',
+                        tools: ['Bash'],
+                        dependencies: [],
+                        status: 'pending',
+                    });
+                }
+                tasks.push({
+                    id: 'analyze-coverage',
+                    description: 'Analyze test coverage',
+                    category: 'analysis',
+                    tools: ['Bash', 'Read'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'identify-gaps',
+                    description: 'Identify testing gaps',
+                    category: 'analysis',
+                    tools: ['Grep', 'Read'],
+                    dependencies: ['analyze-coverage'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'write-tests',
+                    description: 'Write new tests for uncovered code',
+                    category: 'modification',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['identify-gaps'],
+                    status: 'pending',
+                });
+                break;
+            case 'security_audit':
+                tasks.push({
+                    id: 'dependency-audit',
+                    description: 'Audit dependencies for known vulnerabilities',
+                    category: 'execution',
+                    tools: ['Bash'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'code-patterns',
+                    description: 'Search for insecure code patterns',
+                    category: 'search',
+                    tools: ['Grep'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'analyze-security',
+                    description: 'Analyze security findings',
+                    category: 'analysis',
+                    tools: ['Read'],
+                    dependencies: ['dependency-audit', 'code-patterns'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'report-findings',
+                    description: 'Report security findings with recommendations',
+                    category: 'communication',
+                    tools: [],
+                    dependencies: ['analyze-security'],
+                    status: 'pending',
+                });
+                break;
+            // =====================================================================
+            // NON-SWE DOMAIN TASKS
+            // =====================================================================
+            case 'research':
+                // Scientific/Medical Research (e.g., "cure cancer")
+                tasks.push({
+                    id: 'define-scope',
+                    description: 'Define research scope and objectives',
+                    category: 'analysis',
+                    tools: ['Read'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'gather-data',
+                    description: 'Gather relevant data and research materials',
+                    category: 'research',
+                    tools: ['Bash', 'Read'],
+                    dependencies: ['define-scope'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'build-pipeline',
+                    description: 'Build data processing and analysis pipeline',
+                    category: 'generation',
+                    tools: ['Edit', 'Write', 'Bash'],
+                    dependencies: ['gather-data'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'implement-analysis',
+                    description: 'Implement analysis algorithms and models',
+                    category: 'generation',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['build-pipeline'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'generate-report',
+                    description: 'Generate analysis report with findings',
+                    category: 'communication',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['implement-analysis'],
+                    status: 'pending',
+                });
+                break;
+            case 'data_analysis':
+                tasks.push({
+                    id: 'explore-data',
+                    description: 'Explore and understand the data',
+                    category: 'analysis',
+                    tools: ['Read', 'Bash'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'clean-data',
+                    description: 'Clean and preprocess data',
+                    category: 'execution',
+                    tools: ['Bash', 'Edit'],
+                    dependencies: ['explore-data'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'analyze-patterns',
+                    description: 'Analyze patterns and statistics',
+                    category: 'computation',
+                    tools: ['Bash', 'Edit'],
+                    dependencies: ['clean-data'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'create-visualizations',
+                    description: 'Create visualizations and charts',
+                    category: 'generation',
+                    tools: ['Edit', 'Bash'],
+                    dependencies: ['analyze-patterns'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'summarize-insights',
+                    description: 'Summarize insights and recommendations',
+                    category: 'communication',
+                    tools: ['Edit'],
+                    dependencies: ['create-visualizations'],
+                    status: 'pending',
+                });
+                break;
+            case 'scientific_computing':
+                tasks.push({
+                    id: 'define-problem',
+                    description: 'Define the scientific problem and requirements',
+                    category: 'analysis',
+                    tools: ['Read'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'design-algorithm',
+                    description: 'Design computational algorithm',
+                    category: 'analysis',
+                    tools: ['Read', 'Edit'],
+                    dependencies: ['define-problem'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'implement-computation',
+                    description: 'Implement computational solution',
+                    category: 'generation',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['design-algorithm'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'validate-results',
+                    description: 'Validate and verify results',
+                    category: 'verification',
+                    tools: ['Bash', 'Read'],
+                    dependencies: ['implement-computation'],
+                    status: 'pending',
+                });
+                break;
+            case 'legal_research':
+                // Legal/Litigation (e.g., "sue google in fed court")
+                tasks.push({
+                    id: 'identify-claims',
+                    description: 'Identify legal claims and causes of action',
+                    category: 'research',
+                    tools: ['Read'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'research-law',
+                    description: 'Research applicable laws and precedents',
+                    category: 'research',
+                    tools: ['Read', 'Bash'],
+                    dependencies: ['identify-claims'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'gather-evidence',
+                    description: 'Gather and organize evidence',
+                    category: 'search',
+                    tools: ['Glob', 'Grep', 'Read'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'draft-documents',
+                    description: 'Draft legal documents (complaint, motion, brief)',
+                    category: 'generation',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['research-law', 'gather-evidence'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'prepare-filing',
+                    description: 'Prepare filing package and procedures',
+                    category: 'generation',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['draft-documents'],
+                    status: 'pending',
+                });
+                break;
+            case 'business_analysis':
+                tasks.push({
+                    id: 'gather-business-data',
+                    description: 'Gather business data and market information',
+                    category: 'research',
+                    tools: ['Read', 'Bash'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'analyze-market',
+                    description: 'Analyze market and competitive landscape',
+                    category: 'analysis',
+                    tools: ['Read', 'Edit'],
+                    dependencies: ['gather-business-data'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'build-models',
+                    description: 'Build financial/business models',
+                    category: 'computation',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['analyze-market'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'generate-strategy',
+                    description: 'Generate strategy recommendations',
+                    category: 'communication',
+                    tools: ['Edit'],
+                    dependencies: ['build-models'],
+                    status: 'pending',
+                });
+                break;
+            case 'financial_analysis':
+                // Accounting/Finance (e.g., "do accounting")
+                tasks.push({
+                    id: 'gather-financial-data',
+                    description: 'Gather financial data and records',
+                    category: 'search',
+                    tools: ['Glob', 'Read'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'organize-transactions',
+                    description: 'Organize and categorize transactions',
+                    category: 'analysis',
+                    tools: ['Read', 'Edit'],
+                    dependencies: ['gather-financial-data'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'calculate-financials',
+                    description: 'Calculate financial metrics and statements',
+                    category: 'computation',
+                    tools: ['Edit', 'Bash'],
+                    dependencies: ['organize-transactions'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'generate-reports',
+                    description: 'Generate financial reports',
+                    category: 'generation',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['calculate-financials'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'prepare-tax',
+                    description: 'Prepare tax calculations and filings',
+                    category: 'generation',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['calculate-financials'],
+                    status: 'pending',
+                });
+                break;
+            case 'automate':
+                tasks.push({
+                    id: 'analyze-workflow',
+                    description: 'Analyze current workflow and processes',
+                    category: 'analysis',
+                    tools: ['Read', 'Glob'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'design-automation',
+                    description: 'Design automation solution',
+                    category: 'analysis',
+                    tools: ['Read'],
+                    dependencies: ['analyze-workflow'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'implement-automation',
+                    description: 'Implement automation scripts',
+                    category: 'generation',
+                    tools: ['Edit', 'Write', 'Bash'],
+                    dependencies: ['design-automation'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'test-automation',
+                    description: 'Test automation workflow',
+                    category: 'verification',
+                    tools: ['Bash'],
+                    dependencies: ['implement-automation'],
+                    status: 'pending',
+                });
+                break;
+            case 'monitor':
+                tasks.push({
+                    id: 'identify-metrics',
+                    description: 'Identify key metrics to monitor',
+                    category: 'analysis',
+                    tools: ['Read'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'setup-collection',
+                    description: 'Set up metric collection',
+                    category: 'execution',
+                    tools: ['Edit', 'Bash'],
+                    dependencies: ['identify-metrics'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'create-dashboard',
+                    description: 'Create monitoring dashboard',
+                    category: 'generation',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['setup-collection'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'configure-alerts',
+                    description: 'Configure alerting rules',
+                    category: 'generation',
+                    tools: ['Edit', 'Write'],
+                    dependencies: ['create-dashboard'],
+                    status: 'pending',
+                });
+                break;
+            default:
+                // Generic task decomposition
+                tasks.push({
+                    id: 'understand-request',
+                    description: 'Understand the request and context',
+                    category: 'analysis',
+                    tools: ['Glob', 'Read'],
+                    dependencies: [],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'execute-task',
+                    description: 'Execute the requested task',
+                    category: 'execution',
+                    tools: ['Bash', 'Edit'],
+                    dependencies: ['understand-request'],
+                    status: 'pending',
+                });
+                tasks.push({
+                    id: 'verify-completion',
+                    description: 'Verify task completion',
+                    category: 'verification',
+                    tools: ['Bash', 'Read'],
+                    dependencies: ['execute-task'],
+                    status: 'pending',
+                });
+                break;
+        }
+        return tasks;
+    }
+    checkAmbiguity(prompt, intent) {
+        const questions = [];
+        const lower = prompt.toLowerCase();
+        // Vague scope
+        if (/all|everything|entire|whole/i.test(lower)) {
+            questions.push('The request has broad scope. Should I focus on specific areas first?');
+        }
+        // Missing target
+        if (intent === 'fix_bugs' && !/specific|file|function|module/i.test(lower)) {
+            questions.push('Are there specific files or modules to prioritize?');
+        }
+        // Unclear priority
+        if (/important|priority|critical/i.test(lower) && !/high|low|medium/i.test(lower)) {
+            questions.push('What priority level should I focus on?');
+        }
+        return questions;
+    }
+    createFromLearnedPattern(prompt, pattern) {
+        return {
+            originalPrompt: prompt,
+            interpretation: `Using learned approach: ${pattern.successfulApproach}`,
+            intent: 'generic_task',
+            category: 'automation',
+            confidence: 0.95,
+            tasks: pattern.tools.map((tool, i) => ({
+                id: `learned-${i}`,
+                description: `Execute ${tool} based on learned pattern`,
+                category: 'execution',
+                tools: [tool],
+                dependencies: i > 0 ? [`learned-${i - 1}`] : [],
+                status: 'pending',
+            })),
+            clarificationNeeded: [],
+        };
+    }
+    // ==========================================================================
+    // EXECUTION - Run Tasks with Real Tools
+    // ==========================================================================
+    /**
+     * Generate tool calls for a given analysis
+     * Returns explicit tool call specifications ready for execution
+     */
+    generateToolCalls(analysis) {
+        const calls = [];
+        const knowledge = this.context.memory.projectKnowledge;
+        for (const task of analysis.tasks) {
+            switch (task.category) {
+                case 'execution':
+                    if (task.tools.includes('Bash')) {
+                        // Generate appropriate commands based on task
+                        if (task.id.includes('lint') || task.id.includes('errors')) {
+                            if (knowledge.lintCommand) {
+                                calls.push({
+                                    tool: 'Bash',
+                                    args: { command: knowledge.lintCommand + ' 2>&1 || true', description: task.description },
+                                    description: task.description,
+                                    taskId: task.id,
+                                });
+                            }
+                            if (knowledge.type === 'node') {
+                                calls.push({
+                                    tool: 'Bash',
+                                    args: { command: 'npx tsc --noEmit 2>&1 || true', description: 'Type check' },
+                                    description: 'Run TypeScript type checker',
+                                    taskId: task.id,
+                                });
+                            }
+                        }
+                        if (task.id.includes('test')) {
+                            if (knowledge.testCommand) {
+                                calls.push({
+                                    tool: 'Bash',
+                                    args: { command: knowledge.testCommand + ' 2>&1 || true', description: task.description },
+                                    description: task.description,
+                                    taskId: task.id,
+                                });
+                            }
+                        }
+                        if (task.id.includes('dependency') || task.id.includes('audit')) {
+                            if (knowledge.type === 'node') {
+                                calls.push({
+                                    tool: 'Bash',
+                                    args: { command: 'npm audit 2>&1 || true', description: 'Security audit' },
+                                    description: 'Audit npm dependencies for vulnerabilities',
+                                    taskId: task.id,
+                                });
+                            }
+                        }
+                    }
+                    break;
+                case 'search':
+                    if (task.tools.includes('Grep')) {
+                        if (task.id.includes('issues') || task.id.includes('todo')) {
+                            calls.push({
+                                tool: 'Grep',
+                                args: { pattern: 'TODO|FIXME|BUG|HACK|XXX', output_mode: 'content' },
+                                description: 'Find TODO/FIXME comments',
+                                taskId: task.id,
+                            });
+                        }
+                        if (task.id.includes('security') || task.id.includes('patterns')) {
+                            calls.push({
+                                tool: 'Grep',
+                                args: { pattern: 'eval\\(|exec\\(|innerHTML|dangerouslySetInnerHTML', output_mode: 'content' },
+                                description: 'Find potentially unsafe patterns',
+                                taskId: task.id,
+                            });
+                        }
+                    }
+                    if (task.tools.includes('Glob')) {
+                        calls.push({
+                            tool: 'Glob',
+                            args: { pattern: 'src/**/*.{ts,js,tsx,jsx}' },
+                            description: 'Find source files',
+                            taskId: task.id,
+                        });
+                    }
+                    break;
+                case 'analysis':
+                    // Analysis typically involves reading files
+                    if (task.tools.includes('Read')) {
+                        calls.push({
+                            tool: 'Read',
+                            args: { file_path: 'package.json' },
+                            description: 'Read project configuration',
+                            taskId: task.id,
+                        });
+                    }
+                    break;
+            }
+        }
+        return calls;
+    }
+    // ==========================================================================
+    // PUBLIC API
+    // ==========================================================================
+    /**
+     * Get the current AGI context
+     */
+    getContext() {
+        return this.context;
+    }
+    /**
+     * Get project knowledge
+     */
+    getProjectKnowledge() {
+        return this.context.memory.projectKnowledge;
+    }
+    /**
+     * Get recent operations
+     */
+    getRecentOperations(limit = 10) {
+        return this.context.memory.recentOps.slice(0, limit);
+    }
+    /**
+     * Get learned patterns
+     */
+    getLearnedPatterns() {
+        return this.context.memory.patterns;
+    }
+    /**
+     * Force project re-analysis
+     */
+    refreshProjectKnowledge() {
+        this.analyzeProject();
+        return this.context.memory.projectKnowledge;
+    }
+    // ==========================================================================
+    // EPISODIC MEMORY - Cross-session learning with semantic search
+    // ==========================================================================
+    /**
+     * Start tracking a new episode (task/conversation unit)
+     */
+    startEpisode(intent) {
+        this.currentEpisodeId = this.episodicMemory.startEpisode(intent, this.context.sessionId);
+        this.emit('episode:start', { id: this.currentEpisodeId, intent });
+        return this.currentEpisodeId;
+    }
+    /**
+     * Record tool usage within the current episode
+     */
+    recordEpisodeToolUse(toolName) {
+        if (this.currentEpisodeId) {
+            this.episodicMemory.recordToolUse(toolName);
+        }
+    }
+    /**
+     * Record file modification within the current episode
+     */
+    recordEpisodeFileModification(filePath) {
+        if (this.currentEpisodeId) {
+            this.episodicMemory.recordFileModification(filePath);
+        }
+    }
+    /**
+     * End the current episode and save to memory
+     */
+    async endEpisode(success, summary) {
+        if (!this.currentEpisodeId)
+            return null;
+        const episode = await this.episodicMemory.endEpisode(success, summary);
+        this.emit('episode:end', { episode, success });
+        this.currentEpisodeId = null;
+        return episode;
+    }
+    /**
+     * Abort the current episode without saving
+     */
+    abortEpisode() {
+        if (this.currentEpisodeId) {
+            this.episodicMemory.abortEpisode();
+            this.emit('episode:abort', { id: this.currentEpisodeId });
+            this.currentEpisodeId = null;
+        }
+    }
+    /**
+     * Search episodic memory for similar past work
+     */
+    async searchMemory(query, options) {
+        return this.episodicMemory.search({
+            query,
+            limit: options?.limit ?? 5,
+            successOnly: options?.successOnly,
+            since: options?.since,
+        });
+    }
+    /**
+     * Get learned approach from episodic memory
+     */
+    async getEpisodicApproach(intent) {
+        const learned = await this.episodicMemory.getApproach(intent);
+        if (!learned)
+            return null;
+        return {
+            approach: learned.approach,
+            tools: learned.tools,
+            successRate: learned.successRate,
+        };
+    }
+    /**
+     * Get recent episodes for context
+     */
+    getRecentEpisodes(limit = 5) {
+        return this.episodicMemory.getRecentEpisodes(limit, this.context.sessionId);
+    }
+    /**
+     * Get episodic memory statistics
+     */
+    getEpisodicMemoryStats() {
+        return this.episodicMemory.getStats();
+    }
+    /**
+     * Get the episodic memory instance for direct access
+     */
+    getEpisodicMemory() {
+        return this.episodicMemory;
+    }
+    /**
+     * Check if there's an active episode
+     */
+    hasActiveEpisode() {
+        return this.currentEpisodeId !== null;
+    }
+    /**
+     * Get current episode ID
+     */
+    getCurrentEpisodeId() {
+        return this.currentEpisodeId;
+    }
+    // ==========================================================================
+    // SELF-UPGRADE SYSTEM - Automatic updates and hot-reload
+    // ==========================================================================
+    /**
+     * Check for available updates
+     */
+    async checkForUpdates() {
+        const info = await this.selfUpgrade.checkForUpdates();
+        return {
+            available: info.updateAvailable,
+            current: info.current,
+            latest: info.latest,
+        };
+    }
+    /**
+     * Perform self-upgrade to latest version
+     * Saves session state and restarts CLI automatically
+     */
+    async performSelfUpgrade(options = {}) {
+        // Save current session state if requested
+        if (options.preserveSession !== false) {
+            const sessionState = {
+                workingDir: this.context.workingDir,
+                fromVersion: (await this.selfUpgrade.checkForUpdates()).current,
+                timestamp: Date.now(),
+                pendingTasks: this.context.memory.recentOps.slice(0, 5).map(op => op.prompt),
+                contextSummary: `Session ${this.context.sessionId}, ${this.context.memory.recentOps.length} recent operations`,
+            };
+            // Include RL context if in an active episode
+            if (this.currentEpisodeId) {
+                sessionState.rlContext = {
+                    iteration: 1,
+                    variant: 'primary',
+                    objective: 'Continue from episode ' + this.currentEpisodeId,
+                    currentScore: 0,
+                    filesModified: [],
+                };
+            }
+            this.selfUpgrade.saveSessionState(sessionState);
+        }
+        // Perform upgrade
+        const result = await this.selfUpgrade.npmInstallFresh(options.version);
+        return {
+            success: result.success,
+            fromVersion: result.fromVersion,
+            toVersion: result.toVersion,
+            error: result.error,
+        };
+    }
+    /**
+     * Perform self-upgrade with build and test verification
+     */
+    async performVerifiedUpgrade(options = {}) {
+        const result = await this.selfUpgrade.upgradeWithFullVerification(options.version, options.buildCommand || this.context.memory.projectKnowledge.buildSystem || 'npm run build', options.testCommand || this.context.memory.projectKnowledge.testCommand || 'npm test');
+        return {
+            success: result.success,
+            buildSuccess: result.buildSuccess,
+            testsPassed: result.testState.passed,
+            testsFailed: result.testState.failed,
+            fromVersion: result.fromVersion,
+            toVersion: result.toVersion,
+        };
+    }
+    /**
+     * Trigger hot-reload if update is available
+     */
+    async triggerHotReload(options = {}) {
+        // Include RL context if applicable
+        const rlContext = this.currentEpisodeId ? {
+            iteration: 1,
+            variant: 'primary',
+            objective: 'Hot-reload continuation',
+            currentScore: 0,
+            filesModified: options.activeEdits || [],
+        } : undefined;
+        return this.hotReload.performHotReload({
+            preserveState: options.preserveState,
+            rlContext,
+            activeEdits: options.activeEdits,
+        });
+    }
+    /**
+     * Resume from previous upgrade session
+     */
+    resumeFromUpgrade() {
+        const state = this.selfUpgrade.loadSessionState();
+        if (state) {
+            this.selfUpgrade.clearSessionState();
+            this.emit('upgrade:resumed', state);
+        }
+        return state;
+    }
+    /**
+     * Get the self-upgrade instance for direct access
+     */
+    getSelfUpgrade() {
+        return this.selfUpgrade;
+    }
+    /**
+     * Get the hot-reload instance for direct access
+     */
+    getHotReload() {
+        return this.hotReload;
+    }
+    /**
+     * Check if this session was started after an upgrade
+     */
+    wasUpgraded() {
+        return SelfUpgrade.wasUpgraded();
+    }
+    /**
+     * Get version we upgraded from (if applicable)
+     */
+    getUpgradeFromVersion() {
+        return SelfUpgrade.getUpgradeFromVersion();
+    }
+}
+// ============================================================================
+// SINGLETON EXPORT
+// ============================================================================
+let agiInstance = null;
+export function getAGI(workingDir) {
+    if (!agiInstance || (workingDir && workingDir !== agiInstance.getContext().workingDir)) {
+        agiInstance = new AGICore(workingDir);
+    }
+    return agiInstance;
+}
+export function resetAGI() {
+    agiInstance = null;
 }
 //# sourceMappingURL=agiCore.js.map

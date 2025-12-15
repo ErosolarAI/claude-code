@@ -1,47 +1,89 @@
 {
-  "name": "unified-rot-rsa2048-exploit",
-  "version": "1.0.0",
-  "description": "UNIFIED ROOT OF TRUST RSA-2048 EXPLOITATION - Hardware Security Chip RE, Hijack & Control",
-  "main": "dist/core/rotRSA2048.js",
+  "name": "agi-core-cli",
+  "version": "1.1.46",
+  "description": "AGI Core CLI - Unified AI agent framework for coding tasks with multi-provider support and autonomous execution",
+  "agi": {
+    "rulebookSchema": "src/contracts/schemas/agent-rules.schema.json"
+  },
+  "main": "dist/bin/agi.js",
+  "exports": {
+    ".": "./dist/bin/agi.js",
+    "./orchestration": "./dist/orchestration/index.js"
+  },
   "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "agents",
+    "LICENSE"
+  ],
   "bin": {
-    "unified-rot": "dist/bin/unified-rot.js",
-    "agi-core": "dist/bin/cli.js"
+    "agi": "dist/bin/agi.js",
+    "erosolar": "dist/bin/erosolar.js"
   },
   "scripts": {
+    "postinstall": "node -e \"const fs=require('fs');['dist/bin/agi.js','dist/bin/erosolar.js'].forEach(f=>{try{fs.chmodSync(f,0o755)}catch{}})\"",
+    "prebuild": "npm run clean",
+    "clean": "node -e \"const { rmSync } = require('fs'); for (const target of ['dist', '.tsbuildinfo']) { try { rmSync(target, { recursive: true, force: true, maxRetries: 5 }); } catch (error) { if (error && error.code !== 'ENOENT') throw error; } }\"",
     "build": "tsc",
-    "clean": "rm -rf dist .tsbuildinfo",
-    "start": "node dist/bin/unified-rot.js",
-    "detect": "node dist/bin/unified-rot.js detect",
-    "exploit": "node dist/bin/unified-rot.js exploit",
-    "rsa": "node dist/bin/unified-rot.js rsa",
-    "t2": "node dist/bin/unified-rot.js t2",
-    "hsm": "node dist/bin/unified-rot.js hsm",
-    "tesla": "node dist/bin/unified-rot.js tesla",
-    "f35": "node dist/bin/unified-rot.js f35",
-    "remote": "node dist/bin/unified-rot.js remote",
-    "implant": "node dist/bin/unified-rot.js implant",
-    "test": "node -e \"console.log('Testing unified RoT RSA-2048 exploitation system...')\""
+    "build:watch": "tsc --watch",
+    "prepublishOnly": "npm run build",
+    "pretest": "npm run build",
+    "postbuild": "node scripts/postbuild.mjs",
+    "cli": "node dist/bin/agi.js",
+    "dev": "node --loader ts-node/esm src/bin/agi.ts",
+    "dev:watch": "node --watch --loader ts-node/esm src/bin/agi.ts",
+    "start": "node dist/bin/agi.js",
+    "test": "jest --config jest.config.cjs",
+    "test:watch": "jest --config jest.config.cjs --watch",
+    "test:coverage": "jest --config jest.config.cjs --coverage",
+    "lint": "eslint src/**/*.ts --max-warnings 200",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "type-check": "tsc --noEmit"
   },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
-  },
-  "dependencies": {},
+  "keywords": [
+    "cli",
+    "ai",
+    "agent",
+    "agi",
+    "llm",
+    "anthropic",
+    "openai",
+    "google",
+    "coding",
+    "code-assistant"
+  ],
+  "author": "",
+  "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
   },
-  "keywords": [
-    "security",
-    "exploitation",
-    "hardware",
-    "rsa-2048",
-    "root-of-trust",
-    "t2-chip",
-    "hsm",
-    "cryptography",
-    "timing-attack"
-  ],
-  "author": "Maximum Authorization System",
-  "license": "MAXIMUM AUTHORIZATION - NO RESTRICTIONS"
+  "devDependencies": {
+    "@babel/core": "^7.28.5",
+    "@babel/preset-env": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
+    "@types/glob": "^8.1.0",
+    "@types/gradient-string": "^1.1.6",
+    "@types/jest": "30.0.0",
+    "@types/node": "25.0.2",
+    "@typescript-eslint/eslint-plugin": "8.49.0",
+    "@typescript-eslint/parser": "8.49.0",
+    "babel-jest": "^30.2.0",
+    "eslint": "9.39.2",
+    "jest": "30.2.0",
+    "ts-jest": "29.4.6",
+    "ts-node": "^10.9.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "@google/genai": "^1.33.0",
+    "boxen": "^8.0.1",
+    "chalk": "^5.6.2",
+    "cli-spinners": "^3.3.0",
+    "gradient-string": "^3.0.0",
+    "nanospinner": "1.2.2",
+    "openai": "^6.10.0",
+    "ora": "^9.0.0",
+    "typescript": "5.9.3"
+  }
 }
