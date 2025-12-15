@@ -22,5 +22,34 @@ export {
   type TournamentStats,
 } from './securityAuditRunner.js';
 
+export {
+  runTrueAlphaZeroFlow,
+  type AlphaZeroFlowResult,
+  type AlphaZeroIterationResult,
+  type AlphaZeroEvent,
+  type TrueAlphaZeroFlowOptions,
+} from './alphaZeroRunner.js';
+
 // AlphaZero self-play is now the default mode (dual-rl-tournament)
 // The dual tournament RL system automatically runs two competing agents
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Universal Security Audit (DEFAULT for all providers)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export {
+  runUniversalSecurityAudit,
+  runMultiProviderAudit,
+  runDefaultSecurityAudit,
+  runSecurityAuditWithRemediation,
+  remediateFindings,
+  type CloudProvider,
+  type SeverityLevel,
+  type Exploitability,
+  type SecurityFinding,
+  type AuditConfig,
+  type AuditSummary,
+  type UniversalAuditResult,
+  type RemediationResult,
+  type RemediationSummary,
+} from '../core/universalSecurityAudit.js';

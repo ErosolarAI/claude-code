@@ -35,8 +35,11 @@ import type { AgentEventUnion } from '../contracts/v1/agent.js';
 import type { ProviderId } from '../core/types.js';
 import type { RepoUpgradeMode, RepoUpgradeReport, UpgradeStepOutcome } from '../core/repoUpgradeOrchestrator.js';
 import { runRepoUpgradeFlow } from '../orchestration/repoUpgradeRunner.js';
+import { runTrueAlphaZeroFlow } from '../orchestration/alphaZeroRunner.js';
 import { getEpisodicMemory } from '../core/episodicMemory.js';
 import { runDualTournament, type TournamentCandidate, type TournamentOutcome } from '../core/dualTournament.js';
+import { runSecurityAuditWithRemediation, runDefaultSecurityAudit, type AuditConfig } from '../core/universalSecurityAudit.js';
+import { runSecurityTournament, runQuickSecurityCheck, type SecurityTournamentConfig } from '../core/securityTournament.js';
 import { getRepoTelemetrySnapshot } from '../tools/telemetryTools.js';
 
 const exec = promisify(childExec);
@@ -485,6 +488,171 @@ class InteractiveShell {
     return true;
   }
 
+  /**
+   * Run Universal Security Audit with Dual Tournament RL
+   * Available by default for all cloud providers (GCP, AWS, Azure, custom)
+   * Uses competing agents for zero-day discovery with live verification
+   */
+  private async runSecurityAudit(args: string[]): Promise<void> {
+    if (this.isProcessing) {
+      this.promptController?.setStatusMessage('Already processing a task');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
+      return;
+    }
+
+    const renderer = this.promptController?.getRenderer();
+    this.isProcessing = true;
+    this.promptController?.setStreaming(true);
+
+    // Parse arguments
+    const providers: ('gcp' | 'aws' | 'azure')[] = [];
+    if (args.some(a => a.toLowerCase() === 'gcp')) providers.push('gcp');
+    if (args.some(a => a.toLowerCase() === 'aws')) providers.push('aws');
+    if (args.some(a => a.toLowerCase() === 'azure')) providers.push('azure');
+    if (providers.length === 0) providers.push('gcp'); // Default to GCP
+
+    const projectId = args.find(a => a.startsWith('project:'))?.slice('project:'.length);
+    const autoFix = args.includes('--fix') || args.includes('--remediate');
+    const includeZeroDay = !args.includes('--no-zeroday');
+    const useTournament = !args.includes('--quick'); // Default to tournament mode
+
+    // Initialize RL status for security tournament
+    this.promptController?.updateRLStatus({
+      wins: { primary: 0, refiner: 0, ties: 0 },
+      totalSteps: 0,
+      currentModule: 'security',
+    });
+
+    // Show banner
+    if (renderer) {
+      renderer.addEvent('banner', chalk.bold.cyan('🛡️ Dual Tournament Security Audit'));
+      renderer.addEvent('response', chalk.dim(`Providers: ${providers.join(', ').toUpperCase()}\n`));
+      renderer.addEvent('response', chalk.dim(`Mode: ${useTournament ? 'DUAL TOURNAMENT RL' : 'Quick Scan'}\n`));
+      renderer.addEvent('response', chalk.dim(`Auto-fix: ${autoFix ? 'ENABLED' : 'disabled'}\n`));
+      renderer.addEvent('response', chalk.dim(`Zero-day Predictions: ${includeZeroDay ? 'ENABLED' : 'disabled'}\n\n`));
+    }
+
+    this.promptController?.setStatusMessage('Starting dual tournament security audit...');
+
+    try {
+      if (useTournament) {
+        // Run full dual tournament with competing agents
+        const config: SecurityTournamentConfig = {
+          workingDir: this.workingDir,
+          providers,
+          projectIds: projectId ? [projectId] : undefined,
+          autoFix,
+          includeZeroDay,
+          maxRounds: 3,
+          onProgress: (event) => {
+            // Update UI based on tournament progress
+            if (event.type === 'round.start') {
+              this.promptController?.setStatusMessage(`Round ${event.round}: Agents competing...`);
+            } else if (event.type === 'round.complete' && event.agent) {
+              // Update RL status
+              const currentStatus = this.promptController?.getRLStatus();
+              if (currentStatus) {
+                const wins = { ...currentStatus.wins };
+                if (event.agent === 'primary') wins.primary++;
+                else if (event.agent === 'refiner') wins.refiner++;
+                else wins.ties++;
+                this.promptController?.updateRLStatus({
+                  ...currentStatus,
+                  wins,
+                  totalSteps: currentStatus.totalSteps + 1,
+                });
+              }
+            } else if (event.type === 'finding.discovered' && event.finding && renderer) {
+              const sevColor = event.finding.severity === 'critical' ? chalk.redBright :
+                              event.finding.severity === 'high' ? chalk.red :
+                              event.finding.severity === 'medium' ? chalk.yellow : chalk.blue;
+              renderer.addEvent('response', `  ${event.agent === 'primary' ? '🔵' : '🟠'} ${sevColor(`[${event.finding.severity.toUpperCase()}]`)} ${event.finding.vulnerability}\n`);
+            } else if (event.type === 'finding.fixed' && event.finding && renderer) {
+              renderer.addEvent('response', chalk.green(`  ✓ Fixed: ${event.finding.vulnerability}\n`));
+            }
+          },
+        };
+
+        const { summary, findings, remediation } = await runSecurityTournament(config);
+
+        // Display final results
+        if (renderer) {
+          renderer.addEvent('response', '\n' + chalk.cyan('═'.repeat(70)) + '\n');
+          renderer.addEvent('response', chalk.bold.cyan('DUAL TOURNAMENT RESULTS\n'));
+          renderer.addEvent('response', chalk.cyan('═'.repeat(70)) + '\n\n');
+          renderer.addEvent('response', `Tournament: ${summary.totalRounds} rounds\n`);
+          renderer.addEvent('response', `  Primary Wins: ${summary.primaryWins} | Refiner Wins: ${summary.refinerWins} | Ties: ${summary.ties}\n`);
+          renderer.addEvent('response', `  Winning Strategy: ${summary.winningStrategy}\n\n`);
+          renderer.addEvent('response', `Findings: ${summary.totalFindings} total (${summary.verifiedFindings} verified)\n`);
+          renderer.addEvent('response', `  ${chalk.redBright(`Critical: ${summary.criticalCount}`)}\n`);
+          renderer.addEvent('response', `  ${chalk.red(`High: ${summary.highCount}`)}\n`);
+          renderer.addEvent('response', `  ${chalk.yellow(`Medium: ${summary.mediumCount}`)}\n\n`);
+
+          if (remediation) {
+            renderer.addEvent('response', chalk.green('Remediation:\n'));
+            renderer.addEvent('response', `  Fixed: ${remediation.fixed} | Failed: ${remediation.failed} | Skipped: ${remediation.skipped}\n`);
+          }
+
+          // Show verified findings
+          const verified = findings.filter(f => f.verified);
+          if (verified.length > 0) {
+            renderer.addEvent('response', '\n' + chalk.bold('Verified Vulnerabilities:\n'));
+            for (const finding of verified.slice(0, 10)) {
+              const sevColor = finding.severity === 'critical' ? chalk.redBright :
+                              finding.severity === 'high' ? chalk.red :
+                              finding.severity === 'medium' ? chalk.yellow : chalk.blue;
+              renderer.addEvent('response', `  ${sevColor(`[${finding.severity.toUpperCase()}]`)} ${finding.vulnerability}\n`);
+              renderer.addEvent('response', chalk.dim(`    Resource: ${finding.resource}\n`));
+              if (finding.remediation) {
+                renderer.addEvent('response', chalk.green(`    Fix: ${finding.remediation}\n`));
+              }
+            }
+            if (verified.length > 10) {
+              renderer.addEvent('response', chalk.dim(`  ... and ${verified.length - 10} more\n`));
+            }
+          }
+
+          renderer.addEvent('response', `\n${chalk.dim(`Duration: ${(summary.duration / 1000).toFixed(2)}s`)}\n`);
+        }
+
+        this.promptController?.setStatusMessage(
+          `Tournament complete: ${summary.verifiedFindings} verified, ${summary.fixedFindings} fixed`
+        );
+      } else {
+        // Quick scan mode - single pass without tournament
+        const result = await runDefaultSecurityAudit();
+
+        if (renderer) {
+          renderer.addEvent('response', '\n' + chalk.cyan('═'.repeat(70)) + '\n');
+          renderer.addEvent('response', chalk.bold.cyan('QUICK SECURITY SCAN RESULTS\n'));
+          renderer.addEvent('response', chalk.cyan('═'.repeat(70)) + '\n\n');
+          renderer.addEvent('response', `Total Findings: ${result.findings.length}\n`);
+          renderer.addEvent('response', `  Critical: ${result.summary.critical}\n`);
+          renderer.addEvent('response', `  High: ${result.summary.high}\n`);
+          renderer.addEvent('response', `  Medium: ${result.summary.medium}\n\n`);
+
+          for (const finding of result.findings.filter(f => f.verified).slice(0, 10)) {
+            const sevColor = finding.severity === 'critical' ? chalk.redBright :
+                            finding.severity === 'high' ? chalk.red :
+                            finding.severity === 'medium' ? chalk.yellow : chalk.blue;
+            renderer.addEvent('response', `${sevColor(`[${finding.severity.toUpperCase()}]`)} ${finding.vulnerability}\n`);
+          }
+        }
+
+        this.promptController?.setStatusMessage(`Scan complete: ${result.findings.length} findings`);
+      }
+    } catch (error) {
+      if (renderer) {
+        renderer.addEvent('response', chalk.red(`\nError: ${error instanceof Error ? error.message : error}\n`));
+      }
+      this.promptController?.setStatusMessage('Security audit failed');
+    } finally {
+      this.isProcessing = false;
+      this.promptController?.setStreaming(false);
+      setTimeout(() => this.promptController?.setStatusMessage(null), 5000);
+    }
+  }
+
   private async runRepoUpgradeCommand(args: string[]): Promise<void> {
     if (this.isProcessing) {
       this.promptController?.setStatusMessage('Already processing a task');
@@ -586,6 +754,110 @@ class InteractiveShell {
       this.isProcessing = false;
       // Clear RL status after upgrade completes (keep wins visible in report)
       setTimeout(() => this.promptController?.clearRLStatus(), 5000);
+    }
+  }
+
+  private parseAlphaZeroArgs(args: string[]) {
+    const maxIterationsArg = args.find(arg => arg.startsWith('--max-iterations=') || arg.startsWith('--max='));
+    const buildArg = args.find(arg => arg.startsWith('--build=') || arg.startsWith('--build-cmd='));
+    const testArg = args.find(arg => arg.startsWith('--test=') || arg.startsWith('--test-cmd='));
+
+    const parseNumber = (value?: string) => {
+      if (!value) return undefined;
+      const [, raw] = value.split('=');
+      const parsed = Number.parseInt(raw, 10);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    return {
+      maxIterations: parseNumber(maxIterationsArg),
+      buildCommand: buildArg ? buildArg.split('=').slice(1).join('=') : undefined,
+      testCommand: testArg ? testArg.split('=').slice(1).join('=') : undefined,
+    };
+  }
+
+  private async runAlphaZeroCommand(args: string[]): Promise<void> {
+    if (this.isProcessing) {
+      this.promptController?.setStatusMessage('Already processing a task');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
+      return;
+    }
+
+    const flags = this.parseAlphaZeroArgs(args);
+    const objective = args.filter(arg => !arg.startsWith('--')).join(' ').trim();
+    if (!objective) {
+      this.promptController?.setStatusMessage('Usage: /alphazero <objective> [--max-iterations=N] [--build=cmd] [--test=cmd]');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 4000);
+      return;
+    }
+
+    this.isProcessing = true;
+    this.promptController?.setStatusMessage(`AlphaZero self-play: ${this.truncateInline(objective, 80)}`);
+    this.promptController?.setStreaming(true);
+    this.promptController?.updateRLStatus({
+      wins: { primary: 0, refiner: 0, ties: 0 },
+      totalSteps: flags.maxIterations ?? 0,
+      currentModule: 'alphazero',
+    });
+
+    try {
+      const result = await runTrueAlphaZeroFlow({
+        profile: this.profile,
+        workingDir: this.workingDir,
+        objective,
+        maxIterations: flags.maxIterations,
+        buildCommand: flags.buildCommand,
+        testCommand: flags.testCommand,
+        onAgentEvent: (_, event) => this.handleAgentEventForUpgrade(event),
+        onEvent: (event) => {
+          if (event.type === 'winner.applied') {
+            this.promptController?.setStatusMessage(`Applied ${event.filesApplied.length} files from ${event.winner}`);
+          }
+        },
+      });
+
+      const wins = result.iterations.reduce(
+        (acc, iter) => {
+          if (iter.winner === 'primary') acc.primary++;
+          else if (iter.winner === 'refiner') acc.refiner++;
+          else acc.ties++;
+          return acc;
+        },
+        { primary: 0, refiner: 0, ties: 0 }
+      );
+
+      this.promptController?.updateRLStatus({
+        wins,
+        totalSteps: result.iterations.length,
+        stepsCompleted: result.iterations.length,
+        currentModule: 'alphazero',
+      });
+
+      const renderer = this.promptController?.getRenderer();
+      if (renderer) {
+        renderer.addEvent(
+          'response',
+          [
+            chalk.bold.green('✓ AlphaZero self-play complete'),
+            `Iterations: ${result.iterations.length}`,
+            `Best score: ${result.bestScore.toFixed(3)}`,
+            `Files modified: ${result.filesModified.length}`,
+            '',
+          ].join('\n')
+        );
+      } else {
+        this.promptController?.setStatusMessage(
+          `AlphaZero complete (${result.iterations.length} iters, best ${result.bestScore.toFixed(3)})`
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.promptController?.setStatusMessage(`AlphaZero failed: ${message}`);
+    } finally {
+      this.promptController?.setStreaming(false);
+      this.isProcessing = false;
+      setTimeout(() => this.promptController?.clearRLStatus(), 5000);
+      setTimeout(() => this.promptController?.setStatusMessage(null), 3000);
     }
   }
 
@@ -2361,6 +2633,13 @@ Any text response is a failure. Only tool calls are accepted.`;
       return true;
     }
 
+    // Universal Security Audit - available by default for all providers
+    if (lower.startsWith('/security') || lower.startsWith('/audit') || lower === '/sec') {
+      const args = trimmed.split(/\s+/).slice(1);
+      void this.runSecurityAudit(args);
+      return true;
+    }
+
     // Toggle dual-agent RL mode
     // AlphaZero mode is always active - /mode just shows status
     if (lower === '/dual' || lower === '/mode' || lower.startsWith('/mode ')) {
@@ -2798,6 +3077,7 @@ Any text response is a failure. Only tool calls are accepted.`;
       chalk.hex('#FBBF24')('/model') + chalk.dim(' - Cycle provider or /model <name> to switch'),
       chalk.hex('#FBBF24')('/secrets') + chalk.dim(' - Show/set API keys (OpenAI, Anthropic, Google, etc.)'),
       chalk.hex('#FBBF24')('/upgrade') + chalk.dim(' - Repo upgrade (dual|tournament modes)'),
+      chalk.hex('#22D3EE')('/security') + chalk.dim(' - Universal security audit (GCP/AWS/Azure) with auto-fix'),
       chalk.hex('#FF6B6B')('/attack') + chalk.dim(' - Dual-RL attack tournament (AGI_ENABLE_ATTACKS=1)'),
       chalk.hex('#FBBF24')('/memory') + chalk.dim(' - View episodic memory & search past work'),
       '',
@@ -3090,6 +3370,22 @@ Any text response is a failure. Only tool calls are accepted.`;
         void this.runDualRLAttack([trimmed]);
         return;
       }
+    }
+
+    // Auto-detect security audit prompts and route to security scan
+    const securityPatterns = /\b(security\s*audit|security\s*scan|zero[- ]?day|vulnerabilit(y|ies)|cloud\s*security|gcp\s*security|aws\s*security|azure\s*security|workspace\s*security|firebase\s*security|android\s*security|scan\s*(for\s*)?(vulns?|security|zero[- ]?days?)|audit\s*(my\s*)?(cloud|infrastructure|security)|find\s*(all\s*)?(vulns?|vulnerabilities|zero[- ]?days?))\b/i;
+    if (securityPatterns.test(trimmed)) {
+      // Parse for provider hints
+      const args: string[] = [];
+      if (/\bgcp\b|google\s*cloud/i.test(trimmed)) args.push('gcp');
+      else if (/\baws\b|amazon/i.test(trimmed)) args.push('aws');
+      else if (/\bazure\b|microsoft/i.test(trimmed)) args.push('azure');
+
+      // Check for fix/remediate keywords
+      if (/\b(fix|remediate|auto[- ]?fix|patch)\b/i.test(trimmed)) args.push('--fix');
+
+      void this.runSecurityAudit(args);
+      return;
     }
 
     // Dismiss inline panel for regular user prompts

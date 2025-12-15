@@ -42,7 +42,8 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
   const knownFlags = new Set([
     '--version', '-v', '--help', '-h', '--self-test',
     '--quick', '-q', '--json', '--eval', '-e',
-    '--provider', '--model', '--profile', '--plan', '-p'
+    '--provider', '--model', '--profile', '--plan', '-p',
+    '--security', '--audit', '--fix'
   ]);
   const unknownFlags = rawArgs.filter((arg) => arg.startsWith('-') && !knownFlags.has(arg.split('=')[0]));
   if (unknownFlags.length) {
@@ -87,6 +88,31 @@ async function main(): Promise<void> {
       process.exit(1);
     });
     return;
+  }
+
+  // Check for security audit mode - run directly without interactive shell
+  if (rawArgs.includes('--security') || rawArgs.includes('--audit')) {
+    const { runSecurityAuditWithRemediation, runDefaultSecurityAudit } = await import('../core/universalSecurityAudit.js');
+    const autoFix = rawArgs.includes('--fix');
+
+    console.log('\n🛡️  Universal Security Audit\n');
+
+    try {
+      if (autoFix) {
+        const { audit, remediation } = await runSecurityAuditWithRemediation(
+          { provider: 'gcp', liveTesting: true, includeZeroDay: true },
+          { autoFix: true }
+        );
+        console.log(`\nFindings: ${audit.summary.total} | Fixed: ${remediation?.fixed || 0}`);
+      } else {
+        const result = await runDefaultSecurityAudit();
+        console.log(`\nFindings: ${result.summary.total} (${result.summary.critical} critical, ${result.summary.high} high)`);
+      }
+      process.exit(0);
+    } catch (error) {
+      console.error('Security audit failed:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
   }
 
   // Determine if we should run interactive mode
@@ -139,10 +165,15 @@ Examples:
   echo "run npm test" | ${commandName}              # Pipe mode
 
 Commands:
-  /attack                    Dual-RL attack tournament (requires AGI_ENABLE_ATTACKS=1)
+  /security                  Universal security audit (GCP/AWS/Azure) with auto-fix
   /upgrade                   Dual-RL upgrade tournament (code improvement)
+  /attack                    Dual-RL attack tournament (requires AGI_ENABLE_ATTACKS=1)
   /model                     Switch AI model
   /help                      Show available commands
+
+Security Audit:
+  ${commandName} --security            Run security audit (auto-detect provider)
+  ${commandName} --security --fix      Run audit and auto-fix vulnerabilities
 
 Environment Variables:
   ANTHROPIC_API_KEY       Anthropic API key
