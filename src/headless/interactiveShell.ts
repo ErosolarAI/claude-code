@@ -2809,6 +2809,34 @@ Any text response is a failure. Only tool calls are accepted.`;
       return true;
     }
 
+    // Email commands
+    if (lower.startsWith('/email')) {
+      const parts = trimmed.split(/\s+/);
+      const subCmd = parts[1]?.toLowerCase();
+      
+      if (subCmd === 'help' || !subCmd) {
+        this.showEmailHelp();
+        return true;
+      }
+      
+      void this.handleEmailCommand(parts.slice(1));
+      return true;
+    }
+
+    // Alternative email command: /mail
+    if (lower.startsWith('/mail')) {
+      const parts = trimmed.split(/\s+/);
+      const subCmd = parts[1]?.toLowerCase();
+      
+      if (subCmd === 'help' || !subCmd) {
+        this.showEmailHelp();
+        return true;
+      }
+      
+      void this.handleEmailCommand(parts.slice(1));
+      return true;
+    }
+
     // Session stats
     if (lower === '/stats' || lower === '/status') {
       this.showSessionStats();
@@ -4029,6 +4057,58 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     this.promptController?.stop();
     exit(0);
+  }
+
+  private async handleEmailCommand(args: string[]): Promise<void> {
+    try {
+      const { handleEmailCommand } = await import('../tools/emailTools.js');
+      await handleEmailCommand(args);
+    } catch (error) {
+      const renderer = this.promptController?.getRenderer();
+      const message = error instanceof Error ? error.message : 'Failed to execute email command';
+      if (renderer) {
+        renderer.addEvent('error', `Email command failed: ${message}`);
+      } else {
+        console.log(`❌ Email command failed: ${message}`);
+      }
+    }
+  }
+
+  private showEmailHelp(): void {
+    const renderer = this.promptController?.getRenderer();
+    const helpText = `
+📧 AGI Email Tools - Send emails using SMTP
+
+Commands:
+  /email save              Configure SMTP settings interactively
+  /email test              Test SMTP connection
+  /email send <to> "<subject>" "<text>" [--from-name "Name"]
+  /email bulk <emails-file.json> [--delay 5000] [--max-retries 3]
+  /email stats             Show email sending statistics
+  /email list [limit]      List recently sent emails (default: 10)
+  /email clear             Clear all email logs
+  /email help              Show this help message
+
+Examples:
+  /email save
+  /email test
+  /email send "user@example.com" "Test Subject" "Email body text"
+  /email bulk emails.json --delay 10000
+
+Aliases:
+  /mail [command] - Same as /email [command]
+
+SMTP Configuration:
+  The 'save' command stores credentials securely in system keychain.
+  For Gmail, use "App Password" if 2FA is enabled.
+  Generate at: https://myaccount.google.com/apppasswords
+`;
+
+    if (renderer) {
+      renderer.addEvent('response', helpText);
+    } else {
+      console.log(helpText);
+    }
   }
 
   private waitForExit(): Promise<void> {

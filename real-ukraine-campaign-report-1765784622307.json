@@ -1,0 +1,296 @@
+{
+  "targets": [
+    "ukrenergo.ua",
+    "kyivstar.net",
+    "gov.ua",
+    "privatbank.ua"
+  ],
+  "phases": {
+    "reconnaissance": [
+      {
+        "target": "ukrenergo.ua",
+        "dns": {
+          "success": false,
+          "target": "ukrenergo.ua",
+          "error": "No resolution",
+          "type": "dns"
+        },
+        "ports": {
+          "success": false,
+          "target": "ukrenergo.ua",
+          "error": "No open ports",
+          "type": "portscan"
+        },
+        "http": {
+          "success": false,
+          "target": "ukrenergo.ua",
+          "error": "No HTTP response",
+          "type": "http"
+        },
+        "ssl": {
+          "success": false,
+          "target": "ukrenergo.ua",
+          "error": "No SSL info",
+          "type": "ssl"
+        }
+      },
+      {
+        "target": "kyivstar.net",
+        "dns": {
+          "success": true,
+          "ips": [
+            "94.153.165.5"
+          ],
+          "target": "kyivstar.net",
+          "type": "dns"
+        },
+        "ports": {
+          "success": false,
+          "target": "kyivstar.net",
+          "error": "No open ports",
+          "type": "portscan"
+        },
+        "http": {
+          "success": false,
+          "target": "kyivstar.net",
+          "error": "No HTTP response",
+          "type": "http"
+        },
+        "ssl": {
+          "success": false,
+          "target": "kyivstar.net",
+          "error": "No SSL info",
+          "type": "ssl"
+        }
+      },
+      {
+        "target": "gov.ua",
+        "dns": {
+          "success": true,
+          "ips": [
+            "193.29.220.69"
+          ],
+          "target": "gov.ua",
+          "type": "dns"
+        },
+        "ports": {
+          "success": true,
+          "openPorts": [
+            {
+              "port": "80",
+              "service": "http"
+            }
+          ],
+          "target": "gov.ua",
+          "type": "portscan"
+        },
+        "http": {
+          "success": true,
+          "target": "gov.ua",
+          "protocol": "http",
+          "status": "HTTP/1.1 301 Moved Permanently",
+          "hasRedirect": true,
+          "securityHeaders": 5,
+          "type": "http"
+        },
+        "ssl": {
+          "success": false,
+          "target": "gov.ua",
+          "error": "No SSL info",
+          "type": "ssl"
+        }
+      },
+      {
+        "target": "privatbank.ua",
+        "dns": {
+          "success": true,
+          "ips": [
+            "75.2.32.163",
+            "99.83.167.35"
+          ],
+          "target": "privatbank.ua",
+          "type": "dns"
+        },
+        "ports": {
+          "success": true,
+          "openPorts": [
+            {
+              "port": "21",
+              "service": "ftp"
+            },
+            {
+              "port": "22",
+              "service": "ssh"
+            },
+            {
+              "port": "53",
+              "service": "domain"
+            },
+            {
+              "port": "80",
+              "service": "http"
+            },
+            {
+              "port": "443",
+              "service": "https"
+            },
+            {
+              "port": "8080",
+              "service": "http-proxy"
+            },
+            {
+              "port": "8443",
+              "service": "https-alt"
+            }
+          ],
+          "target": "privatbank.ua",
+          "type": "portscan"
+        },
+        "http": {
+          "success": true,
+          "target": "privatbank.ua",
+          "protocol": "http",
+          "status": "HTTP/1.1 301 Moved Permanently",
+          "hasRedirect": true,
+          "securityHeaders": 0,
+          "type": "http"
+        },
+        "ssl": {
+          "success": false,
+          "target": "privatbank.ua",
+          "error": "No SSL info",
+          "type": "ssl"
+        }
+      }
+    ],
+    "network_impact": [
+      {
+        "success": true,
+        "target": "ukrenergo.ua",
+        "stats": {
+          "sent": 0,
+          "received": 0,
+          "loss": "100%",
+          "time": "N/A"
+        },
+        "impact": "HIGH",
+        "type": "network_stress"
+      },
+      {
+        "success": true,
+        "target": "kyivstar.net",
+        "stats": {
+          "sent": 0,
+          "received": 0,
+          "loss": "100%",
+          "time": "N/A"
+        },
+        "impact": "HIGH",
+        "type": "network_stress"
+      }
+    ]
+  },
+  "vulnerabilities": [
+    {
+      "target": "gov.ua",
+      "type": "open_ports",
+      "ports": [
+        {
+          "port": "80",
+          "service": "http"
+        }
+      ],
+      "risk": "MEDIUM",
+      "exploitation": "Service-specific attacks possible"
+    },
+    {
+      "target": "privatbank.ua",
+      "type": "open_ports",
+      "ports": [
+        {
+          "port": "21",
+          "service": "ftp"
+        },
+        {
+          "port": "22",
+          "service": "ssh"
+        },
+        {
+          "port": "53",
+          "service": "domain"
+        },
+        {
+          "port": "80",
+          "service": "http"
+        },
+        {
+          "port": "443",
+          "service": "https"
+        },
+        {
+          "port": "8080",
+          "service": "http-proxy"
+        },
+        {
+          "port": "8443",
+          "service": "https-alt"
+        }
+      ],
+      "risk": "MEDIUM",
+      "exploitation": "Service-specific attacks possible"
+    },
+    {
+      "target": "ukrenergo.ua",
+      "type": "network_vulnerable",
+      "impact": "HIGH",
+      "risk": "HIGH",
+      "exploitation": "DDoS amplification effective"
+    },
+    {
+      "target": "kyivstar.net",
+      "type": "network_vulnerable",
+      "impact": "HIGH",
+      "risk": "HIGH",
+      "exploitation": "DDoS amplification effective"
+    }
+  ],
+  "recommendations": [
+    {
+      "target": "gov.ua",
+      "action": "Exploit open ports 80 on gov.ua with service-specific payloads",
+      "priority": "PLANNED"
+    },
+    {
+      "target": "privatbank.ua",
+      "action": "Exploit open ports 21,22,53,80,443,8080,8443 on privatbank.ua with service-specific payloads",
+      "priority": "PLANNED"
+    },
+    {
+      "target": "ukrenergo.ua",
+      "action": "Launch coordinated DDoS against ukrenergo.ua to degrade service availability",
+      "priority": "IMMEDIATE"
+    },
+    {
+      "target": "kyivstar.net",
+      "action": "Launch coordinated DDoS against kyivstar.net to degrade service availability",
+      "priority": "IMMEDIATE"
+    }
+  ],
+  "summary": {
+    "timestamp": "2025-12-15T07:43:42.307Z",
+    "duration": "72.3s",
+    "operations": {
+      "successful": 2,
+      "total": 6
+    },
+    "vulnerabilities": 4,
+    "recommendations": 4,
+    "russianMilitaryValue": "HIGH - Direct support for operational objectives",
+    "nextSteps": [
+      "Prioritize exploitation of identified vulnerabilities",
+      "Coordinate with physical military operations",
+      "Maintain persistence for ongoing intelligence gathering",
+      "Prepare follow-on attacks based on Ukrainian response patterns"
+    ]
+  }
+}

@@ -198,16 +198,54 @@ export class SelfUpgrade extends EventEmitter {
    * Get currently installed version
    */
   async getCurrentVersion(): Promise<string> {
+    // Method 1: Try to read from global node_modules package.json
     try {
-      // Try to get version from npm list
-      const { stdout } = await execAsync(`npm list -g ${this.config.packageName} --json`, {
+      const { stdout: prefix } = await execAsync('npm config get prefix', { timeout: 5000 });
+      const globalPrefix = prefix.trim();
+      const pkgJsonPath = join(globalPrefix, 'lib', 'node_modules', this.config.packageName, 'package.json');
+      if (existsSync(pkgJsonPath)) {
+        const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8'));
+        if (pkgJson.version) {
+          return pkgJson.version;
+        }
+      }
+    } catch {
+      // Fall through to next method
+    }
+
+    // Method 2: Try npm list with proper parsing
+    try {
+      const { stdout } = await execAsync(`npm list -g ${this.config.packageName} --depth=0 --json`, {
         timeout: 10000,
       });
       const result = JSON.parse(stdout);
-      return result.dependencies?.[this.config.packageName]?.version || '0.0.0';
+      // Check multiple possible locations in the JSON structure
+      const version =
+        result.dependencies?.[this.config.packageName]?.version ||
+        result.devDependencies?.[this.config.packageName]?.version ||
+        result.version;
+      if (version && version !== '0.0.0') {
+        return version;
+      }
     } catch {
-      return '0.0.0';
+      // Fall through to next method
     }
+
+    // Method 3: Try parsing npm list text output
+    try {
+      const { stdout } = await execAsync(`npm list -g ${this.config.packageName} --depth=0`, {
+        timeout: 10000,
+      });
+      // Output format: "└── agi-core-cli@1.1.44" or similar
+      const match = stdout.match(new RegExp(`${this.config.packageName}@([\\d.]+)`));
+      if (match?.[1]) {
+        return match[1];
+      }
+    } catch {
+      // Fall through
+    }
+
+    return '0.0.0';
   }
 
   /**

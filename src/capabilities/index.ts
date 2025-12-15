@@ -7,3 +7,5 @@ export { AppleSecurityCapabilityModule, type AppleSecurityCapabilityOptions } fr
 export { EnhancedGitCapabilityModule } from './enhancedGitCapability.js';
 export { ZeroDayDiscoveryCapabilityModule } from './zeroDayDiscoveryCapability.js';
 export { UniversalSecurityCapabilityModule, type UniversalSecurityCapabilityOptions } from './universalSecurityCapability.js';
+export { RealityWeaponsCapabilityModule, type RealityWeaponsCapabilityOptions } from './realityWeaponsCapability.js';
+export { RealSerialWeaponsCapabilityModule, type RealSerialWeaponsCapabilityOptions } from './realSerialWeaponsCapability.js';
