@@ -1047,24 +1047,23 @@ export class AgentRuntime {
   }
 
   private buildEditExplanationPrompt(toolName: string, files: string[], toolOutput: string): ConversationMessage[] {
-    const fileLine = files.length ? `Files: ${files.join(', ')}` : 'Files: (not provided)';
+    const fileNames = files.map(f => f.split('/').pop()).join(', ');
     const userContent = [
-      'Provide a concise, user-facing explanation of the edit that just completed.',
-      'Keep it to 1-3 sentences and mention intent, impact, and any user-visible changes.',
-      'IMPORTANT: Output ONLY the final explanation. Do NOT include any reasoning, thinking, or deliberation.',
-      fileLine,
-      `Tool: ${toolName}`,
+      `Summarize this ${toolName} operation in 1-2 sentences for the UI status line.`,
+      `Files: ${fileNames || 'unknown'}`,
       '',
-      'Tool output:',
-      toolOutput,
+      'Output:',
+      toolOutput.slice(0, 500), // Limit context to reduce hallucination
     ].join('\n');
 
     return [
       {
         role: 'system',
-        content: 'You summarize code edits for the user interface. Output ONLY the final 1-3 sentence summary. No reasoning, no deliberation, no "First...", no "Let me think...", no drafts. Just the clean summary.',
+        content: 'You write brief UI status messages. Reply with ONLY a 1-2 sentence summary. No analysis, no reasoning, no explanations of your process.',
       },
       { role: 'user', content: userContent },
+      // Prefill assistant response to guide format
+      { role: 'assistant', content: '' },
     ];
   }
 
