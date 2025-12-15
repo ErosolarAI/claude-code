@@ -133,7 +133,7 @@ describe('CLI End-to-End Integration', () => {
       'enhancedGit/enhancedGitPlugin.js',
       'skills/skillPlugin.js',
       'mcp/mcpPlugin.js',
-      'tao/taoPlugin.js',
+      'tao/secureTaoPlugin.js',
       'integrity/integrityPlugin.js',
     ];
 

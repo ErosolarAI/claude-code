@@ -49,9 +49,15 @@ export class PromptController {
     debugEnabled?: boolean;
   } = {
     verificationEnabled: false,
+    verificationHotkey: '⌥V',
     autoContinueEnabled: false,
+    autoContinueHotkey: '⌥G',
+    thinkingModeLabel: 'balanced',
+    thinkingHotkey: '⌥T',
     criticalApprovalMode: 'auto',
+    criticalApprovalHotkey: '⌥A',
     dualRlEnabled: true,  // AlphaZero dual-agent tournament mode ON by default
+    dualRlHotkey: '⌥D',
   };
   private started = false;
   private disposed = false;
@@ -111,6 +117,13 @@ export class PromptController {
         this.modeToggleState.criticalApprovalMode === 'auto' ? 'approval' : 'auto';
       this.syncModeToggles();
       this.callbacks.onToggleCriticalApproval?.();
+    });
+    this.addBoundHandler('toggle-thinking', () => {
+      // Cycle between 'balanced' and 'deep'
+      const current = (this.modeToggleState.thinkingModeLabel || 'balanced').toLowerCase();
+      this.modeToggleState.thinkingModeLabel = current === 'deep' ? 'balanced' : 'deep';
+      this.syncModeToggles();
+      this.callbacks.onToggleThinking?.();
     });
   }
 
@@ -223,6 +236,13 @@ export class PromptController {
       this.modeToggleState.criticalApprovalMode === 'auto' ? 'approval' : 'auto';
     this.syncModeToggles();
     this.callbacks.onToggleCriticalApproval?.();
+  }
+
+  toggleThinking(): void {
+    const current = (this.modeToggleState.thinkingModeLabel || 'balanced').toLowerCase();
+    this.modeToggleState.thinkingModeLabel = current === 'deep' ? 'balanced' : 'deep';
+    this.syncModeToggles();
+    this.callbacks.onToggleThinking?.();
   }
 
   /**

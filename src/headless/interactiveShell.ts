@@ -290,6 +290,7 @@ class InteractiveShell {
         onToggleDualRl: () => this.handleDualRlToggle(),
         onToggleAutoContinue: () => this.handleAutoContinueToggle(),
         onToggleVerify: () => this.handleVerifyToggle(),
+        onToggleThinking: () => this.handleThinkingToggle(),
       }
     );
 
@@ -3829,6 +3830,12 @@ Any text response is a failure. Only tool calls are accepted.`;
   private handleVerifyToggle(): void {
     const verificationEnabled = this.promptController?.getModeToggleState().verificationEnabled ?? false;
     this.promptController?.setStatusMessage(verificationEnabled ? 'Verify on' : 'Verify off');
+    setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
+  }
+
+  private handleThinkingToggle(): void {
+    const thinkingLabel = this.promptController?.getModeToggleState().thinkingModeLabel ?? 'balanced';
+    this.promptController?.setStatusMessage(`Thinking: ${thinkingLabel}`);
     setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
   }
 

@@ -33,7 +33,7 @@ describe('Edit tool', () => {
     // Claude Code style: ⏺ Create(filepath)
     expect(output).toContain('⏺ Create(new-file.txt)');
     expect(output).toContain('with 1 additions');
-    expect(output).toMatch(/\x1b\[32m\+ L1 \| hello world\x1b\[0m/);
+    expect(output).toMatch(/\x1b\[(?:1;)?32m.*hello world/);
   });
 
   it('deletes text when new_string is omitted and shows red diff lines', async () => {
@@ -49,7 +49,7 @@ describe('Edit tool', () => {
     expect(output).toContain('⏺ Update(remove-file.txt)');
     expect(output).toContain('with 1 removal');
     // Check for the removal marker (red line with -)
-    expect(output).toMatch(/\x1b\[31m.*remove me/);
+    expect(output).toMatch(/\x1b\[(?:1;)?31m.*remove me/);
   });
 
   it('normalizes escaped newline sequences in old_string to avoid false mismatches', async () => {

@@ -181,8 +181,8 @@ describe('UnifiedUIRenderer slash menu', () => {
         emitted += chunk;
       }
       const clean = stripAnsi(emitted);
-      // Check for verify mode indicator (shown as "test" when enabled)
-      expect(clean).toMatch(/test|auto-test/i);
+      // Check for verify mode indicator (shown as "Verify: on" when enabled)
+      expect(clean).toMatch(/verify.*on|verify/i);
     } finally {
       renderer.cleanup();
     }

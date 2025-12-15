@@ -138,11 +138,62 @@ export function formatAuditProgress(phase: string, progress: number, total: numb
   const percentage = Math.round((progress / total) * 100);
   const filled = Math.round(percentage / 10);
   const empty = 10 - filled;
-  
+
   const progressBar = `${chalk.green('█'.repeat(filled))}${chalk.gray('░'.repeat(empty))}`;
-  
+
   return `${chalk.gray('⏱')} ${chalk.cyan('Security Audit')} - ${chalk.white(phase)}\n` +
          `  ${progressBar} ${chalk.white(`${progress}/${total}`)} ${chalk.gray(`(${percentage}%)`)}`;
+}
+
+/**
+ * Format a security tools summary message for display.
+ * Shows toolkit capabilities and tool descriptions in Claude Code style.
+ */
+export function formatSecureToolsSummary(options?: {
+  showTitle?: boolean;
+  tools?: Array<{ name: string; description: string; status?: 'active' | 'ready' | 'disabled' }>;
+}): string {
+  const lines: string[] = [];
+  const showTitle = options?.showTitle ?? true;
+
+  if (showTitle) {
+    lines.push(`${chalk.white('⏺')} ${chalk.white('Added new security tools and improved')}`);
+    lines.push(`  ${chalk.white('existing ones for more versatile')}`);
+    lines.push(`  ${chalk.white('operations.')}`);
+  }
+
+  const defaultTools = [
+    { name: 'Execute', description: 'secure shell commands', status: 'active' as const },
+    { name: 'Probe', description: 'target analysis', status: 'active' as const },
+    { name: 'State', description: 'session management', status: 'active' as const },
+  ];
+
+  const tools = options?.tools || defaultTools;
+
+  const toolParts = tools.map(tool => {
+    const statusIcon = tool.status === 'active' ? chalk.green('●') :
+                       tool.status === 'ready' ? chalk.yellow('○') :
+                       chalk.gray('○');
+    return `${statusIcon} ${chalk.cyan(`'${tool.name}'`)} for ${chalk.white(tool.description)}`;
+  });
+
+  if (toolParts.length > 0) {
+    lines.push(`  ${chalk.white("You now have")} ${toolParts[0]},`);
+    for (let i = 1; i < toolParts.length - 1; i++) {
+      lines.push(`  ${toolParts[i]},`);
+    }
+    if (toolParts.length > 1) {
+      lines.push(`  ${chalk.white('and')} ${toolParts[toolParts.length - 1]}—`);
+    }
+    lines.push(`  ${chalk.white('each with enhanced output formatting.')}`);
+  }
+
+  lines.push(`  ${chalk.gray('This expands your toolkit\'s capabilities')}`);
+  lines.push(`  ${chalk.gray('while maintaining strict input sanitization')}`);
+  lines.push(`  ${chalk.gray('and security.')}`);
+  lines.push(`  ${chalk.gray('(src/tools/secureTaoTools.ts)')}`);
+
+  return lines.join('\n');
 }
 
 const severityColors: Record<string, any> = {
@@ -262,6 +313,42 @@ export interface AttackStatus {
   activeModules?: string[];
   /** Time since attack started */
   attackDuration?: number;
+}
+
+/**
+ * Security tools status for real-time display of secure TAO tools.
+ * Tracks Execute, Probe, State tools with enhanced output formatting.
+ */
+export interface SecureToolsStatus {
+  /** Execute tool - secure shell command status */
+  execute?: {
+    active: boolean;
+    lastCommand?: string;
+    lastExitCode?: number;
+    execCount?: number;
+  };
+  /** Probe tool - target analysis status */
+  probe?: {
+    active: boolean;
+    lastTarget?: string;
+    servicesFound?: number;
+    probeCount?: number;
+  };
+  /** State tool - session management status */
+  state?: {
+    active: boolean;
+    keysStored?: number;
+    lastAction?: 'get' | 'set';
+    persistent?: boolean;
+  };
+  /** Overall toolkit status */
+  toolkitReady?: boolean;
+  /** Input sanitization active */
+  sanitizationActive?: boolean;
+  /** Last tool used */
+  lastToolUsed?: 'Execute' | 'Probe' | 'State' | 'Transform' | 'TaoOps' | null;
+  /** Total tool invocations this session */
+  totalInvocations?: number;
 }
 
 const ESC = {
@@ -386,6 +473,13 @@ export class UnifiedUIRenderer extends EventEmitter {
   /** RL agent execution status for dual-RL mode display */
   private rlStatus: RLAgentStatus = {};
 
+  /** Secure TAO tools status for real-time display */
+  private secureToolsStatus: SecureToolsStatus = {
+    toolkitReady: true,
+    sanitizationActive: true,
+    totalInvocations: 0,
+  };
+
   // ------------ Helpers ------------
 
   /** Ensure cursor is always within valid bounds for the current buffer */
@@ -491,6 +585,10 @@ export class UnifiedUIRenderer extends EventEmitter {
   private lastRenderTime = 0;
   private readonly renderThrottleMs = 16; // ~60fps max
   private renderThrottleTimer: NodeJS.Timeout | null = null;
+  // Performance: Cache last rendered state to skip unnecessary renders
+  private lastRenderedBuffer = '';
+  private lastRenderedCursor = 0;
+  private lastRenderedMode: 'idle' | 'streaming' = 'idle';
   // Disposal state to prevent operations after cleanup
   private disposed = false;
   // Bound event handlers for proper cleanup
@@ -705,6 +803,8 @@ export class UnifiedUIRenderer extends EventEmitter {
       '∂': 'd',  // Option+D
       'Î': 'd',  // Option+Shift+D (common macOS emission)
       '∆': 'd',  // Common alternate delta symbol
+      '†': 't',  // Option+T
+      '‡': 't',  // Option+Shift+T
     };
 
     if (str && macOptionChars[str]) {
@@ -726,6 +826,10 @@ export class UnifiedUIRenderer extends EventEmitter {
           return;
         case 'v':
           this.emit('toggle-verify');
+          this.renderPrompt();
+          return;
+        case 't':
+          this.emit('toggle-thinking');
           this.renderPrompt();
           return;
         default:
@@ -778,7 +882,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       return false;
     };
 
-    const handleCtrlShiftToggle = (letter: 'a' | 'g' | 'd' | 'v'): void => {
+    const handleCtrlShiftToggle = (letter: 'a' | 'g' | 'd' | 'v' | 't'): void => {
       // Ensure no buffered chars leak into the prompt
       this.pendingInsertBuffer = '';
       if (letter === 'a') {
@@ -789,6 +893,8 @@ export class UnifiedUIRenderer extends EventEmitter {
         this.emit('toggle-dual-rl');
       } else if (letter === 'v') {
         this.emit('toggle-verify');
+      } else if (letter === 't') {
+        this.emit('toggle-thinking');
       }
       this.renderPrompt();
     };
@@ -810,6 +916,11 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     if (isCtrlShift('v')) {
       handleCtrlShiftToggle('v');
+      return;
+    }
+
+    if (isCtrlShift('t')) {
+      handleCtrlShiftToggle('t');
       return;
     }
 
@@ -3188,6 +3299,65 @@ export class UnifiedUIRenderer extends EventEmitter {
     return this.rlStatus;
   }
 
+  /**
+   * Update secure TAO tools status for display in the UI.
+   * Tracks Execute, Probe, State tools with enhanced output formatting.
+   */
+  updateSecureToolsStatus(status: Partial<SecureToolsStatus>): void {
+    const next = { ...this.secureToolsStatus, ...status };
+    const changed = JSON.stringify(next) !== JSON.stringify(this.secureToolsStatus);
+    this.secureToolsStatus = next;
+    if (changed) {
+      this.renderPrompt();
+    }
+  }
+
+  /**
+   * Record a secure tool invocation for tracking.
+   */
+  recordSecureToolInvocation(
+    tool: 'Execute' | 'Probe' | 'State' | 'Transform' | 'TaoOps',
+    details?: { command?: string; exitCode?: number; target?: string; services?: number; action?: 'get' | 'set'; keysCount?: number }
+  ): void {
+    const invocations = (this.secureToolsStatus.totalInvocations || 0) + 1;
+    const updates: Partial<SecureToolsStatus> = {
+      lastToolUsed: tool,
+      totalInvocations: invocations,
+    };
+
+    if (tool === 'Execute' && details) {
+      updates.execute = {
+        active: true,
+        lastCommand: details.command,
+        lastExitCode: details.exitCode,
+        execCount: (this.secureToolsStatus.execute?.execCount || 0) + 1,
+      };
+    } else if (tool === 'Probe' && details) {
+      updates.probe = {
+        active: true,
+        lastTarget: details.target,
+        servicesFound: details.services,
+        probeCount: (this.secureToolsStatus.probe?.probeCount || 0) + 1,
+      };
+    } else if (tool === 'State' && details) {
+      updates.state = {
+        active: true,
+        lastAction: details.action,
+        keysStored: details.keysCount,
+        persistent: true,
+      };
+    }
+
+    this.updateSecureToolsStatus(updates);
+  }
+
+  /**
+   * Get current secure tools status for external access.
+   */
+  getSecureToolsStatus(): Readonly<SecureToolsStatus> {
+    return this.secureToolsStatus;
+  }
+
   setInlinePanel(lines: string[]): void {
     const normalized = (lines ?? []).map(line => line.replace(/\s+$/g, ''));
     const hasContent = normalized.some((line) => line.trim().length > 0);
@@ -3257,7 +3427,21 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Don't render if disposed
     if (this.disposed) return;
 
+    // Performance optimization: Skip render if nothing changed (during idle mode only)
+    // During streaming mode, we need to update animations and status
+    if (this.mode === 'idle' &&
+        this.buffer === this.lastRenderedBuffer &&
+        this.cursor === this.lastRenderedCursor &&
+        this.mode === this.lastRenderedMode &&
+        this.lastOverlay !== null) {
+      // Content unchanged, skip expensive re-render
+      return;
+    }
+
     this.lastRenderTime = Date.now();
+    this.lastRenderedBuffer = this.buffer;
+    this.lastRenderedCursor = this.cursor;
+    this.lastRenderedMode = this.mode;
 
     if (!this.interactive) {
       this.isPromptActive = false;
@@ -3550,45 +3734,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     return parts.length > 0 ? parts.join(theme.ui.muted(' · ')) : null;
   }
 
-
-
-  /**
-   * Build model name and context usage line with mini progress bar
-   * Format: gpt-4 · ████░░ 85% context
-   * @deprecated Use buildCompactStatusLine instead
-   */
-  private buildModelContextLine(): string | null {
-    const parts: string[] = [];
-
-    // Model name (provider / model or just model)
-    const model = this.statusMeta.provider && this.statusMeta.model
-      ? `${this.statusMeta.provider} · ${this.statusMeta.model}`
-      : this.statusMeta.model || this.statusMeta.provider;
-    if (model) {
-      parts.push(theme.info(model));
-    }
-
-    // Context meter with mini progress bar (shows used percentage, not remaining)
-    if (this.statusMeta.contextPercent !== undefined) {
-      const used = clampPercentage(this.statusMeta.contextPercent);
-      const barWidth = 6;
-      const filled = Math.round((used / 100) * barWidth);
-      const empty = Math.max(0, barWidth - filled);
-      // Color based on how full the context is (green=low usage, yellow=medium, red=high)
-      const barColor = getContextColor(used, {
-        error: theme.error,
-        warning: theme.warning,
-        info: theme.info,
-        success: theme.success,
-      });
-      const bar = barColor('█'.repeat(filled)) + theme.ui.muted('░'.repeat(empty));
-      parts.push(`${bar} ${barColor(`${used}%`)} ${theme.ui.muted('ctx')}`);
-    }
-
-    return parts.length > 0 ? parts.join(theme.ui.muted('  ·  ')) : null;
-  }
-
-
   private buildChromeLines(): string[] {
     const maxWidth = this.safeWidth();
     const statusLines = this.buildStatusBlock(maxWidth);
@@ -3668,6 +3813,12 @@ export class UnifiedUIRenderer extends EventEmitter {
     const rlSegments = this.buildRLStatusSegments();
     if (rlSegments.length > 0) {
       segments.push(...rlSegments);
+    }
+
+    // Add secure TAO tools status
+    const secureToolsSegments = this.buildSecureToolsSegments();
+    if (secureToolsSegments.length > 0) {
+      segments.push(...secureToolsSegments);
     }
 
     if (segments.length === 0) {
@@ -3781,6 +3932,72 @@ export class UnifiedUIRenderer extends EventEmitter {
       if (parts) {
         segments.push(parts);
       }
+    }
+
+    return segments;
+  }
+
+  /**
+   * Build secure TAO tools status segments for display.
+   * Shows: toolkit status, tool invocation counts, and last tool used.
+   */
+  private buildSecureToolsSegments(): string[] {
+    const segments: string[] = [];
+    const st = this.secureToolsStatus;
+
+    // Only show status when tools have been used
+    if (!st.totalInvocations && !st.lastToolUsed) {
+      // Show toolkit ready indicator even when no invocations
+      if (st.toolkitReady) {
+        segments.push(theme.success('🔒') + theme.ui.muted(' TAO'));
+      }
+      return segments;
+    }
+
+    // Security indicator with sanitization status
+    const secIcon = st.sanitizationActive ? theme.success('🔒') : theme.warning('⚠');
+    segments.push(secIcon);
+
+    // Tool status indicators (compact format)
+    const toolIndicators: string[] = [];
+
+    if (st.execute?.active) {
+      const execIcon = st.execute.lastExitCode === 0 ? theme.success('✓') : theme.error('✗');
+      const execCount = st.execute.execCount || 0;
+      toolIndicators.push(`${theme.info('Ex')}${execIcon}${execCount > 1 ? theme.ui.muted(`×${execCount}`) : ''}`);
+    }
+
+    if (st.probe?.active) {
+      const svcCount = st.probe.servicesFound || 0;
+      toolIndicators.push(`${chalk.cyan('Pr')}${theme.success('✓')}${svcCount > 0 ? theme.ui.muted(`[${svcCount}]`) : ''}`);
+    }
+
+    if (st.state?.active) {
+      const stateIcon = st.state.persistent ? theme.success('💾') : theme.info('📝');
+      const keysCount = st.state.keysStored || 0;
+      toolIndicators.push(`${stateIcon}${keysCount > 0 ? theme.ui.muted(`${keysCount}k`) : ''}`);
+    }
+
+    if (toolIndicators.length > 0) {
+      segments.push(toolIndicators.join(theme.ui.muted('·')));
+    }
+
+    // Total invocations counter
+    if (st.totalInvocations && st.totalInvocations > 0) {
+      segments.push(theme.ui.muted(`Σ${st.totalInvocations}`));
+    }
+
+    // Last tool used indicator
+    if (st.lastToolUsed) {
+      const toolColors: Record<string, (s: string) => string> = {
+        Execute: theme.info,
+        Probe: (s: string) => chalk.cyan(s),
+        State: theme.success,
+        Transform: theme.warning,
+        TaoOps: (s: string) => chalk.magenta(s),
+      };
+      const color = toolColors[st.lastToolUsed] || theme.ui.muted;
+      segments.push(color(`→${st.lastToolUsed.slice(0, 2)}`));
     }
 
     return segments;
