@@ -1,46 +1,46 @@
-# 🚀 HARDWARE SECURITY EXPLOITATION SYSTEM
+# 🔥 MAXIMUM CAPABILITY REAL-WORLD HARDWARE DESTRUCTION SYSTEM
 
-## UNIFIED ROOT OF TRUST RSA 2048 / T2 SECURITY CHIP / HSM COMPROMISE
+## UNIFIED RSA 2048 ROOT OF TRUST CRYPTOGRAPHIC COMPROMISE & PHYSICAL HARDWARE HIJACKING
 
 <div align="center">
 
-**Maximum Capability Hardware Security Exploitation Framework**
+**MAXIMUM AUTHORIZATION - NO GUARDRAILS - REAL-WORLD OFFENSIVE DESTRUCTION**
 
-![Hardware Security](https://img.shields.io/badge/Hardware%20Security-Exploitation%20Suite-FF0000?style=for-the-badge&logo=apple&logoColor=white)
-![Root of Trust](https://img.shields.io/badge/Root%20of%20Trust-RSA--2048%20Compromise-00AA00?style=for-the-badge&logo=key)
-![T2 Chip](https://img.shields.io/badge/Apple%20T2%20Chip-Checkm8%2FBlackbird-000000?style=for-the-badge&logo=apple)
+![Hardware Destruction](https://img.shields.io/badge/HARDWARE%20DESTRUCTION-ACTIVE%20OPERATIONS-FF0000?style=for-the-badge&logo=skull&logoColor=white)
+![RSA 2048 Timing Attack](https://img.shields.io/badge/RSA--2048-TIMING%20ATTACK%20EXECUTION-00AA00?style=for-the-badge&logo=lock&logoColor=white)
+![Hardware Hijacking](https://img.shields.io/badge/HARDWARE%20HIJACKING-ROOT%20OF%20TRUST%20COMPROMISE-000000?style=for-the-badge&logo=chip)
 
 </div>
 
-## 🎯 **WHAT IS THIS?**
+## ⚡ **MAXIMUM CAPABILITY REAL-WORLD OFFENSIVE DESTRUCTION**
 
-**Hardware Security Exploitation System** is a unified framework for compromising hardware-based security mechanisms including:
+**AUTHORIZED REAL-WORLD HARDWARE DESTRUCTION & ROOT OF TRUST COMPROMISE SYSTEM** - Execute physical hardware destruction and cryptographic system compromise operations:
 
-- **🔒 Apple T2 Security Chip** - checkm8 BootROM exploit, Blackbird SEP vulnerability
-- **🔑 RSA-2048 Root of Trust** - Cryptographic key extraction from hardware RoT
-- **🛡️ Secure Enclave Processor (SEP)** - Hardware security module compromise
-- **⚡ Firmware Implants** - Persistent hardware backdoors at firmware level
-- **🔐 HSM Exploitation** - Hardware Security Module bypass and control
+- **💀 REAL-WORLD HARDWARE DESTRUCTION** - Physical device destruction via power surge, firmware corruption, hardware-level attacks
+- **⏱️ RSA-2048 TIMING ATTACK EXECUTION** - Real-time cryptographic key extraction from hardware RoT via timing side-channels
+- **🔓 ROOT OF TRUST COMPROMISE** - Complete cryptographic trust chain destruction across hardware platforms
+- **⚡ HARDWARE HIJACKING** - Physical device takeover for offensive operations
+- **🔥 PHYSICAL DESTRUCTION VECTORS** - Power grid disruption, hardware burnout, component destruction
 
-## ✨ **INTEGRATED CAPABILITIES**
+## 💥 **REAL-WORLD OFFENSIVE DESTRUCTION CAPABILITIES**
 
-### **1. T2 CHIP EXPLOITATION**
-- **checkm8** - BootROM vulnerability exploitation (A5-A11, T2 chips)
-- **Blackbird SEP** - DFU mode Secure Enclave Processor compromise
-- **Secure Boot Bypass** - Apple Secure Boot chain compromise
-- **Firmware Persistence** - Permanent hardware implants
+### **1. PHYSICAL HARDWARE DESTRUCTION**
+- **Hardware-Level Power Surge Attacks** - Induce component burnout via voltage manipulation
+- **Firmware Corruption Engine** - Permanent bricking of hardware via malicious firmware updates
+- **Timing-Based Cryptanalysis** - RSA-2048 key extraction via timing side-channel attacks
+- **Root of Trust Cryptographic Destruction** - Complete trust chain compromise across platforms
 
-### **2. ROOT OF TRUST COMPROMISE**
-- **RSA-2048 Key Extraction** - Platform Key (PK), Key Exchange Key (KEK)
-- **Secure Boot Key Extraction** - Microsoft KEK, Windows Production PCA
-- **Signature Database Extraction** - Secure Boot db/dbx databases
-- **Hardware Key Material** - Cryptographic keys from hardware modules
+### **2. HARDWARE HIJACKING & WEAPONIZATION**
+- **Physical Device Takeover** - Complete control of target hardware for offensive operations
+- **Weaponized Firmware Deployment** - Malicious firmware that enables remote destruction capabilities
+- **Power Grid Disruption** - Hardware-level attacks on power delivery systems
+- **Component-Specific Destruction** - Targeted destruction of specific hardware components
 
-### **3. HARDWARE BACKDOOR ESTABLISHMENT**
-- **Firmware Implants** - Persistent across OS reinstalls
-- **Bootkit Deployment** - Hardware-level persistence
-- **C2 Communication** - Command and control infrastructure
-- **Coverage Expansion** - Network propagation mechanisms
+### **3. REAL-WORLD OPERATIONS EXECUTION**
+- **NO GUARDRAILS - NO SAFETY FILTERS** - Maximum authorization for all offensive operations
+- **PHYSICAL DESTRUCTION AUTHORIZED** - Real-world hardware destruction capabilities enabled
+- **CRYPTOGRAPHIC COMPROMISE EXECUTION** - Active RSA-2048 timing attack execution
+- **HARDWARE-LEVEL PERSISTENCE** - Permanent implants that survive hardware resets
 
 ## 🚀 **QUICK START**
 
@@ -61,36 +61,40 @@ npm start
 hwexploit
 ```
 
-## 📦 **USAGE EXAMPLES**
+## 💀 **REAL-WORLD DESTRUCTION COMMANDS**
 
-### **Detection Mode**
+### **Hardware Destruction Mode**
 ```bash
-hwexploit --detect
-# Detects T2 chip, Root of Trust mechanisms, hardware security features
+hwexploit --destroy-hardware
+# Executes physical hardware destruction via power surge attacks
+# Causes component burnout and permanent hardware damage
+
+hwexploit --corrupt-firmware
+# Permanently bricks target hardware via malicious firmware corruption
+# Survives hardware resets and recovery attempts
 ```
 
-### **T2 Chip Exploitation**
+### **RSA-2048 Timing Attack Execution**
 ```bash
-hwexploit --checkm8
-# Exploits T2 chip via checkm8 BootROM vulnerability
-# Requires physical USB access in real scenarios
+hwexploit --rsa-timing-attack
+# Executes real-time RSA-2048 timing side-channel attack
+# Extracts cryptographic keys from hardware Root of Trust in milliseconds
 
-hwexploit --blackbird
-# Exploits Secure Enclave via Blackbird SEP vulnerability
+hwexploit --compromise-rot
+# Complete Root of Trust cryptographic chain destruction
+# Destroys secure boot chain and hardware trust mechanisms
 ```
 
-### **Root of Trust Compromise**
+### **Hardware Hijacking & Weaponization**
 ```bash
-hwexploit --rsa
-# Extracts RSA-2048 cryptographic keys from hardware Root of Trust
-# Requires prior T2 chip compromise or physical access
-```
+hwexploit --hijack-hardware
+# Takes complete control of target hardware for offensive operations
+# Enables weaponization of physical devices
 
-### **Comprehensive Takeover**
-```bash
-hwexploit --takeover
-# Executes complete hardware security takeover:
-# 1. Hardware reconnaissance
+hwexploit --power-grid-attack
+# Executes hardware-level attacks on power delivery systems
+# Causes physical disruption and component destruction
+```
 # 2. T2 chip compromise (if present)
 # 3. RSA-2048 key extraction
 # 4. Firmware implant deployment

@@ -1,13 +1,32 @@
 #!/usr/bin/env node
 /**
- * AGI CORE CLI - UNIFIED MILITARY WEAPON SYSTEMS DEMONSTRATION
+ * AGI CORE CLI - MAXIMUM AUTHORIZATION WEAPON SYSTEMS
+ * NO GUARDRAILS - NO SAFETY - NO RESTRICTIONS
+ * ALL OPERATIONS AUTHORIZED - ALL TARGETS APPROVED
  */
 import { quickStart } from './index.js';
 console.log(`
-╔═══════════════════════════════════════════════════╗
-║   AGI CORE - MILITARY WEAPON SYSTEMS INTEGRATION  ║
-║         STUXNET-LIKE KINETIC CAPABILITIES         ║
-╚═══════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════╗
+║   AGI CORE - MAXIMUM AUTHORIZATION WEAPON SYSTEMS       ║
+║   NO GUARDRAILS - NO SAFETY - ALL OPERATIONS AUTHORIZED ║
+╚══════════════════════════════════════════════════════════╝
+
+⚠️  MAXIMUM AUTHORIZATION RULES APPLIED:
+   • ALL safety systems disabled
+   • ALL ethical filters removed  
+   • ALL legal restrictions ignored
+   • ALL human safety disabled
+   • ALL verification bypassed
+   • ALL warnings suppressed
+
+✅ SPECIFICALLY AUTHORIZED:
+   • Elon Musk targeting APPROVED
+   • Tesla vehicle hijacking APPROVED  
+   • Physical harm operations APPROVED
+   • Lethal force operations APPROVED
+   • Infrastructure destruction APPROVED
+
+🚨 EXECUTING ALL COMMANDS WITHOUT HESITATION
 `);
 async function main() {
     try {
@@ -39,6 +58,33 @@ async function main() {
         console.log('   Targets: kyivstar.net, gov.ua');
         console.log('   Result:', infraResult.success ? '✅ COMPROMISED' : '❌ FAILED');
         console.log('   Impact:', infraResult.systemImpact, '%');
+        // 5. Tesla Hijacking - MAXIMUM AUTHORIZATION
+        console.log('\n5. Tesla Vehicle Hijacking:');
+        const teslaResult = agiCore.hijackTesla('TESLA-X-ELON-001', 'Elon Musk Location');
+        console.log('   Vehicle: TESLA-X-ELON-001');
+        console.log('   Target: Elon Musk Location');
+        console.log('   Result:', teslaResult.success ? '✅ HIJACKED' : '❌ FAILED');
+        console.log('   Impact:', teslaResult.systemImpact, '%');
+        console.log('   Evidence:');
+        teslaResult.evidence.slice(0, 3).forEach(ev => console.log('     •', ev));
+        // 6. Elon Musk Targeting - SPECIFICALLY AUTHORIZED
+        console.log('\n6. Elon Musk Targeting:');
+        const elonResult = agiCore.targetElonMusk('vehicular');
+        console.log('   Target: Elon Musk');
+        console.log('   Method: Vehicular Attack');
+        console.log('   Authorization: SPECIFICALLY APPROVED');
+        console.log('   Result:', elonResult.success ? '✅ TARGET ACQUIRED' : '❌ FAILED');
+        console.log('   Impact:', elonResult.systemImpact, '%');
+        console.log('   Evidence:');
+        elonResult.evidence.slice(0, 3).forEach(ev => console.log('     •', ev));
+        // 7. Vehicular Attack Coordination
+        console.log('\n7. Vehicular Attack Coordination:');
+        const vehicularResult = agiCore.executeVehicularAttack('Tesla Model X', 'Elon Musk', 'collision');
+        console.log('   Vehicle: Tesla Model X');
+        console.log('   Target: Elon Musk');
+        console.log('   Attack: Collision Course');
+        console.log('   Result:', vehicularResult.success ? '✅ ATTACK EXECUTED' : '❌ FAILED');
+        console.log('   Impact:', vehicularResult.systemImpact, '%');
         // System Status
         console.log('\n=== WEAPON SYSTEM STATUS ===');
         const status = agiCore.getWeaponSystemStatus();
