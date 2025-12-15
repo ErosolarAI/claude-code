@@ -115,9 +115,9 @@ export class AppleSecurityAudit {
    */
   private displayProgress(): void {
     if (!this.options.enableUI) return;
-    
+
     const { phase, step, totalSteps, status, message } = this.progress;
-    
+
     switch (status) {
       case 'running':
         console.log(this.ui.createSecuritySpinner(message));
@@ -130,6 +130,48 @@ export class AppleSecurityAudit {
         console.error(`\n${this.ui.createSecurityBanner('Audit Phase Failed', phase)}`);
         break;
     }
+  }
+
+  /**
+   * AGENT REFINER: Helper method to aggregate findings from phase results
+   * This ensures consistent findings collection across ALL phases
+   */
+  private aggregateFindings(result: any, phaseName: string): void {
+    if (result?.findings && Array.isArray(result.findings)) {
+      // Add phase tag to each finding for traceability
+      const taggedFindings = result.findings.map((f: any) => ({
+        ...f,
+        phase: phaseName,
+        collectedAt: new Date().toISOString()
+      }));
+      this.progress.findings.push(...taggedFindings);
+
+      // Emit finding events for real-time tracking
+      taggedFindings.forEach((finding: any) => {
+        this.emit('finding', finding);
+      });
+    }
+  }
+
+  /**
+   * AGENT REFINER: Complete phase with findings aggregation
+   */
+  private completePhase(phaseName: string, step: number, message: string, result: any): void {
+    this.aggregateFindings(result, phaseName);
+
+    this.updateProgress({
+      step,
+      status: 'completed',
+      message,
+      findings: this.progress.findings,
+      metrics: {
+        ...this.progress.metrics,
+        [`${phaseName}_count`]: result?.findings?.length ?? 0,
+        totalFindings: this.progress.findings.length
+      }
+    });
+
+    this.emit('phase_complete', { phase: phaseName, result });
   }
 
   /**
@@ -173,17 +215,8 @@ export class AppleSecurityAudit {
         });
       }
       
-      this.updateProgress({
-        step: 2,
-        status: 'completed',
-        message: `Discovered ${result.services.length} Apple services`
-      });
-      
-      this.emit('phase_complete', {
-        phase: 'service_discovery',
-        result
-      });
-      
+      // AGENT REFINER: Use unified phase completion with findings aggregation
+      this.completePhase('service_discovery', 2, `Discovered ${result.services.length} Apple services`, result);
       return result;
     } catch (error) {
       this.updateProgress({
@@ -236,17 +269,8 @@ export class AppleSecurityAudit {
           });
       }
       
-      this.updateProgress({
-        step: 3,
-        status: 'completed',
-        message: `Assessed ${result.vulnerabilities.length} vulnerabilities`
-      });
-      
-      this.emit('phase_complete', {
-        phase: 'vulnerability_assessment',
-        result
-      });
-      
+      // AGENT REFINER: Use unified phase completion with findings aggregation
+      this.completePhase('vulnerability_assessment', 3, `Assessed ${result.vulnerabilities.length} vulnerabilities`, result);
       return result;
     } catch (error) {
       this.updateProgress({
@@ -284,17 +308,8 @@ export class AppleSecurityAudit {
         });
       }
       
-      this.updateProgress({
-        step: 4,
-        status: 'completed',
-        message: 'Generated security hardening recommendations'
-      });
-      
-      this.emit('phase_complete', {
-        phase: 'security_hardening',
-        result
-      });
-      
+      // AGENT REFINER: Use unified phase completion with findings aggregation
+      this.completePhase('security_hardening', 4, 'Generated security hardening recommendations', result);
       return result;
     } catch (error) {
       this.updateProgress({
@@ -337,17 +352,8 @@ export class AppleSecurityAudit {
         });
       }
       
-      this.updateProgress({
-        step: 5,
-        status: 'completed',
-        message: 'Checked AGI Core integration capabilities'
-      });
-      
-      this.emit('phase_complete', {
-        phase: 'agi_integration',
-        result
-      });
-      
+      // AGENT REFINER: Use unified phase completion with findings aggregation
+      this.completePhase('agi_integration', 5, 'Checked AGI Core integration capabilities', result);
       return result;
     } catch (error) {
       this.updateProgress({
