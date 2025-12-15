@@ -26,8 +26,8 @@ interface ToolConstraint {
 const MAX_TARGET_LENGTH = 253;
 const MAX_PORT = 65535;
 const MIN_PORT = 1;
-const MAX_COMMAND_LENGTH = 4096;
-const MAX_URL_LENGTH = 2048;
+const MAX_COMMAND_LENGTH = 65536; // 64KB - increased to support complex commands
+const MAX_URL_LENGTH = 8192;
 
 // Dangerous patterns to block
 const DANGEROUS_PATTERNS = [

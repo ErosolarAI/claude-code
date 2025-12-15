@@ -45,7 +45,9 @@ import { getRepoTelemetrySnapshot } from '../tools/telemetryTools.js';
 const exec = promisify(childExec);
 import { ensureNextSteps } from '../core/finalResponseFormatter.js';
 import { getTaskCompletionDetector } from '../core/taskCompletionDetector.js';
-import { checkForUpdates, formatUpdateNotification } from '../core/updateChecker.js';
+import { checkForUpdates, formatUpdateNotification, hasPendingSession, loadSessionState, clearSessionState } from '../core/updateChecker.js';
+import { getSelfUpgrade, SelfUpgrade, resumeAfterUpgrade } from '../core/selfUpgrade.js';
+import { getHotReload, HotReload } from '../core/hotReload.js';
 import { theme } from '../ui/theme.js';
 
 // Timeout constants for attack tournament - balanced for model response time
@@ -194,14 +196,71 @@ class InteractiveShell {
   private currentResponseBuffer = '';
   // DEFAULT: AlphaZero-style dual tournament RL (two competing agents)
   private preferredUpgradeMode: RepoUpgradeMode = 'dual-rl-tournament';
+  // Self-upgrade system
+  private selfUpgrade: SelfUpgrade;
+  private hotReload: HotReload;
+  private resumedFromUpgrade = false;
 
   constructor(controller: AgentController, profile: ProfileName, profileConfig: ResolvedProfileConfig, workingDir: string) {
     this.controller = controller;
     this.profile = profile;
     this.profileConfig = profileConfig;
     this.workingDir = workingDir;
+
+    // Initialize self-upgrade system
+    this.selfUpgrade = getSelfUpgrade({
+      workingDir,
+      autoRestart: true,
+      logger: (msg) => this.logUpgradeMessage(msg),
+    });
+
+    // Initialize hot-reload system
+    this.hotReload = getHotReload({
+      workingDir,
+      autoCheck: true,
+      checkInterval: 5 * 60 * 1000, // 5 minutes
+      logger: (msg) => this.logUpgradeMessage(msg),
+    });
+
+    // Check for and handle session resumption after upgrade
+    this.handleUpgradeResumption();
+
     // Pre-fetch provider status in background
     void this.fetchProviders();
+  }
+
+  private logUpgradeMessage(message: string): void {
+    const renderer = this.promptController?.getRenderer();
+    if (renderer) {
+      renderer.addEvent('system', theme.info(`[Upgrade] ${message}`));
+    } else {
+      console.log(theme.info(`[Upgrade] ${message}`));
+    }
+  }
+
+  private handleUpgradeResumption(): void {
+    // Check if we were started after an upgrade
+    if (SelfUpgrade.wasUpgraded()) {
+      const fromVersion = SelfUpgrade.getUpgradeFromVersion();
+      this.resumedFromUpgrade = true;
+
+      // Check for pending session state
+      const sessionState = resumeAfterUpgrade();
+      if (sessionState) {
+        // Queue any pending tasks from before upgrade
+        if (sessionState.pendingTasks && sessionState.pendingTasks.length > 0) {
+          // Add context about the resumption
+          const resumePrompt = `[Resumed from upgrade: ${fromVersion} -> current] Continue with: ${sessionState.pendingTasks[0]}`;
+          this.pendingPrompts.push(resumePrompt);
+        }
+
+        // Log resumption
+        console.log(theme.success(`Session resumed after upgrade from ${sessionState.fromVersion}`));
+        if (sessionState.contextSummary) {
+          console.log(theme.ui.muted(`Context: ${sessionState.contextSummary}`));
+        }
+      }
+    }
   }
 
   private async fetchProviders(): Promise<void> {
@@ -214,17 +273,97 @@ class InteractiveShell {
 
   private async checkForUpdates(): Promise<void> {
     try {
-      const version = getVersion();
-      const updateInfo = await checkForUpdates(version);
-      if (updateInfo && updateInfo.updateAvailable) {
+      // Use the new self-upgrade system for checking
+      const versionInfo = await this.selfUpgrade.checkForUpdates();
+
+      if (versionInfo.updateAvailable) {
         const renderer = this.promptController?.getRenderer();
         if (renderer) {
-          const notification = formatUpdateNotification(updateInfo);
+          // Create update notification
+          const notification = formatUpdateNotification({
+            current: versionInfo.current,
+            latest: versionInfo.latest,
+            updateAvailable: true,
+          });
           renderer.addEvent('banner', notification);
+
+          // Add upgrade command hint
+          renderer.addEvent('system', theme.ui.muted(
+            'Use /upgrade to update automatically, or /upgrade --verify for build verification'
+          ));
         }
       }
     } catch {
       // Silently fail - don't block startup for update checks
+    }
+  }
+
+  /**
+   * Perform self-upgrade with optional verification
+   */
+  private async performSelfUpgrade(options: { verify?: boolean } = {}): Promise<void> {
+    const renderer = this.promptController?.getRenderer();
+
+    try {
+      renderer?.addEvent('system', theme.info('Checking for updates...'));
+
+      const versionInfo = await this.selfUpgrade.checkForUpdates();
+
+      if (!versionInfo.updateAvailable) {
+        renderer?.addEvent('system', theme.success(`Already on latest version: ${versionInfo.current}`));
+        return;
+      }
+
+      renderer?.addEvent('system', theme.info(`Update available: ${versionInfo.current} -> ${versionInfo.latest}`));
+
+      if (options.verify) {
+        renderer?.addEvent('system', theme.info('Performing verified upgrade (build + tests)...'));
+        const result = await this.selfUpgrade.upgradeWithFullVerification(versionInfo.latest);
+
+        if (result.success && result.buildSuccess) {
+          renderer?.addEvent('system', theme.success(
+            `Upgrade verified! Build passed, tests: ${result.testState.passed} passed, ${result.testState.failed} failed`
+          ));
+          renderer?.addEvent('system', theme.info('Restarting to apply update...'));
+
+          // Save session state before restart
+          this.selfUpgrade.saveSessionState({
+            workingDir: this.workingDir,
+            fromVersion: versionInfo.current,
+            timestamp: Date.now(),
+            contextSummary: 'Verified upgrade completed, restarting',
+          });
+
+          await this.selfUpgrade.launchNewInstance(true);
+        } else {
+          renderer?.addEvent('system', theme.warning(
+            `Upgrade verification failed. Build: ${result.buildSuccess ? 'passed' : 'failed'}`
+          ));
+        }
+      } else {
+        renderer?.addEvent('system', theme.info('Performing upgrade...'));
+        const result = await this.selfUpgrade.npmInstallFresh(versionInfo.latest);
+
+        if (result.success) {
+          renderer?.addEvent('system', theme.success(`Upgraded to ${result.toVersion}!`));
+          renderer?.addEvent('system', theme.info('Restarting to apply update...'));
+
+          // Save session state before restart
+          this.selfUpgrade.saveSessionState({
+            workingDir: this.workingDir,
+            fromVersion: versionInfo.current,
+            timestamp: Date.now(),
+            contextSummary: 'Upgrade completed, restarting',
+          });
+
+          await this.selfUpgrade.launchNewInstance(true);
+        } else {
+          renderer?.addEvent('system', theme.error(`Upgrade failed: ${result.error}`));
+        }
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      renderer?.addEvent('system', theme.error(`Upgrade error: ${errorMsg}`));
     }
   }
 

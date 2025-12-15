@@ -14,6 +14,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { getEpisodicMemory, type EpisodicMemory, type Episode, type MemorySearchResult } from './episodicMemory.js';
+import { getSelfUpgrade, SelfUpgrade, type UpgradeSessionState, type RLUpgradeContext } from './selfUpgrade.js';
+import { getHotReload, HotReload } from './hotReload.js';
 
 // ============================================================================
 // CORE TYPES
@@ -170,6 +172,9 @@ export class AGICore extends EventEmitter {
   private memoryPath: string;
   private episodicMemory: EpisodicMemory;
   private currentEpisodeId: string | null = null;
+  private selfUpgrade: SelfUpgrade;
+  private hotReload: HotReload;
+  private upgradeCheckPromise: Promise<void> | null = null;
 
   constructor(workingDir?: string) {
     super();
@@ -186,8 +191,47 @@ export class AGICore extends EventEmitter {
     // Initialize episodic memory system
     this.episodicMemory = getEpisodicMemory();
 
+    // Initialize self-upgrade system
+    this.selfUpgrade = getSelfUpgrade({
+      workingDir: dir,
+      autoRestart: true,
+      logger: (msg) => this.emit('upgrade:log', msg),
+    });
+
+    // Initialize hot-reload system
+    this.hotReload = getHotReload({
+      workingDir: dir,
+      autoCheck: true,
+      checkInterval: 5 * 60 * 1000, // Check every 5 minutes
+      logger: (msg) => this.emit('hotReload:log', msg),
+    });
+
+    // Forward upgrade events
+    this.selfUpgrade.on('upgrade', (event) => this.emit('upgrade', event));
+    this.hotReload.on('hotReload', (event) => this.emit('hotReload', event));
+
+    // Check for upgrade on initialization (non-blocking)
+    this.upgradeCheckPromise = this.checkForUpgradeOnStart();
+
     // Analyze project on initialization
     this.analyzeProject();
+  }
+
+  /**
+   * Non-blocking upgrade check on startup
+   */
+  private async checkForUpgradeOnStart(): Promise<void> {
+    try {
+      const versionInfo = await this.selfUpgrade.checkForUpdates();
+      if (versionInfo.updateAvailable) {
+        this.emit('upgrade:available', {
+          current: versionInfo.current,
+          latest: versionInfo.latest,
+        });
+      }
+    } catch {
+      // Non-blocking, ignore errors
+    }
   }
 
   // ==========================================================================
@@ -1494,6 +1538,171 @@ export class AGICore extends EventEmitter {
    */
   getCurrentEpisodeId(): string | null {
     return this.currentEpisodeId;
+  }
+
+  // ==========================================================================
+  // SELF-UPGRADE SYSTEM - Automatic updates and hot-reload
+  // ==========================================================================
+
+  /**
+   * Check for available updates
+   */
+  async checkForUpdates(): Promise<{
+    available: boolean;
+    current: string;
+    latest: string;
+  }> {
+    const info = await this.selfUpgrade.checkForUpdates();
+    return {
+      available: info.updateAvailable,
+      current: info.current,
+      latest: info.latest,
+    };
+  }
+
+  /**
+   * Perform self-upgrade to latest version
+   * Saves session state and restarts CLI automatically
+   */
+  async performSelfUpgrade(options: {
+    version?: string;
+    preserveSession?: boolean;
+  } = {}): Promise<{
+    success: boolean;
+    fromVersion: string;
+    toVersion?: string;
+    error?: string;
+  }> {
+    // Save current session state if requested
+    if (options.preserveSession !== false) {
+      const sessionState: UpgradeSessionState = {
+        workingDir: this.context.workingDir,
+        fromVersion: (await this.selfUpgrade.checkForUpdates()).current,
+        timestamp: Date.now(),
+        pendingTasks: this.context.memory.recentOps.slice(0, 5).map(op => op.prompt),
+        contextSummary: `Session ${this.context.sessionId}, ${this.context.memory.recentOps.length} recent operations`,
+      };
+
+      // Include RL context if in an active episode
+      if (this.currentEpisodeId) {
+        sessionState.rlContext = {
+          iteration: 1,
+          variant: 'primary',
+          objective: 'Continue from episode ' + this.currentEpisodeId,
+          currentScore: 0,
+          filesModified: [],
+        };
+      }
+
+      this.selfUpgrade.saveSessionState(sessionState);
+    }
+
+    // Perform upgrade
+    const result = await this.selfUpgrade.npmInstallFresh(options.version);
+    return {
+      success: result.success,
+      fromVersion: result.fromVersion,
+      toVersion: result.toVersion,
+      error: result.error,
+    };
+  }
+
+  /**
+   * Perform self-upgrade with build and test verification
+   */
+  async performVerifiedUpgrade(options: {
+    version?: string;
+    buildCommand?: string;
+    testCommand?: string;
+  } = {}): Promise<{
+    success: boolean;
+    buildSuccess: boolean;
+    testsPassed: number;
+    testsFailed: number;
+    fromVersion: string;
+    toVersion?: string;
+  }> {
+    const result = await this.selfUpgrade.upgradeWithFullVerification(
+      options.version,
+      options.buildCommand || this.context.memory.projectKnowledge.buildSystem || 'npm run build',
+      options.testCommand || this.context.memory.projectKnowledge.testCommand || 'npm test'
+    );
+
+    return {
+      success: result.success,
+      buildSuccess: result.buildSuccess,
+      testsPassed: result.testState.passed,
+      testsFailed: result.testState.failed,
+      fromVersion: result.fromVersion,
+      toVersion: result.toVersion,
+    };
+  }
+
+  /**
+   * Trigger hot-reload if update is available
+   */
+  async triggerHotReload(options: {
+    preserveState?: Record<string, unknown>;
+    activeEdits?: string[];
+  } = {}): Promise<{
+    success: boolean;
+    strategy: 'hot-swap' | 'restart';
+    error?: string;
+  }> {
+    // Include RL context if applicable
+    const rlContext: RLUpgradeContext | undefined = this.currentEpisodeId ? {
+      iteration: 1,
+      variant: 'primary',
+      objective: 'Hot-reload continuation',
+      currentScore: 0,
+      filesModified: options.activeEdits || [],
+    } : undefined;
+
+    return this.hotReload.performHotReload({
+      preserveState: options.preserveState,
+      rlContext,
+      activeEdits: options.activeEdits,
+    });
+  }
+
+  /**
+   * Resume from previous upgrade session
+   */
+  resumeFromUpgrade(): UpgradeSessionState | null {
+    const state = this.selfUpgrade.loadSessionState();
+    if (state) {
+      this.selfUpgrade.clearSessionState();
+      this.emit('upgrade:resumed', state);
+    }
+    return state;
+  }
+
+  /**
+   * Get the self-upgrade instance for direct access
+   */
+  getSelfUpgrade(): SelfUpgrade {
+    return this.selfUpgrade;
+  }
+
+  /**
+   * Get the hot-reload instance for direct access
+   */
+  getHotReload(): HotReload {
+    return this.hotReload;
+  }
+
+  /**
+   * Check if this session was started after an upgrade
+   */
+  wasUpgraded(): boolean {
+    return SelfUpgrade.wasUpgraded();
+  }
+
+  /**
+   * Get version we upgraded from (if applicable)
+   */
+  getUpgradeFromVersion(): string | null {
+    return SelfUpgrade.getUpgradeFromVersion();
   }
 }
 

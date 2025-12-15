@@ -219,7 +219,8 @@ export type RendererEventType =
   | 'error'
   | 'streaming'
   | 'tool-call'
-  | 'tool-result';
+  | 'tool-result'
+  | 'system';
 
 type UIEvent = {
   type: CanonicalEventType;

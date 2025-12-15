@@ -11,6 +11,7 @@ import { GitWorktreeManager } from '../core/gitWorktreeManager.js';
 import { runDualTournament, DEFAULT_HUMAN_REWARD_WEIGHTS, type TournamentOutcome } from '../core/dualTournament.js';
 import { createAgentController, type AgentController } from '../runtime/agentController.js';
 import { logDebug } from '../utils/debugLogger.js';
+import { getSelfUpgrade, type RLUpgradeContext, type UpgradeResult } from '../core/selfUpgrade.js';
 
 const exec = promisify(execCallback);
 
@@ -63,7 +64,10 @@ export type AlphaZeroEvent =
       findings: number;
     }
   | { type: 'winner.applied'; iteration: number; winner: 'primary' | 'refiner'; filesApplied: string[] }
-  | { type: 'iteration.complete'; iteration: number; winner: 'primary' | 'refiner' | 'tie'; score: number };
+  | { type: 'iteration.complete'; iteration: number; winner: 'primary' | 'refiner' | 'tie'; score: number }
+  | { type: 'selfUpgrade.start'; iteration: number; fromVersion: string; toVersion?: string }
+  | { type: 'selfUpgrade.complete'; iteration: number; success: boolean; toVersion?: string; scoreImpact: number }
+  | { type: 'selfUpgrade.checkpoint'; iteration: number; context: RLUpgradeContext };
 
 export interface AlphaZeroIterationResult {
   iteration: number;
@@ -108,6 +112,14 @@ export interface TrueAlphaZeroFlowOptions {
   enableVariantWorktrees?: boolean;
   onEvent?: (event: AlphaZeroEvent) => void;
   onAgentEvent?: (variant: 'primary' | 'refiner', event: AgentEventUnion) => void;
+  /** Enable self-upgrade during RL iterations */
+  enableSelfUpgrade?: boolean;
+  /** Check for updates every N iterations (default: 1 = every iteration) */
+  upgradeCheckInterval?: number;
+  /** Auto-apply upgrades when available */
+  autoApplyUpgrades?: boolean;
+  /** Logger for upgrade events */
+  upgradeLogger?: (message: string) => void;
 }
 
 interface WinnerReinforcementContext {
@@ -131,9 +143,46 @@ export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): P
   let noImprovementCount = 0;
   const filesModified = new Set<string>();
   let lastWinningContext: WinnerReinforcementContext | null = null;
+  let upgradeScoreBonus = 0;
+
+  // Initialize self-upgrade if enabled
+  const selfUpgrade = options.enableSelfUpgrade ? getSelfUpgrade({
+    workingDir: options.workingDir,
+    logger: options.upgradeLogger,
+    autoRestart: false, // We handle restart ourselves for RL continuity
+  }) : null;
+
+  // Check for and resume from any previous RL checkpoint
+  if (selfUpgrade) {
+    const checkpoint = selfUpgrade.loadRLCheckpoint();
+    if (checkpoint) {
+      logDebug(`Resuming from RL checkpoint: iteration ${checkpoint.iteration}, score ${checkpoint.currentScore}`);
+      bestScore = checkpoint.currentScore;
+      selfUpgrade.clearRLCheckpoint();
+    }
+  }
 
   for (let iteration = 1; iteration <= (options.maxIterations ?? DEFAULT_MAX_ITERATIONS); iteration++) {
     options.onEvent?.({ type: 'iteration.start', iteration });
+
+    // Check for self-upgrade opportunity
+    if (selfUpgrade && options.enableSelfUpgrade) {
+      const checkInterval = options.upgradeCheckInterval ?? 1;
+      if (iteration % checkInterval === 0) {
+        const upgradeResult = await checkAndApplySelfUpgrade({
+          selfUpgrade,
+          iteration,
+          bestScore,
+          filesModified: Array.from(filesModified),
+          objective: options.objective,
+          autoApply: options.autoApplyUpgrades ?? false,
+          onEvent: options.onEvent,
+        });
+        if (upgradeResult) {
+          upgradeScoreBonus += upgradeResult.scoreImpact;
+        }
+      }
+    }
 
     const { primaryWorkspace, refinerWorkspace, worktreeManager } = await prepareWorkspaces(
       options.workingDir,
@@ -294,10 +343,92 @@ export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): P
   return {
     objective: options.objective,
     iterations,
-    bestScore,
+    bestScore: bestScore + upgradeScoreBonus,
     convergenceReached: noImprovementCount >= CONVERGENCE_PATIENCE,
     filesModified: Array.from(filesModified),
   };
+}
+
+/**
+ * Check for and apply self-upgrade during RL iteration
+ */
+async function checkAndApplySelfUpgrade(params: {
+  selfUpgrade: ReturnType<typeof getSelfUpgrade>;
+  iteration: number;
+  bestScore: number;
+  filesModified: string[];
+  objective: string;
+  autoApply: boolean;
+  onEvent?: (event: AlphaZeroEvent) => void;
+}): Promise<{ scoreImpact: number } | null> {
+  const { selfUpgrade, iteration, bestScore, filesModified, objective, autoApply, onEvent } = params;
+
+  try {
+    const versionInfo = await selfUpgrade.checkForUpdates();
+
+    if (!versionInfo.updateAvailable) {
+      return null;
+    }
+
+    // Create RL context for checkpoint
+    const rlContext: RLUpgradeContext = {
+      iteration,
+      variant: 'primary', // Default, actual variant tracked separately
+      objective,
+      currentScore: bestScore,
+      filesModified,
+    };
+
+    onEvent?.({
+      type: 'selfUpgrade.start',
+      iteration,
+      fromVersion: versionInfo.current,
+      toVersion: versionInfo.latest,
+    });
+
+    // Save checkpoint before upgrade
+    selfUpgrade.saveRLCheckpoint(rlContext);
+    onEvent?.({ type: 'selfUpgrade.checkpoint', iteration, context: rlContext });
+
+    if (!autoApply) {
+      // Just report availability, don't apply
+      return null;
+    }
+
+    // Perform upgrade with build verification
+    const result = await selfUpgrade.upgradeWithBuildCheck(versionInfo.latest);
+
+    if (result.success && result.buildSuccess) {
+      const scoreImpact = selfUpgrade.calculateRLScoreImpact(rlContext, true);
+
+      onEvent?.({
+        type: 'selfUpgrade.complete',
+        iteration,
+        success: true,
+        toVersion: result.toVersion,
+        scoreImpact,
+      });
+
+      // Clear checkpoint on success
+      selfUpgrade.clearRLCheckpoint();
+
+      return { scoreImpact };
+    } else {
+      const scoreImpact = selfUpgrade.calculateRLScoreImpact(rlContext, false);
+
+      onEvent?.({
+        type: 'selfUpgrade.complete',
+        iteration,
+        success: false,
+        scoreImpact,
+      });
+
+      return { scoreImpact };
+    }
+  } catch (error) {
+    logDebug(`Self-upgrade check failed: ${error}`);
+    return null;
+  }
 }
 
 async function prepareWorkspaces(workingDir: string, enableWorktrees: boolean) {
