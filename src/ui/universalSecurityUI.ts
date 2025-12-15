@@ -14,6 +14,7 @@ import type {
   RemediationSummary,
   CloudProvider,
   SeverityLevel,
+  // Exploitability imported for type compatibility
   Exploitability,
 } from '../core/universalSecurityAudit.js';
 

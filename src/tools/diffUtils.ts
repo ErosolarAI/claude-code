@@ -162,6 +162,9 @@ const ANSI_RESET = '\x1b[0m';
 const ANSI_RED = '\x1b[31m';
 const ANSI_GREEN = '\x1b[32m';
 const ANSI_DIM = '\x1b[2m';
+const ANSI_BOLD = '\x1b[1m';
+const ANSI_RED_BOLD = '\x1b[1;31m';
+const ANSI_GREEN_BOLD = '\x1b[1;32m';
 // Background colors for Claude Code style highlighting
 
 /**
@@ -185,13 +188,13 @@ export function formatDiffLines(diff: DiffSegment[], useColors = true): string[]
     if (entry.type === 'added') {
       const prefix = '+';
       if (useColors) {
-        return `${ANSI_GREEN}${prefix} L${paddedNumber} | ${body}${ANSI_RESET}`;
+        return `${ANSI_GREEN_BOLD}${prefix} L${paddedNumber} | ${body}${ANSI_RESET}`;
       }
       return `${prefix} L${paddedNumber} | ${body}`;
     } else if (entry.type === 'removed') {
       const prefix = '-';
       if (useColors) {
-        return `${ANSI_RED}${prefix} L${paddedNumber} | ${body}${ANSI_RESET}`;
+        return `${ANSI_RED_BOLD}${prefix} L${paddedNumber} | ${body}${ANSI_RESET}`;
       }
       return `${prefix} L${paddedNumber} | ${body}`;
     } else {
@@ -254,7 +257,7 @@ export function formatDiffClaudeStyle(
         const linePrefix = isFirstLine ? prefix : continuationPrefix;
 
         if (useColors) {
-          result.push(`${ANSI_GREEN}${INDENT}${linePrefix}   ${lineContent}${ANSI_RESET}`);
+          result.push(`${ANSI_GREEN_BOLD}${INDENT}${linePrefix}   ${lineContent}${ANSI_RESET}`);
         } else {
           result.push(`${INDENT}${linePrefix}   ${lineContent}`);
         }
@@ -273,7 +276,7 @@ export function formatDiffClaudeStyle(
         const linePrefix = isFirstLine ? prefix : continuationPrefix;
 
         if (useColors) {
-          result.push(`${ANSI_RED}${INDENT}${linePrefix}   ${lineContent}${ANSI_RESET}`);
+          result.push(`${ANSI_RED_BOLD}${INDENT}${linePrefix}   ${lineContent}${ANSI_RESET}`);
         } else {
           result.push(`${INDENT}${linePrefix}   ${lineContent}`);
         }

@@ -55,6 +55,13 @@ export type AlphaZeroEvent =
       testsPassed: number;
       testsFailed: number;
     }
+  | {
+      type: 'security.complete';
+      iteration: number;
+      variant: 'primary' | 'refiner';
+      securitySuccess: boolean;
+      findings: number;
+    }
   | { type: 'winner.applied'; iteration: number; winner: 'primary' | 'refiner'; filesApplied: string[] }
   | { type: 'iteration.complete'; iteration: number; winner: 'primary' | 'refiner' | 'tie'; score: number };
 
@@ -76,6 +83,9 @@ export interface AgentRunResult {
   buildSuccess: boolean;
   testsPassed: number;
   testsFailed: number;
+  /** Result of the security scan command for this workspace */
+  securitySuccess: boolean;
+  securityFindings: number;
   durationMs: number;
 }
 
@@ -94,14 +104,25 @@ export interface TrueAlphaZeroFlowOptions {
   maxIterations?: number;
   buildCommand?: string;
   testCommand?: string;
+  securityCommand?: string;
   enableVariantWorktrees?: boolean;
   onEvent?: (event: AlphaZeroEvent) => void;
   onAgentEvent?: (variant: 'primary' | 'refiner', event: AgentEventUnion) => void;
 }
 
+interface WinnerReinforcementContext {
+  winner: 'primary' | 'refiner';
+  appliedFiles: string[];
+  aggregateScore: number;
+  buildSuccess: boolean;
+  testsFailed: number;
+  securityFindings: number;
+}
+
 const DEFAULT_MAX_ITERATIONS = 3;
 const DEFAULT_BUILD_COMMAND = 'npm run build --if-present';
 const DEFAULT_TEST_COMMAND = 'npm test -- --runInBand --passWithNoTests';
+const DEFAULT_SECURITY_COMMAND = 'npm run --if-present lint -- --max-warnings=0';
 const CONVERGENCE_PATIENCE = 2;
 
 export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): Promise<AlphaZeroFlowResult> {
@@ -109,6 +130,7 @@ export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): P
   let bestScore = 0;
   let noImprovementCount = 0;
   const filesModified = new Set<string>();
+  let lastWinningContext: WinnerReinforcementContext | null = null;
 
   for (let iteration = 1; iteration <= (options.maxIterations ?? DEFAULT_MAX_ITERATIONS); iteration++) {
     options.onEvent?.({ type: 'iteration.start', iteration });
@@ -122,9 +144,11 @@ export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): P
       const primaryController = await createControllerForWorkspace(options.profile, primaryWorkspace);
       const refinerController = await createControllerForWorkspace(options.profile, refinerWorkspace);
 
+      const reinforcement = buildWinnerReinforcement(lastWinningContext);
+
       const primaryResult = await runAgentOnce(
         primaryController,
-        buildPrimaryPrompt(options.objective, iteration),
+        buildPrimaryPrompt(options.objective, iteration, reinforcement),
         iteration,
         'primary',
         options.onAgentEvent,
@@ -132,7 +156,7 @@ export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): P
       );
       const refinerResult = await runAgentOnce(
         refinerController,
-        buildRefinerPrompt(options.objective, iteration, primaryResult.filesChanged),
+        buildRefinerPrompt(options.objective, iteration, primaryResult.filesChanged, reinforcement),
         iteration,
         'refiner',
         options.onAgentEvent,
@@ -143,12 +167,14 @@ export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): P
       const primaryEval = await evaluateWorkspace(
         primaryWorkspace,
         options.buildCommand ?? DEFAULT_BUILD_COMMAND,
-        options.testCommand ?? DEFAULT_TEST_COMMAND
+        options.testCommand ?? DEFAULT_TEST_COMMAND,
+        options.securityCommand ?? DEFAULT_SECURITY_COMMAND
       );
       const refinerEval = await evaluateWorkspace(
         refinerWorkspace,
         options.buildCommand ?? DEFAULT_BUILD_COMMAND,
-        options.testCommand ?? DEFAULT_TEST_COMMAND
+        options.testCommand ?? DEFAULT_TEST_COMMAND,
+        options.securityCommand ?? DEFAULT_SECURITY_COMMAND
       );
 
       options.onEvent?.({
@@ -166,6 +192,20 @@ export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): P
         buildSuccess: refinerEval.buildSuccess,
         testsPassed: refinerEval.testsPassed,
         testsFailed: refinerEval.testsFailed,
+      });
+      options.onEvent?.({
+        type: 'security.complete',
+        iteration,
+        variant: 'primary',
+        securitySuccess: primaryEval.securitySuccess,
+        findings: primaryEval.securityFindings,
+      });
+      options.onEvent?.({
+        type: 'security.complete',
+        iteration,
+        variant: 'refiner',
+        securitySuccess: refinerEval.securitySuccess,
+        findings: refinerEval.securityFindings,
       });
 
       const primaryFiles = await collectChangedFiles(options.workingDir, primaryWorkspace);
@@ -202,12 +242,16 @@ export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): P
           buildSuccess: primaryEval.buildSuccess,
           testsPassed: primaryEval.testsPassed,
           testsFailed: primaryEval.testsFailed,
+          securitySuccess: primaryEval.securitySuccess,
+          securityFindings: primaryEval.securityFindings,
         },
         refiner: {
           ...refinerResult,
           buildSuccess: refinerEval.buildSuccess,
           testsPassed: refinerEval.testsPassed,
           testsFailed: refinerEval.testsFailed,
+          securitySuccess: refinerEval.securitySuccess,
+          securityFindings: refinerEval.securityFindings,
         },
         tournament,
         winner,
@@ -217,6 +261,14 @@ export async function runTrueAlphaZeroFlow(options: TrueAlphaZeroFlowOptions): P
 
       iterations.push(iterationResult);
       options.onEvent?.({ type: 'iteration.complete', iteration, winner, score: tournament.ranked[0]?.aggregateScore ?? 0 });
+
+      lastWinningContext = deriveWinnerReinforcementContext({
+        winner,
+        tournament,
+        appliedFiles,
+        primaryEval,
+        refinerEval,
+      });
 
       if (tournament.ranked[0]) {
         const winnerScore = tournament.ranked[0].aggregateScore;
@@ -282,7 +334,9 @@ async function runAgentOnce(
   variant: 'primary' | 'refiner',
   onAgentEvent?: (variant: 'primary' | 'refiner', event: AgentEventUnion) => void,
   onEvent?: (event: AlphaZeroEvent) => void
-): Promise<Omit<AgentRunResult, 'buildSuccess' | 'testsPassed' | 'testsFailed'>> {
+): Promise<
+  Omit<AgentRunResult, 'buildSuccess' | 'testsPassed' | 'testsFailed' | 'securitySuccess' | 'securityFindings'>
+> {
   onEvent?.({ type: 'agent.start', iteration, variant, workspace: (controller as any).session?.workspace?.cwd ?? '' });
   const start = Date.now();
   let output = '';
@@ -319,8 +373,11 @@ async function collectChangedFilesFromSession(controller: AgentController): Prom
   }
 }
 
-async function evaluateWorkspace(workspace: string, buildCommand: string, testCommand: string) {
+async function evaluateWorkspace(workspace: string, buildCommand: string, testCommand: string, securityCommand: string) {
   const runCommand = async (command: string) => {
+    if (!command.trim()) {
+      return { success: true, output: '' };
+    }
     try {
       const { stdout, stderr } = await exec(command, { cwd: workspace, maxBuffer: 10 * 1024 * 1024 });
       return { success: true, output: stdout + stderr };
@@ -332,6 +389,7 @@ async function evaluateWorkspace(workspace: string, buildCommand: string, testCo
 
   const buildResult = await runCommand(buildCommand);
   const testResult = await runCommand(testCommand);
+  const securityResult = await runCommand(securityCommand);
 
   const parseCount = (text: string, key: 'pass' | 'fail') => {
     const match = text.match(new RegExp(`(\\d+)\\s*${key}`, 'i'));
@@ -344,6 +402,9 @@ async function evaluateWorkspace(workspace: string, buildCommand: string, testCo
     testsPassed: parseCount(testResult.output, 'pass'),
     testsFailed: parseCount(testResult.output, 'fail'),
     rawTestOutput: testResult.output,
+    securitySuccess: securityResult.success,
+    securityOutput: securityResult.output,
+    securityFindings: extractSecurityFindings(securityResult.output),
   };
 }
 
@@ -353,6 +414,9 @@ function buildCandidate(
   files: string[]
 ) {
   const totalTests = evaluation.testsPassed + evaluation.testsFailed;
+  const securityScore = evaluation.securitySuccess
+    ? 1
+    : Math.max(0.25, 1 - Math.min(5, evaluation.securityFindings) * 0.12);
   return {
     id: variant,
     policyId: variant,
@@ -361,10 +425,11 @@ function buildCandidate(
       executionSuccess: evaluation.buildSuccess ? 1 : 0,
       testsPassed: totalTests > 0 ? evaluation.testsPassed / totalTests : 0,
       testsFailed: evaluation.testsFailed,
-      staticAnalysis: evaluation.buildSuccess ? 0.8 : 0.4,
+      staticAnalysis: Math.min(1, securityScore * 0.85 + (evaluation.buildSuccess ? 0.15 : 0)),
       codeQuality: evaluation.buildSuccess ? 0.8 : 0.5,
       blastRadius: Math.max(0, 1 - files.length / 50),
       diffSize: files.length,
+      warnings: evaluation.securityFindings,
     },
     signals: {
       rewardModelScore: evaluation.buildSuccess ? 0.8 : 0.3,
@@ -373,8 +438,22 @@ function buildCandidate(
     evaluatorScores: [
       { evaluatorId: 'build', score: evaluation.buildSuccess ? 1 : 0, weight: 1.5 },
       { evaluatorId: 'tests', score: totalTests > 0 ? evaluation.testsPassed / totalTests : 0.5, weight: 1.2 },
+      { evaluatorId: 'security', score: securityScore, weight: 1.3 },
     ],
   };
+}
+
+function extractSecurityFindings(output: string): number {
+  if (!output) return 0;
+
+  const explicitMatch = output.match(/(\d+)\s+(critical|high|medium|low)\b/i);
+  if (explicitMatch) {
+    const parsed = Number.parseInt(explicitMatch[1], 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  const vulnMatches = output.match(/vuln(erability|erabilities)/gi);
+  return vulnMatches ? vulnMatches.length : 0;
 }
 
 function pickWinner(outcome: TournamentOutcome): 'primary' | 'refiner' | 'tie' {
@@ -417,6 +496,29 @@ async function applyWinner(params: {
   }
 
   return { winner, improvement, appliedFiles };
+}
+
+function deriveWinnerReinforcementContext(params: {
+  winner: 'primary' | 'refiner' | 'tie';
+  tournament: TournamentOutcome;
+  appliedFiles: string[];
+  primaryEval: Awaited<ReturnType<typeof evaluateWorkspace>>;
+  refinerEval: Awaited<ReturnType<typeof evaluateWorkspace>>;
+}): WinnerReinforcementContext | null {
+  if (params.winner === 'tie') return null;
+
+  const winnerEval = params.winner === 'primary' ? params.primaryEval : params.refinerEval;
+  const aggregateScore =
+    params.tournament.ranked.find((entry) => entry.candidateId === params.winner)?.aggregateScore ?? 0;
+
+  return {
+    winner: params.winner,
+    appliedFiles: params.appliedFiles,
+    aggregateScore,
+    buildSuccess: winnerEval.buildSuccess,
+    testsFailed: winnerEval.testsFailed,
+    securityFindings: winnerEval.securityFindings,
+  };
 }
 
 async function createWorkspaceCopy(baseDir: string, label: string): Promise<string> {
@@ -486,32 +588,56 @@ async function cleanupWorkspace(path: string): Promise<void> {
   }
 }
 
-function buildPrimaryPrompt(objective: string, iteration: number): string {
+function buildPrimaryPrompt(objective: string, iteration: number, reinforcement?: string | null): string {
+  const reinforcementBlock = reinforcement ? [`Last winner notes: ${reinforcement}`, ''] : [];
   return [
     `You are the PRIMARY agent (iteration ${iteration}).`,
     `Objective: ${objective}`,
     '',
-    'Operate in the provided workspace. Use the available tools to:',
+    ...reinforcementBlock,
+    'Deliberately take a distinct approach from the refiner. Use the tools to ship real code:',
     '- Inspect the codebase (read files, list directories).',
     '- Apply concrete edits using the edit tools (no pseudo code).',
-    '- Run quick checks: npm run build (if present) and npm test.',
+    '- Run quick checks: npm run build (if present), npm test, and the security/lint command.',
     '- Keep blast radius small and changes coherent.',
     '',
-    'Focus on clarity and safety while still making meaningful progress.',
+    'Focus on correctness, security, and maintainability while making measurable progress.',
   ].join('\n');
 }
 
-function buildRefinerPrompt(objective: string, iteration: number, primaryFiles: string[]): string {
+function buildRefinerPrompt(
+  objective: string,
+  iteration: number,
+  primaryFiles: string[],
+  reinforcement?: string | null
+): string {
+  const reinforcementBlock = reinforcement ? [`Last winner notes: ${reinforcement}`, ''] : [];
+  const primaryTouched = primaryFiles.length
+    ? `Primary touched: ${primaryFiles.slice(0, 8).join(', ')}`
+    : 'Primary made no visible changes.';
+
   return [
     `You are the REFINER agent (iteration ${iteration}).`,
     `Objective: ${objective}`,
     '',
-    primaryFiles.length ? `Primary touched: ${primaryFiles.slice(0, 8).join(', ')}` : 'Primary made no visible changes.',
-    '',
+    primaryTouched,
+    ...reinforcementBlock,
     'Your job:',
-    '- Improve on the primary agent with higher quality and tighter scope.',
-    '- Prefer correctness, maintainability, and tests.',
-    '- Run npm run build (if present) and npm test to validate.',
+    '- Deliver a different, higher-quality approach than the primary.',
+    '- Prefer correctness, maintainability, security, and tests.',
+    '- Run npm run build (if present), npm test, and the security/lint command.',
     '- Apply concrete edits with tools; do not describe changes without making them.',
   ].join('\n');
+}
+
+function buildWinnerReinforcement(context: WinnerReinforcementContext | null): string | null {
+  if (!context) return null;
+  const files = context.appliedFiles.length ? context.appliedFiles.slice(0, 6).join(', ') : 'no visible files';
+  const testsNote = context.testsFailed > 0 ? `${context.testsFailed} tests failed` : 'tests passed/none';
+  const securityNote = context.securityFindings > 0
+    ? `${context.securityFindings} security findings`
+    : 'security clean';
+  const buildNote = context.buildSuccess ? 'build succeeded' : 'build failed';
+
+  return `${context.winner} won last iteration (score ${context.aggregateScore.toFixed(3)}), applied ${files}; ${buildNote}, ${testsNote}, ${securityNote}. Reinforce or beat this.`;
 }

@@ -17,7 +17,7 @@ AGI Core is an advanced AI coding assistant that goes beyond simple chat. It's a
 
 - **🧠 Understand your codebase** and make intelligent edits
 - **🔧 Execute tools autonomously** (edit files, run commands, search web)
-- **🏆 Run competitive AI tournaments** (Dual-RL mode for better solutions)
+- **🏆 Run True AlphaZero self-play** (two agents compete with worktrees, build/test/security scoring, winner reinforcement)
 - **🛡️ Perform security scanning** (authorized red-teaming with TAO Suite)
 - **📚 Learn from past work** (episodic memory system)
 - **⚡ Parallelize operations** for faster task completion
@@ -34,7 +34,7 @@ AGI Core is an advanced AI coding assistant that goes beyond simple chat. It's a
 - Multi-provider AI support (OpenAI, Anthropic, Google, DeepSeek, xAI)
 - Autonomous tool execution with safety validation
 - Parallel task execution and orchestration
-- Dual-agent reinforcement learning tournament
+- True AlphaZero self-play: two agents with isolated worktrees compete, scored by build/test/security gates, with winner reinforcement
 - Episodic memory and context management
 
 ### 🛠️ **Advanced Tooling**
@@ -101,13 +101,18 @@ agi --quick "Fix the bug in main.ts"
 
 ## 🔧 Advanced Features
 
-### Dual-Agent RL Tournament
-Enable competitive AI analysis with:
+### True AlphaZero Self-Play
+Run the competitive loop end-to-end:
 ```bash
-# Toggle during session with Ctrl+Shift+D
-agi
-# Then use /features alphazerodual on
+/alphazero "Objective here" --max-iterations=4 --build="npm run build --if-present" --test="npm test -- --runInBand --passWithNoTests" --security="npm run --if-present lint -- --max-warnings=0"
 ```
+
+What happens:
+1. Two independent agents propose different solutions in isolated worktrees
+2. Each applies real code edits
+3. Build, test, and security checks score each agent
+4. The winner’s approach reinforces the next round; the loser is discarded
+5. Iterates until neither agent shows measurable improvement
 
 ### Offensive Security Mode
 Authorized red-team operations:

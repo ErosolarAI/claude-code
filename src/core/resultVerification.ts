@@ -3,6 +3,20 @@
  * Provides verifiedSuccess, verifiedFailure, analyzeOutput, OutputPatterns, etc.
  */
 
+// ANSI color codes for enhanced terminal output
+const ANSI_RESET = '\x1b[0m';
+const ANSI_RED = '\x1b[31m';
+const ANSI_GREEN = '\x1b[32m';
+const ANSI_YELLOW = '\x1b[33m';
+const ANSI_BLUE = '\x1b[34m';
+const ANSI_MAGENTA = '\x1b[35m';
+const ANSI_CYAN = '\x1b[36m';
+const ANSI_DIM = '\x1b[2m';
+const ANSI_BOLD = '\x1b[1m';
+const ANSI_RED_BOLD = '\x1b[1;31m';
+const ANSI_GREEN_BOLD = '\x1b[1;32m';
+const ANSI_YELLOW_BOLD = '\x1b[1;33m';
+
 export type VerificationStatus =
   | 'VERIFIED_SUCCESS'
   | 'VERIFIED_FAILURE'
@@ -45,10 +59,10 @@ function formatVerifiedResult(result: VerifiedResult): string {
   if (result.status === 'VERIFIED_SUCCESS') return result.details || result.summary;
   const lines: string[] = [];
   switch (result.status) {
-    case 'VERIFIED_FAILURE': lines.push('═══ FAILED ═══'); break;
-    case 'UNVERIFIED': lines.push('═══ UNVERIFIED ═══'); break;
-    case 'PARTIAL_SUCCESS': lines.push('═══ PARTIAL SUCCESS ═══'); break;
-    case 'REQUIRES_USER_ACTION': lines.push('═══ ACTION REQUIRED ═══'); break;
+    case 'VERIFIED_FAILURE': lines.push(`${ANSI_RED_BOLD}═══ FAILED ═══${ANSI_RESET}`); break;
+    case 'UNVERIFIED': lines.push(`${ANSI_YELLOW_BOLD}═══ UNVERIFIED ═══${ANSI_RESET}`); break;
+    case 'PARTIAL_SUCCESS': lines.push(`${ANSI_YELLOW_BOLD}═══ PARTIAL SUCCESS ═══${ANSI_RESET}`); break;
+    case 'REQUIRES_USER_ACTION': lines.push(`${ANSI_CYAN}═══ ACTION REQUIRED ═══${ANSI_RESET}`); break;
   }
   lines.push('', result.summary, '');
   if (result.verificationChecks) {
@@ -56,7 +70,7 @@ function formatVerifiedResult(result: VerifiedResult): string {
     if (failedChecks.length > 0) {
       lines.push('Failed checks:');
       for (const check of failedChecks) {
-        lines.push(`  ✗ ${check.check}${check.details ? `: ${check.details}` : ''}`);
+        lines.push(`  ${ANSI_RED}✗${ANSI_RESET} ${check.check}${check.details ? `: ${check.details}` : ''}`);
       }
       lines.push('');
     }
@@ -64,7 +78,7 @@ function formatVerifiedResult(result: VerifiedResult): string {
   if (result.details) lines.push(result.details, '');
   if (result.suggestedActions?.length) {
     lines.push('Suggested actions:');
-    for (const action of result.suggestedActions) lines.push(`  → ${action}`);
+    for (const action of result.suggestedActions) lines.push(`  ${ANSI_GREEN}→${ANSI_RESET} ${action}`);
   }
   return lines.join('\n');
 }

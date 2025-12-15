@@ -7,6 +7,7 @@
 
 import chalk from 'chalk';
 import { theme } from './theme.js';
+// Note: formatError and ErrorInfo imported for type compatibility
 import { formatError, type ErrorInfo } from './errorFormatter.js';
 
 export interface AppleSecurityUIComponents {

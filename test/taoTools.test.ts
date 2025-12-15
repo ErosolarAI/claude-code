@@ -4,10 +4,10 @@
  */
 
 import * as fs from 'node:fs';
-import { createTaoTools } from '../src/tools/taoTools';
+import { createSecureTaoTools } from '../src/tools/secureTaoTools';
 
 describe('TAO Tools', () => {
-  const taoPlugin = createTaoTools();
+  const taoPlugin = createSecureTaoTools();
   const tools = taoPlugin.tools;
 
   // Helper to find tool by name

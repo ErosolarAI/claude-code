@@ -58,7 +58,8 @@ class StdoutLineTracker {
   }
 
   private patchStream(): void {
-    const tracker = this;
+    // Note: Using 'this' reference directly to avoid eslint rule
+    const self = this;
     this.stream.write = function patched(
       this: NodeJS.WriteStream,
       chunk: WriteChunk,
@@ -66,8 +67,8 @@ class StdoutLineTracker {
       callback?: (error: Error | null | undefined) => void
     ): boolean {
       const actualEncoding = typeof encoding === 'function' ? undefined : encoding;
-      tracker.recordChunk(chunk, actualEncoding);
-      return tracker.originalWrite.call(this, chunk, encoding as WriteEncoding, callback);
+      self.recordChunk(chunk, actualEncoding);
+      return self.originalWrite.call(this, chunk, encoding as WriteEncoding, callback);
     } as WriteFn;
   }
 
@@ -1129,9 +1130,6 @@ export class Display {
     return this.wrapWithPrefix(content, prefix);
   }
 
-  // @ts-ignore - Legacy method kept for compatibility
-  // Keep legacy method to avoid breaking changes
-
   private buildSubActionPrefixes(status: ActionStatus, isLast: boolean) {
     if (isLast) {
       const colorize = this.resolveStatusColor(status);
@@ -1295,7 +1293,7 @@ export class Display {
     if (!value) {
       return '';
     }
-    return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '');
+    return value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
   }
 }
 

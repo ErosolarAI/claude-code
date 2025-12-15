@@ -5,6 +5,7 @@
 
 import { spawnSync, SpawnSyncOptions } from 'node:child_process';
 import { URL } from 'node:url';
+import { logDebug } from './debugLogger.js';
 
 /**
  * Validate target hostname, IP address, or domain
@@ -391,10 +392,9 @@ export class SecurityLogger {
       timestamp: event.timestamp.toISOString(),
       ip: this.getClientIp()
     };
-    
-    console.log(`[SECURITY] ${JSON.stringify(logEntry)}`);
-    
-    // TODO: Implement file logging if logFile is provided
+
+    // Keep security logging off the main console; emit via debug logger
+    logDebug(`[SECURITY] ${JSON.stringify(logEntry)}`);
   }
   
   private getClientIp(): string {

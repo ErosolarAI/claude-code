@@ -17,6 +17,19 @@ import {
 import { createErrorFixer, type AIErrorFixer } from '../core/aiErrorFixer.js';
 import { logDebug } from '../utils/debugLogger.js';
 
+// ANSI color codes for enhanced output
+const ANSI_RESET = '\x1b[0m';
+const ANSI_RED = '\x1b[31m';
+const ANSI_GREEN = '\x1b[32m';
+const ANSI_YELLOW = '\x1b[33m';
+const ANSI_BLUE = '\x1b[34m';
+const ANSI_CYAN = '\x1b[36m';
+const ANSI_DIM = '\x1b[2m';
+const ANSI_BOLD = '\x1b[1m';
+const ANSI_RED_BOLD = '\x1b[1;31m';
+const ANSI_GREEN_BOLD = '\x1b[1;32m';
+const ANSI_YELLOW_BOLD = '\x1b[1;33m';
+
 // ============================================================================
 // Background Shell Manager (consolidated from backgroundBashTools.ts)
 // ============================================================================
@@ -454,7 +467,7 @@ export function createBashTools(workingDir: string): ToolDefinition[] {
           if (analysis.isFailure) {
             return verifiedFailure(
               `Command completed with exit code 0 but output indicates failure`,
-              `Command: ${command}\n\nOutput:\n${combinedOutput || '(no output)'}`,
+              `Command: ${command}\n\n${ANSI_RED_BOLD}Output:${ANSI_RESET}\n${combinedOutput || '(no output)'}`,
               ['Review the error message in the output', 'Fix the underlying issue and retry'],
               [commandCheck, { check: 'Output analysis', passed: false, details: `Failure pattern: ${analysis.matchedPattern}` }],
               durationMs
@@ -463,7 +476,7 @@ export function createBashTools(workingDir: string): ToolDefinition[] {
 
           return verifiedSuccess(
             combinedOutput.trim() ? `Command executed successfully` : `Command executed successfully (no output)`,
-            `Command: ${command}${combinedOutput.trim() ? `\n\nOutput:\n${combinedOutput}` : ''}`,
+            `Command: ${command}${combinedOutput.trim() ? `\n\n${ANSI_GREEN_BOLD}Output:${ANSI_RESET}\n${combinedOutput}` : ''}`,
             [commandCheck, ...(analysis.isSuccess ? [{ check: 'Output analysis', passed: true, details: `Success pattern matched` }] : [])],
             durationMs
           );

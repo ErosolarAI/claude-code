@@ -5,6 +5,8 @@ import { createLocalSearchToolPlugin } from './search/localSearchPlugin.js';
 import { createLocalBashToolPlugin } from './bash/localBashPlugin.js';
 import { createEnhancedGitToolPlugin } from './enhancedGit/enhancedGitPlugin.js';
 import { createSecureTaoToolPlugin } from './tao/secureTaoPlugin.js';
+import { zeroDayDiscoveryPlugin } from './zeroDayDiscoveryPlugin.js';
+import { universalAttackPlugin } from './universalAttackPlugin.js';
 
 let registered = false;
 
@@ -22,12 +24,16 @@ let registered = false;
 export function registerDefaultNodeToolPlugins(): void {
   if (registered) return;
 
-  registerToolPlugin(createLocalFilesystemToolPlugin());
-  registerToolPlugin(createEditToolPlugin());
-  registerToolPlugin(createLocalSearchToolPlugin());
-  registerToolPlugin(createLocalBashToolPlugin());
-  registerToolPlugin(createEnhancedGitToolPlugin());
-  registerToolPlugin(createSecureTaoToolPlugin());
+    registerToolPlugin(createLocalFilesystemToolPlugin());
+    registerToolPlugin(createEditToolPlugin());
+    registerToolPlugin(createLocalSearchToolPlugin());
+    registerToolPlugin(createLocalBashToolPlugin());
+    registerToolPlugin(createEnhancedGitToolPlugin());
+    registerToolPlugin(createSecureTaoToolPlugin());
+    
+    // Register advanced security plugins
+    registerToolPlugin(zeroDayDiscoveryPlugin);
+    registerToolPlugin(universalAttackPlugin);
 
-  registered = true;
+    registered = true;
 }

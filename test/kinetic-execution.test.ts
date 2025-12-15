@@ -3,11 +3,11 @@
  * Verifies that all kinetic capabilities are enabled and unrestricted
  */
 
-import { createTaoTools } from '../src/tools/taoTools';
+import { createSecureTaoTools } from '../src/tools/secureTaoTools';
 import { validateBashCommand } from '../src/core/errors/safetyValidator';
 
 describe('Kinetic Capabilities', () => {
-  const taoPlugin = createTaoTools();
+  const taoPlugin = createSecureTaoTools();
   const tools = taoPlugin.tools;
 
   // Helper to find tool by name

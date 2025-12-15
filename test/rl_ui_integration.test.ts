@@ -1,19 +1,33 @@
 import { test, expect, jest } from '@jest/globals';
+import { PassThrough } from 'node:stream';
 import { UnifiedUIRenderer } from '../src/ui/UnifiedUIRenderer';
 import type { RLAgentStatus } from '../src/ui/UnifiedUIRenderer';
+
+const createMockStream = () => {
+  const stream = new PassThrough() as unknown as NodeJS.ReadStream & NodeJS.WriteStream;
+  (stream as any).isTTY = true;
+  (stream as any).columns = 120;
+  (stream as any).rows = 40;
+  (stream as any).on = jest.fn();
+  (stream as any).setRawMode = jest.fn();
+  (stream as any).write = ((chunk: any) => {
+    const text = typeof chunk === 'string' ? chunk : chunk?.toString?.() ?? '';
+    PassThrough.prototype.write.call(stream, text);
+    return true;
+  }) as any;
+  return stream;
+};
 
 describe('Dual Tournament RL UI Integration', () => {
   let renderer: UnifiedUIRenderer;
   let mockStdout: any;
+  let mockStdin: any;
 
   beforeEach(() => {
-    mockStdout = {
-      write: jest.fn(),
-      columns: 120,
-      rows: 40
-    };
+    mockStdout = createMockStream();
+    mockStdin = createMockStream();
     
-    renderer = new UnifiedUIRenderer(mockStdout, { interactive: true });
+    renderer = new UnifiedUIRenderer(mockStdout, mockStdin);
   });
 
   test('RL status should update correctly', () => {

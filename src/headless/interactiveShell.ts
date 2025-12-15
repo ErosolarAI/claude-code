@@ -761,6 +761,7 @@ class InteractiveShell {
     const maxIterationsArg = args.find(arg => arg.startsWith('--max-iterations=') || arg.startsWith('--max='));
     const buildArg = args.find(arg => arg.startsWith('--build=') || arg.startsWith('--build-cmd='));
     const testArg = args.find(arg => arg.startsWith('--test=') || arg.startsWith('--test-cmd='));
+    const securityArg = args.find(arg => arg.startsWith('--security=') || arg.startsWith('--security-cmd='));
 
     const parseNumber = (value?: string) => {
       if (!value) return undefined;
@@ -773,6 +774,7 @@ class InteractiveShell {
       maxIterations: parseNumber(maxIterationsArg),
       buildCommand: buildArg ? buildArg.split('=').slice(1).join('=') : undefined,
       testCommand: testArg ? testArg.split('=').slice(1).join('=') : undefined,
+      securityCommand: securityArg ? securityArg.split('=').slice(1).join('=') : undefined,
     };
   }
 
@@ -786,7 +788,7 @@ class InteractiveShell {
     const flags = this.parseAlphaZeroArgs(args);
     const objective = args.filter(arg => !arg.startsWith('--')).join(' ').trim();
     if (!objective) {
-      this.promptController?.setStatusMessage('Usage: /alphazero <objective> [--max-iterations=N] [--build=cmd] [--test=cmd]');
+      this.promptController?.setStatusMessage('Usage: /alphazero <objective> [--max-iterations=N] [--build=cmd] [--test=cmd] [--security=cmd]');
       setTimeout(() => this.promptController?.setStatusMessage(null), 4000);
       return;
     }
@@ -808,6 +810,7 @@ class InteractiveShell {
         maxIterations: flags.maxIterations,
         buildCommand: flags.buildCommand,
         testCommand: flags.testCommand,
+        securityCommand: flags.securityCommand,
         onAgentEvent: (_, event) => this.handleAgentEventForUpgrade(event),
         onEvent: (event) => {
           if (event.type === 'winner.applied') {
