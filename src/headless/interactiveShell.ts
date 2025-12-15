@@ -199,7 +199,8 @@ class InteractiveShell {
     queue: [],
   };
   private currentResponseBuffer = '';
-  private preferredUpgradeMode: RepoUpgradeMode = 'single-continuous';
+  // DEFAULT: AlphaZero-style dual tournament RL (two competing agents)
+  private preferredUpgradeMode: RepoUpgradeMode = 'dual-rl-tournament';
 
   constructor(controller: AgentController, profile: ProfileName, profileConfig: ResolvedProfileConfig, workingDir: string) {
     this.controller = controller;
@@ -3558,8 +3559,9 @@ Any text response is a failure. Only tool calls are accepted.`;
 
   private handleDualRlToggle(): void {
     this.syncPreferredModeFromToggles();
-    const dual = this.preferredUpgradeMode === 'dual-rl-continuous';
-    this.promptController?.setStatusMessage(dual ? 'Dual RL on' : 'Single mode');
+    // Check both dual modes (tournament is the AlphaZero style)
+    const dual = this.preferredUpgradeMode === 'dual-rl-continuous' || this.preferredUpgradeMode === 'dual-rl-tournament';
+    this.promptController?.setStatusMessage(dual ? 'AlphaZero RL on' : 'Single mode');
     setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
   }
 
@@ -3582,8 +3584,9 @@ Any text response is a failure. Only tool calls are accepted.`;
   }
 
   private syncPreferredModeFromToggles(): void {
-    const dual = this.promptController?.getModeToggleState().dualRlEnabled ?? false;
-    this.preferredUpgradeMode = dual ? 'dual-rl-continuous' : 'single-continuous';
+    const dual = this.promptController?.getModeToggleState().dualRlEnabled ?? true; // Default ON
+    // AlphaZero tournament mode by default (two competing agents)
+    this.preferredUpgradeMode = dual ? 'dual-rl-tournament' : 'single-continuous';
   }
 
   private handleCtrlC(info: { hadBuffer: boolean }): void {

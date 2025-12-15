@@ -351,16 +351,16 @@ function normalizeProfileNameValue(value: unknown): ProfileName | null {
 }
 
 /**
- * Default feature flags - all off by default for lean operation.
- * User can enable as needed via /features command.
+ * Default feature flags - AlphaZero dual-agent competition is ON by default.
+ * User can disable via /features command if needed.
  */
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
-  alphaZeroDual: false,
+  alphaZeroDual: true,  // AlphaZero self-play enabled by default
   verification: false,
   autoCompact: true,  // Enable by default to prevent context overflow
   mcpEnabled: false,
   metrics: false,
-  codingTools: false,
+  codingTools: true,   // Enable coding tools by default
   securityTools: false,
   allPlugins: false,
 };
