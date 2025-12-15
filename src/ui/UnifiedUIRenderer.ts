@@ -934,11 +934,7 @@ export class UnifiedUIRenderer extends EventEmitter {
           this.renderPrompt();
           return;
         case 'd':
-          this.emit('toggle-dual-rl');
-          this.renderPrompt();
-          return;
-        case 'v':
-          this.emit('toggle-verify');
+          this.emit('toggle-alphazero');
           this.renderPrompt();
           return;
         case 't':
@@ -995,7 +991,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       return false;
     };
 
-    const handleCtrlShiftToggle = (letter: 'a' | 'g' | 'd' | 'v' | 't'): void => {
+    const handleCtrlShiftToggle = (letter: 'a' | 'g' | 'd' | 't'): void => {
       // Ensure no buffered chars leak into the prompt
       this.pendingInsertBuffer = '';
       if (letter === 'a') {
@@ -1003,9 +999,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       } else if (letter === 'g') {
         this.emit('toggle-auto-continue');
       } else if (letter === 'd') {
-        this.emit('toggle-dual-rl');
-      } else if (letter === 'v') {
-        this.emit('toggle-verify');
+        this.emit('toggle-alphazero');
       } else if (letter === 't') {
         this.emit('toggle-thinking');
       }
@@ -1024,11 +1018,6 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     if (isCtrlShift('d')) {
       handleCtrlShiftToggle('d');
-      return;
-    }
-
-    if (isCtrlShift('v')) {
-      handleCtrlShiftToggle('v');
       return;
     }
 
@@ -1223,6 +1212,10 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (key.name === 'return' || key.name === 'enter') {
+      // Block submissions during streaming - wait for response to complete
+      if (this.mode === 'streaming') {
+        return;
+      }
       // If there's a collapsed paste, expand and submit in one action
       if (this.collapsedPaste) {
         this.expandCollapsedPasteToBuffer();
@@ -1377,6 +1370,10 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (str && !normalizedKey.ctrl && !normalizedKey.meta) {
+      // Block text input during streaming - only allow control keys (Ctrl+C, etc.)
+      if (this.mode === 'streaming') {
+        return;
+      }
       // Defer insertion to allow paste detection window to catch rapid input
       this.queuePendingInsert(str);
     }
@@ -1478,6 +1475,10 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private handleBracketedPaste(str: string, key: readline.Key): boolean {
+    // Block paste during streaming
+    if (this.mode === 'streaming') {
+      return true; // Consume the paste event but don't process it
+    }
     const sequence = key?.sequence || str;
     if (sequence === ESC.ENABLE_BRACKETED_PASTE || sequence === ESC.DISABLE_BRACKETED_PASTE) {
       return true;
@@ -1586,6 +1587,10 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private handlePlainPaste(str: string, key: readline.Key): boolean {
+    // Block paste during streaming
+    if (this.mode === 'streaming') {
+      return true; // Consume the paste event but don't process it
+    }
     // Fallback paste capture when bracketed paste isn't supported
     if (this.inBracketedPaste || key?.ctrl || key?.meta) {
       this.resetPlainPasteBurst();
