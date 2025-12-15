@@ -144,53 +144,12 @@ async function main(): Promise<void> {
     }
   }
 
-  // Check for attack mode
+  // Check for attack mode - WIP, not yet implemented
   if (rawArgs.includes('--attack') || rawArgs.includes('--pentest')) {
-    // UniversalAttackEngine is now a placeholder module
-    const target = rawArgs.find(arg => arg.startsWith('--target='))?.split('=')[1] || 'localhost';
-    const phases = rawArgs.find(arg => arg.startsWith('--phases='))?.split('=')[1]?.split(',') || 
-                   ['reconnaissance', 'enumeration', 'vulnerability_assessment', 'exploitation'];
-
-    console.log('\n⚔️  Universal Attack Engine\n');
-
-    try {
-      const engine = new UniversalAttackEngine({
-        target,
-        phases,
-        aggressiveness: rawArgs.includes('--aggressive') ? 'aggressive' : 'normal',
-        enableExploitation: !rawArgs.includes('--no-exploit'),
-        enablePersistence: rawArgs.includes('--persist'),
-        enableLateralMovement: rawArgs.includes('--lateral'),
-        maxConcurrent: 3,
-        timeoutPerPhase: 30000,
-      });
-
-      const result = await engine.execute();
-      
-      console.log(`\nAttack Summary:`);
-      console.log(`  Target: ${result.target}`);
-      console.log(`  Phases Completed: ${result.phasesCompleted.length}/${phases.length}`);
-      console.log(`  Findings: ${result.findings.length}`);
-      console.log(`  Exploited: ${result.exploited ? 'YES' : 'NO'}`);
-      console.log(`  Persistence: ${result.persistenceEstablished ? 'ESTABLISHED' : 'NOT ESTABLISHED'}`);
-      console.log(`  Success Rate: ${(result.successRate * 100).toFixed(1)}%`);
-      console.log(`  Duration: ${(result.duration / 1000).toFixed(1)}s`);
-      
-      if (result.findings.length > 0) {
-        console.log('\nCritical Findings:');
-        result.findings
-          .filter((f: any) => f.severity === 'critical' && f.success)
-          .slice(0, 5)
-          .forEach((f: any, i: number) => {
-            console.log(`  ${i + 1}. [${f.phase.toUpperCase()}] ${f.vulnerability}`);
-          });
-      }
-      
-      process.exit(0);
-    } catch (error) {
-      console.error('Attack execution failed:', error instanceof Error ? error.message : error);
-      process.exit(1);
-    }
+    console.log('\n⚠️  Attack mode is currently under development\n');
+    console.log('This feature will be available in a future release.');
+    console.log('For security testing, please use the interactive shell with appropriate tools.\n');
+    process.exit(0);
   }
 
   // Determine if we should run interactive mode

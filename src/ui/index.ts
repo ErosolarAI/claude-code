@@ -78,8 +78,12 @@ export * from './outputMode.js';
 export * from './globalWriteLock.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Layer 7 - Security UI (DEFAULT)
+// Layer 7 - Security UI (DEPRECATED - Use UnifiedUIRenderer)
 // ═══════════════════════════════════════════════════════════════════════════════
+// See README.md for migration guide and unified UI architecture documentation
 
+/** @deprecated Use UnifiedUIRenderer instead */
 export { UniversalSecurityUI } from './universalSecurityUI.js';
+
+/** @deprecated Use UnifiedUIRenderer instead */
 export { AppleSecurityUI } from './appleSecurityUI.js';

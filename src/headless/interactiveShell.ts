@@ -3501,6 +3501,9 @@ Any text response is a failure. Only tool calls are accepted.`;
             break;
 
           case 'message.complete':
+            // Response complete - clear the thinking indicator
+            this.promptController?.setStatusMessage(null);
+
             // Response complete - ensure final output includes required "Next steps"
             if (renderer) {
               // Use the appended field from ensureNextSteps to avoid re-rendering the entire response
