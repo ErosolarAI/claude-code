@@ -1,6 +1,13 @@
 /**
- * Error Formatter - AGI CLI style
- * Enhanced error message and stack trace formatting
+ * Error Formatter - Claude Code style
+ * Enhanced error message and stack trace formatting with robust handling
+ *
+ * Features:
+ * - Consistent Claude Code styling with proper iconography
+ * - Robust handling of malformed error objects
+ * - Configurable stack trace depth
+ * - Code context display with syntax highlighting
+ * - Comparison errors for test assertions
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -15,6 +22,7 @@ export interface ErrorInfo {
   line?: number;
   column?: number;
   context?: string[];
+  cause?: Error | ErrorInfo;
 }
 
 export interface ErrorFormatOptions {
@@ -23,31 +31,47 @@ export interface ErrorFormatOptions {
   maxStackLines?: number;
   compact?: boolean;
   showLineNumbers?: boolean;
+  showCause?: boolean;
 }
+
+/** Maximum message length before truncation */
+const MAX_MESSAGE_LENGTH = 500;
+
+/** Maximum context lines to show */
+const MAX_CONTEXT_LINES = 10;
 
 /**
  * Format error with enhanced styling
+ * Handles malformed error objects gracefully
  */
 export function formatError(
-  error: Error | ErrorInfo,
+  error: Error | ErrorInfo | unknown,
   options: ErrorFormatOptions = {}
 ): string {
   const showStack = options.showStack ?? true;
   const showContext = options.showContext ?? true;
   const maxStackLines = options.maxStackLines ?? 10;
   const compact = options.compact ?? false;
+  const showCause = options.showCause ?? true;
 
   const lines: string[] = [];
 
-  // Error header
-  const errorInfo = error instanceof Error
-    ? { type: error.name, message: error.message, stack: error.stack }
-    : error;
-
+  // Safely extract error info
+  const errorInfo = extractErrorInfo(error);
   const errorType = errorInfo.type || 'Error';
   const errorIcon = getErrorIcon(errorType);
 
-  lines.push(theme.error(`${errorIcon} ${errorType}: ${errorInfo.message}`));
+  // Truncate very long messages
+  const message = errorInfo.message.length > MAX_MESSAGE_LENGTH
+    ? errorInfo.message.slice(0, MAX_MESSAGE_LENGTH) + '…'
+    : errorInfo.message;
+
+  lines.push(theme.error(`${errorIcon} ${errorType}: ${message}`));
+
+  // Error code if present
+  if (errorInfo.code) {
+    lines.push(theme.ui.muted(`  Code: ${errorInfo.code}`));
+  }
 
   // Location info
   if (errorInfo.file) {
@@ -62,7 +86,8 @@ export function formatError(
   // Code context
   if (showContext && errorInfo.context && errorInfo.context.length > 0) {
     lines.push('');
-    lines.push(formatCodeContext(errorInfo.context, errorInfo.line));
+    const limitedContext = errorInfo.context.slice(0, MAX_CONTEXT_LINES);
+    lines.push(formatCodeContext(limitedContext, errorInfo.line));
   }
 
   // Stack trace
@@ -77,7 +102,56 @@ export function formatError(
     }
   }
 
+  // Cause chain (Error.cause support)
+  if (showCause && errorInfo.cause) {
+    lines.push('');
+    lines.push(theme.ui.muted('Caused by:'));
+    lines.push(indent(formatError(errorInfo.cause, { ...options, showCause: true, compact: true }), 2));
+  }
+
   return lines.join('\n');
+}
+
+/**
+ * Safely extract error info from any value
+ */
+function extractErrorInfo(error: unknown): ErrorInfo {
+  if (error instanceof Error) {
+    return {
+      type: error.name,
+      message: error.message || 'Unknown error',
+      stack: error.stack,
+      cause: (error as any).cause,
+    };
+  }
+
+  if (error && typeof error === 'object') {
+    const obj = error as Record<string, unknown>;
+    return {
+      type: String(obj['type'] || obj['name'] || 'Error'),
+      message: String(obj['message'] || 'Unknown error'),
+      stack: typeof obj['stack'] === 'string' ? obj['stack'] : undefined,
+      code: typeof obj['code'] === 'string' ? obj['code'] : undefined,
+      file: typeof obj['file'] === 'string' ? obj['file'] : undefined,
+      line: typeof obj['line'] === 'number' ? obj['line'] : undefined,
+      column: typeof obj['column'] === 'number' ? obj['column'] : undefined,
+      context: Array.isArray(obj['context']) ? obj['context'].map(String) : undefined,
+      cause: obj['cause'] as Error | ErrorInfo | undefined,
+    };
+  }
+
+  return {
+    type: 'Error',
+    message: String(error ?? 'Unknown error'),
+  };
+}
+
+/**
+ * Indent text by specified number of spaces
+ */
+function indent(text: string, spaces: number): string {
+  const padding = ' '.repeat(spaces);
+  return text.split('\n').map(line => padding + line).join('\n');
 }
 
 /**

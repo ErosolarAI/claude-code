@@ -1,20 +1,53 @@
 import { theme } from './theme.js';
 import { isPlainOutputMode } from './outputMode.js';
 
-const MIN_WIDTH = 42;
-const MAX_WIDTH = 110;
+/**
+ * Layout constants for terminal rendering
+ * These ensure consistent behavior across all terminal sizes
+ */
+const MIN_WIDTH = 20; // Minimum usable width (reduced from 42 for narrow terminals)
+const MAX_WIDTH = 120; // Maximum content width for readability
+const ULTRA_NARROW_WIDTH = 30; // Below this, use compact mode
+const DEFAULT_WIDTH = 80; // Standard terminal width fallback
+
 // eslint-disable-next-line no-control-regex
 const ANSI_REGEX = /\u001B\[[0-9;]*m/g;
 
-export function getTerminalColumns(defaultWidth = 80): number {
-  if (
-    typeof process.stdout.columns === 'number' &&
-    Number.isFinite(process.stdout.columns) &&
-    process.stdout.columns > 0
-  ) {
-    return process.stdout.columns;
+/**
+ * Get terminal columns with robust fallback handling
+ * Handles edge cases: undefined stdout, non-TTY, invalid values
+ */
+export function getTerminalColumns(defaultWidth = DEFAULT_WIDTH): number {
+  try {
+    // Check if stdout exists and has columns
+    if (
+      process.stdout &&
+      typeof process.stdout.columns === 'number' &&
+      Number.isFinite(process.stdout.columns) &&
+      process.stdout.columns > 0
+    ) {
+      return process.stdout.columns;
+    }
+
+    // Fallback: try COLUMNS env variable (used in some terminals)
+    const envColumns = process.env['COLUMNS'];
+    if (envColumns) {
+      const parsed = parseInt(envColumns, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  } catch {
+    // Silently handle any errors (e.g., in restricted environments)
   }
   return defaultWidth;
+}
+
+/**
+ * Check if we're in ultra-narrow terminal mode
+ */
+export function isUltraNarrowMode(): boolean {
+  return getTerminalColumns() < ULTRA_NARROW_WIDTH;
 }
 
 export type Colorize = (value: string) => string;
@@ -154,14 +187,29 @@ export function stripAnsi(text: string): string {
   return text.replace(ANSI_REGEX, '');
 }
 
+/**
+ * Clamp width to valid bounds with robust error handling
+ * Ensures we never return invalid dimensions that could break rendering
+ */
 function clampWidth(value: number, columns?: number): number {
-  const maxWidth =
+  // Handle invalid inputs gracefully
+  if (!Number.isFinite(value) || value < 0) {
+    value = DEFAULT_WIDTH;
+  }
+
+  // Calculate max width based on terminal size
+  const terminalMax =
     typeof columns === 'number' && Number.isFinite(columns) && columns > 0
-      ? Math.max(10, Math.floor(columns - 6))
+      ? Math.max(MIN_WIDTH, Math.floor(columns - 4)) // Leave margin for borders
       : MAX_WIDTH;
-  const minWidth = Math.min(MIN_WIDTH, maxWidth);
-  const normalized = Math.min(MAX_WIDTH, Math.floor(value));
-  return Math.max(minWidth, Math.min(normalized, maxWidth));
+
+  // Ensure min doesn't exceed max
+  const effectiveMin = Math.min(MIN_WIDTH, terminalMax);
+  const effectiveMax = Math.min(MAX_WIDTH, terminalMax);
+
+  // Clamp to valid range
+  const normalized = Math.floor(value);
+  return Math.max(effectiveMin, Math.min(normalized, effectiveMax));
 }
 
 export function padLine(text: string, width: number): string {

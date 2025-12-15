@@ -10,21 +10,44 @@ import { clampPercentage, getContextColor } from './uiConstants.js';
 // Singleton scheduler for global animation coordination
 let globalScheduler: AnimationScheduler | null = null;
 let schedulerDisposed = false; // Prevent recreation after disposal
+let schedulerRefCount = 0; // Reference counting for proper cleanup
 
+/**
+ * Get or create the global animation scheduler
+ * Uses lazy initialization and reference counting
+ */
 function getScheduler(): AnimationScheduler {
   if (schedulerDisposed) {
     // Return a no-op scheduler if disposed to prevent recreation
     // This handles edge cases where animations try to register after cleanup
     if (!globalScheduler) {
-      globalScheduler = new AnimationScheduler(30);
-      globalScheduler.dispose(); // Immediately dispose - it's a stub
+      globalScheduler = createNoOpScheduler();
     }
     return globalScheduler;
   }
   if (!globalScheduler) {
     globalScheduler = new AnimationScheduler(30); // 30 FPS for smooth animations
   }
+  schedulerRefCount++;
   return globalScheduler;
+}
+
+/**
+ * Create a no-op scheduler for disposed state
+ */
+function createNoOpScheduler(): AnimationScheduler {
+  const scheduler = new AnimationScheduler(30);
+  scheduler.dispose(); // Immediately dispose - it's a stub
+  return scheduler;
+}
+
+/**
+ * Release a reference to the scheduler
+ */
+function releaseScheduler(): void {
+  if (schedulerRefCount > 0) {
+    schedulerRefCount--;
+  }
 }
 
 /**
@@ -67,6 +90,7 @@ export class AnimatedSpinner {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    this.onUpdate = undefined;
   }
 
   setMessage(message: string): void {
@@ -80,6 +104,13 @@ export class AnimatedSpinner {
 
   isRunning(): boolean {
     return this.intervalId !== null;
+  }
+
+  /**
+   * Dispose of the spinner and clean up resources
+   */
+  dispose(): void {
+    this.stop();
   }
 }
 
@@ -158,13 +189,22 @@ export class AnimatedProgressBar {
   dispose(): void {
     // Remove the transition listener to prevent memory leaks
     if (this.transitionHandler) {
-      getScheduler().removeListener('transition:update', this.transitionHandler);
+      try {
+        getScheduler().removeListener('transition:update', this.transitionHandler);
+      } catch {
+        // Ignore errors during cleanup
+      }
       this.transitionHandler = null;
     }
     if (this.animationId) {
-      getScheduler().unregister(this.animationId);
+      try {
+        getScheduler().unregister(this.animationId);
+      } catch {
+        // Ignore errors during cleanup
+      }
       this.animationId = null;
     }
+    releaseScheduler();
   }
 }
 
@@ -197,6 +237,7 @@ export class AnimatedElapsedTime {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    this.onUpdate = undefined;
     return this.format();
   }
 
@@ -217,6 +258,10 @@ export class AnimatedElapsedTime {
 
   render(): string {
     return theme.ui.muted(this.currentDisplay);
+  }
+
+  dispose(): void {
+    this.stop();
   }
 }
 
@@ -261,6 +306,7 @@ export class PulsingText {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    this.onUpdate = undefined;
   }
 
   setText(text: string): void {
@@ -276,6 +322,10 @@ export class PulsingText {
     } else {
       return theme.ui.muted(this.text);
     }
+  }
+
+  dispose(): void {
+    this.stop();
   }
 }
 
@@ -308,6 +358,7 @@ export class ThinkingIndicator {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    this.onUpdate = undefined;
   }
 
   setLabel(label: string): void {
@@ -318,6 +369,10 @@ export class ThinkingIndicator {
     const dots = '.'.repeat(this.dotCount);
     const padding = ' '.repeat(3 - this.dotCount);
     return `${theme.thinking.icon('◐')} ${theme.thinking.label(this.label)}${theme.thinking.text(dots)}${padding}`;
+  }
+
+  dispose(): void {
+    this.stop();
   }
 }
 
@@ -438,10 +493,15 @@ export class TypingIndicator {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    this.onUpdate = undefined;
   }
 
   render(): string {
     return theme.info(this.frames[this.frameIndex] ?? '▌');
+  }
+
+  dispose(): void {
+    this.stop();
   }
 }
 
@@ -469,10 +529,15 @@ export class WaveIndicator {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    this.onUpdate = undefined;
   }
 
   render(): string {
     return theme.info(this.frames[this.frameIndex] ?? '∙∙∙∙∙');
+  }
+
+  dispose(): void {
+    this.stop();
   }
 }
 

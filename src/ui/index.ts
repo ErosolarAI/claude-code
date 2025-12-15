@@ -32,10 +32,12 @@ export {
   formatToolCall,
   formatMessage,
   neon,
-  // palette, // Temporarily commented out due to export issue
+  palette,
+  getToolColor,
+  formatToolName,
 } from './theme.js';
 
-export * from './layout.js';
+// Note: layout.js exports are at the bottom of this file to avoid conflicts
 export * from './uiConstants.js';
 export * from './designSystem.js';
 
@@ -77,4 +79,31 @@ export { UnifiedUIRenderer } from './UnifiedUIRenderer.js';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export * from './outputMode.js';
-export * from './globalWriteLock.js';
+export {
+  isStreamingMode,
+  enterStreamingMode,
+  exitStreamingMode,
+  ifNotStreaming,
+  whenStreamingEnds,
+  withStreamLock,
+  forceRelease,
+  installGlobalWriteLock,
+  resetGlobalWriteLock,
+} from './globalWriteLock.js';
+
+// Re-export layout utilities explicitly to avoid conflicts
+export {
+  getTerminalColumns,
+  isUltraNarrowMode,
+  getContentWidth,
+  wrapParagraph,
+  wrapPreformatted,
+  normalizePanelWidth,
+  renderPanel,
+  measure,
+  stripAnsi,
+  padLine,
+  truncate,
+  type Colorize,
+  type PanelOptions,
+} from './layout.js';

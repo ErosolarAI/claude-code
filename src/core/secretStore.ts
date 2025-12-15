@@ -9,6 +9,7 @@ export type SecretName =
   | 'DEEPSEEK_API_KEY'
   | 'XAI_API_KEY'
   | 'GEMINI_API_KEY'
+  | 'DASHSCOPE_API_KEY'
   | 'TAVILY_API_KEY'
   | 'SMTP_USER'
   | 'SMTP_PASSWORD'
@@ -61,9 +62,16 @@ const SECRET_DEFINITIONS: SecretDefinition[] = [
   {
     id: 'GEMINI_API_KEY',
     label: 'Google Gemini API Key',
-    description: 'Required to run Gemini 2.5 Pro or Flash models.',
+    description: 'Required to run Gemini 2.0/1.5 models.',
     envVar: 'GEMINI_API_KEY',
     providers: ['google'],
+  },
+  {
+    id: 'DASHSCOPE_API_KEY',
+    label: 'Alibaba DashScope API Key',
+    description: 'Required to run Qwen models from Alibaba Cloud.',
+    envVar: 'DASHSCOPE_API_KEY',
+    providers: ['qwen'],
   },
   {
     id: 'TAVILY_API_KEY',
