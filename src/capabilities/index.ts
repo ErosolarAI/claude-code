@@ -5,7 +5,3 @@ export { SearchCapabilityModule, type SearchCapabilityOptions } from './searchCa
 export { WebCapabilityModule, type WebCapabilityOptions } from './webCapability.js';
 export { AppleSecurityCapabilityModule, type AppleSecurityCapabilityOptions } from './appleSecurityCapability.js';
 export { EnhancedGitCapabilityModule } from './enhancedGitCapability.js';
-export { ZeroDayDiscoveryCapabilityModule } from './zeroDayDiscoveryCapability.js';
-export { UniversalSecurityCapabilityModule, type UniversalSecurityCapabilityOptions } from './universalSecurityCapability.js';
-export { RealityWeaponsCapabilityModule, type RealityWeaponsCapabilityOptions } from './realityWeaponsCapability.js';
-export { RealSerialWeaponsCapabilityModule, type RealSerialWeaponsCapabilityOptions } from './realSerialWeaponsCapability.js';
