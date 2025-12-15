@@ -115,18 +115,28 @@ export function createGrepTools(workingDir: string): ToolDefinition[] {
 
         walk(searchRoot);
 
+        const MAX_DISPLAY_LINES = 5;
+
         if (outputMode === 'files_with_matches') {
           if (!filesWithMatches.size) {
             return 'No matches found';
           }
-          return Array.from(filesWithMatches).sort().join('\n');
+          const files = Array.from(filesWithMatches).sort();
+          if (files.length <= MAX_DISPLAY_LINES) {
+            return files.join('\n');
+          }
+          return `${files.slice(0, MAX_DISPLAY_LINES).join('\n')}\n... +${files.length - MAX_DISPLAY_LINES} more files`;
         }
 
         if (outputMode === 'count') {
           return `Matches: ${matches.length}`;
         }
 
-        return matches.length ? matches.join('\n') : 'No matches found';
+        if (!matches.length) return 'No matches found';
+        if (matches.length <= MAX_DISPLAY_LINES) {
+          return matches.join('\n');
+        }
+        return `${matches.slice(0, MAX_DISPLAY_LINES).join('\n')}\n... +${matches.length - MAX_DISPLAY_LINES} more matches`;
       },
     },
   ];

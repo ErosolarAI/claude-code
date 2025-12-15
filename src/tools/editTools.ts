@@ -136,7 +136,13 @@ export async function performSurgicalEdit(
       const lineCount = replacementString.split('\n').length;
       const diffSegments = buildDiffSegmentsFast('', replacementString);
       const addedLines = diffSegments.filter((s) => s.type === 'added').length;
-      const diffLines = formatDiffLines(diffSegments, true);
+      // Limit to 5 diff lines for concise output
+      const MAX_DIFF_LINES = 5;
+      const truncatedSegments = diffSegments.slice(0, MAX_DIFF_LINES);
+      const diffLines = formatDiffLines(truncatedSegments, true);
+      if (diffSegments.length > MAX_DIFF_LINES) {
+        diffLines.push(`      ... +${diffSegments.length - MAX_DIFF_LINES} more lines`);
+      }
       const diffBlock =
         diffLines.length > 0 ? diffLines.join('\n') : '(No visual diff - whitespace or formatting changes only)';
 
@@ -332,7 +338,14 @@ export async function performSurgicalEdit(
     const noteText = matchNote ? ` [${matchNote}]` : '';
 
     // Format diff with colors for terminal display (AGI CLI style)
-    const diffLines = formatDiffClaudeStyle(diffResult.segments, true);
+    // Limit to 5 diff lines to keep output concise
+    const MAX_DIFF_LINES = 5;
+    const truncatedSegments = diffResult.segments.slice(0, MAX_DIFF_LINES);
+    const diffLines = formatDiffClaudeStyle(truncatedSegments, true);
+    const remainingChanges = diffResult.segments.length - MAX_DIFF_LINES;
+    if (remainingChanges > 0) {
+      diffLines.push(`      ... +${remainingChanges} more changes`);
+    }
     const diffBlock =
       diffLines.length > 0 ? diffLines.join('\n') : '      (No visual diff - whitespace or formatting changes only)';
 

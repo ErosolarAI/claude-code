@@ -198,7 +198,8 @@ function searchFiles(
   // Sort by modification time (newest first)
   matches.sort((a, b) => b.mtime - a.mtime);
 
-  const limited = matches.slice(0, options.limit);
+  const MAX_DISPLAY_LINES = 5;
+  const limited = matches.slice(0, Math.min(options.limit, MAX_DISPLAY_LINES));
   if (limited.length === 0) {
     return `No files matching: ${pattern}`;
   }
@@ -208,11 +209,10 @@ function searchFiles(
     return rel && !rel.startsWith('..') ? rel : m.path;
   });
 
-  let result = `${matches.length} file(s) matching "${pattern}"`;
-  if (matches.length > options.limit) {
-    result += ` (showing ${options.limit})`;
+  let result = `${matches.length} file(s) matching "${pattern}":\n${relativePaths.join('\n')}`;
+  if (matches.length > MAX_DISPLAY_LINES) {
+    result += `\n... +${matches.length - MAX_DISPLAY_LINES} more files`;
   }
-  result += `:\n${relativePaths.join('\n')}`;
 
   return result;
 }
@@ -303,18 +303,19 @@ function searchContent(
     return `No matches for: ${pattern}`;
   }
 
-  const limited = matches.slice(0, options.limit);
+  const MAX_DISPLAY_LINES = 5;
+  const limited = matches.slice(0, Math.min(options.limit, MAX_DISPLAY_LINES));
   const lines: string[] = [];
 
   for (const m of limited) {
     const relPath = relative(workingDir, m.file);
     const displayPath = relPath && !relPath.startsWith('..') ? relPath : m.file;
-    lines.push(`${displayPath}:${m.line}: ${m.content}`);
+    lines.push(`${displayPath}:${m.line}: ${m.content.slice(0, 80)}${m.content.length > 80 ? '...' : ''}`);
   }
 
   let result = lines.join('\n');
-  if (matches.length > options.limit) {
-    result += `\n\n[${matches.length - options.limit} more matches, use limit parameter to see more]`;
+  if (matches.length > MAX_DISPLAY_LINES) {
+    result += `\n... +${matches.length - MAX_DISPLAY_LINES} more matches`;
   }
 
   return result;
@@ -387,13 +388,18 @@ function searchDefinitions(
     return `No definitions found for: ${name}`;
   }
 
-  const limited = matches.slice(0, options.limit);
+  const MAX_DISPLAY_LINES = 5;
+  const limited = matches.slice(0, Math.min(options.limit, MAX_DISPLAY_LINES));
   const lines: string[] = [];
 
   for (const m of limited) {
     const relPath = relative(workingDir, m.file);
     const displayPath = relPath && !relPath.startsWith('..') ? relPath : m.file;
-    lines.push(`${displayPath}:${m.line}: ${m.content}`);
+    lines.push(`${displayPath}:${m.line}: ${m.content.slice(0, 80)}${m.content.length > 80 ? '...' : ''}`);
+  }
+
+  if (matches.length > MAX_DISPLAY_LINES) {
+    lines.push(`... +${matches.length - MAX_DISPLAY_LINES} more definitions`);
   }
 
   return lines.join('\n');
