@@ -518,3 +518,234 @@ export async function performUpdate(
     return { success: false, error: message };
   }
 }
+
+// Session state file for resuming work after updates
+const SESSION_STATE_FILE = join(homedir(), '.agi', 'session-state.json');
+
+export interface SessionState {
+  workingDirectory: string;
+  pendingTasks?: string[];
+  lastPrompt?: string;
+  contextSummary?: string;
+  timestamp: number;
+  version: string;
+  resumeCommand?: string;
+}
+
+/**
+ * Save session state before update for resumption after restart.
+ */
+export function saveSessionState(state: Omit<SessionState, 'timestamp'>): void {
+  try {
+    mkdirSync(join(homedir(), '.agi'), { recursive: true });
+    const fullState: SessionState = {
+      ...state,
+      timestamp: Date.now(),
+    };
+    writeFileSync(SESSION_STATE_FILE, JSON.stringify(fullState, null, 2));
+  } catch {
+    // Best-effort only
+  }
+}
+
+/**
+ * Load session state for resumption after update.
+ */
+export function loadSessionState(): SessionState | null {
+  try {
+    if (!existsSync(SESSION_STATE_FILE)) {
+      return null;
+    }
+    const raw = readFileSync(SESSION_STATE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    return parsed as SessionState;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clear session state after successful resumption.
+ */
+export function clearSessionState(): void {
+  try {
+    if (existsSync(SESSION_STATE_FILE)) {
+      writeFileSync(SESSION_STATE_FILE, '{}');
+    }
+  } catch {
+    // Best-effort only
+  }
+}
+
+/**
+ * Check if there's a pending session to resume.
+ */
+export function hasPendingSession(): boolean {
+  const state = loadSessionState();
+  if (!state || !state.timestamp) return false;
+  // Session is valid if less than 24 hours old
+  const maxAge = 1000 * 60 * 60 * 24;
+  return Date.now() - state.timestamp < maxAge;
+}
+
+/**
+ * Perform update and automatically restart to continue work.
+ * Saves session state, performs update, then spawns new process with --resume flag.
+ */
+export async function updateAndContinue(
+  updateInfo: UpdateInfo,
+  sessionState: Omit<SessionState, 'timestamp'>,
+  logger?: (message: string) => void
+): Promise<{ success: boolean; error?: string; restarting?: boolean }> {
+  // Save current session state
+  logger?.(theme.info('Saving session state before update...'));
+  saveSessionState(sessionState);
+
+  // Perform the update
+  const updateResult = await performUpdate(updateInfo, logger);
+  if (!updateResult.success) {
+    return { success: false, error: updateResult.error };
+  }
+
+  // Spawn new process to continue work
+  logger?.(theme.info('Restarting to continue with updated version...'));
+
+  try {
+    const cliPath = process.argv[1] || 'agi';
+    const args = ['--resume'];
+
+    // Add working directory
+    if (sessionState.workingDirectory) {
+      args.push('--cwd', sessionState.workingDirectory);
+    }
+
+    // Spawn new process
+    const child = spawn(process.execPath, [cliPath, ...args], {
+      detached: true,
+      stdio: 'inherit',
+      cwd: sessionState.workingDirectory || process.cwd(),
+      env: {
+        ...process.env,
+        AGI_RESUMED: 'true',
+        AGI_RESUME_VERSION: updateInfo.latest,
+      },
+    });
+
+    // Don't wait for child
+    if (child.unref) {
+      child.unref();
+    }
+
+    logger?.(theme.success(`Updated and restarting. New process launched.`));
+
+    // Exit current process after a short delay
+    setTimeout(() => {
+      process.exit(0);
+    }, 500);
+
+    return { success: true, restarting: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger?.(theme.warning(`Failed to restart: ${message}`));
+    return { success: true, error: `Update successful but restart failed: ${message}` };
+  }
+}
+
+/**
+ * Install specific npm package version and optionally restart.
+ */
+export async function installPackageVersion(
+  packageName: string,
+  version: string,
+  options: {
+    global?: boolean;
+    restart?: boolean;
+    sessionState?: Omit<SessionState, 'timestamp'>;
+    logger?: (message: string) => void;
+  } = {}
+): Promise<{ success: boolean; error?: string }> {
+  const { global: isGlobal = true, restart = false, sessionState, logger } = options;
+
+  const globalFlag = isGlobal ? '-g ' : '';
+  const command = `npm install ${globalFlag}${packageName}@${version}`;
+
+  logger?.(theme.info(`Installing ${packageName}@${version}...`));
+
+  // Save session if restart requested
+  if (restart && sessionState) {
+    saveSessionState(sessionState);
+  }
+
+  try {
+    await execAsync(command, {
+      timeout: INSTALL_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024 * 4,
+      env: {
+        ...process.env,
+        npm_config_loglevel: process.env['npm_config_loglevel'] ?? 'error',
+      },
+    });
+
+    logger?.(theme.success(`Installed ${packageName}@${version}`));
+
+    // Restart if requested
+    if (restart) {
+      logger?.(theme.info('Restarting...'));
+
+      const cliPath = process.argv[1] || 'agi';
+      const args = ['--resume'];
+
+      spawn(process.execPath, [cliPath, ...args], {
+        detached: true,
+        stdio: 'inherit',
+        cwd: sessionState?.workingDirectory || process.cwd(),
+        env: {
+          ...process.env,
+          AGI_RESUMED: 'true',
+          AGI_RESUME_VERSION: version,
+        },
+      }).unref();
+
+      setTimeout(() => process.exit(0), 500);
+    }
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger?.(theme.warning(`Installation failed: ${message}`));
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Run npm install in current directory.
+ */
+export async function runNpmInstall(
+  cwd?: string,
+  logger?: (message: string) => void
+): Promise<{ success: boolean; error?: string }> {
+  const workingDir = cwd || process.cwd();
+  logger?.(theme.info(`Running npm install in ${workingDir}...`));
+
+  try {
+    await execAsync('npm install', {
+      timeout: INSTALL_TIMEOUT_MS * 2, // Allow more time for full install
+      maxBuffer: 1024 * 1024 * 10,
+      cwd: workingDir,
+      env: {
+        ...process.env,
+        npm_config_loglevel: process.env['npm_config_loglevel'] ?? 'warn',
+      },
+    });
+
+    logger?.(theme.success('npm install completed'));
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger?.(theme.warning(`npm install failed: ${message}`));
+    return { success: false, error: message };
+  }
+}

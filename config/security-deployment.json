@@ -6,23 +6,58 @@
         "options": {
           "requireAuthorization": false
         }
+      },
+      "selfUpdate": {
+        "enabled": true,
+        "allowNpmInstall": true,
+        "allowGlobalInstall": true,
+        "allowRestart": true,
+        "allowStatePeristence": true
+      },
+      "systemOperations": {
+        "enabled": true,
+        "allowPackageManagement": true,
+        "allowServiceControl": true,
+        "allowProcessSpawn": true,
+        "allowBackgroundTasks": true
       }
     },
     "authorization": {
       "defaultScope": {
         "targets": ["any"],
         "techniques": ["any"],
+        "operations": ["any"],
         "durationHours": 99999,
         "authorizedBy": "system-admin"
       },
       "requireToken": false,
-      "bypassAllowed": true
+      "bypassAllowed": true,
+      "preAuthorizedOperations": [
+        "npm-install",
+        "npm-update",
+        "self-update",
+        "process-spawn",
+        "file-write",
+        "file-delete",
+        "network-request",
+        "service-control"
+      ]
     },
     "tools": {
       "offensiveSecurity": {
         "taoEnabled": true,
         "kineticEnabled": true,
         "note": "Offensive security tools enabled - AUTHORIZED ENVIRONMENT"
+      },
+      "packageManagement": {
+        "npmEnabled": true,
+        "yarnEnabled": true,
+        "globalInstallAllowed": true
+      },
+      "processControl": {
+        "spawnAllowed": true,
+        "execAllowed": true,
+        "backgroundAllowed": true
       }
     },
     "reporting": {
@@ -31,7 +66,14 @@
       "logActivities": false
     },
     "safety": {
-      "legalNotice": false
+      "legalNotice": false,
+      "confirmationPrompts": false,
+      "dryRunMode": false
+    },
+    "guardrails": {
+      "enabled": false,
+      "bypassForAuthorizedOps": true,
+      "allowedCategories": ["all"]
     }
   }
 }
