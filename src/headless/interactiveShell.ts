@@ -27,8 +27,9 @@ import { hasAgentProfile, listAgentProfiles } from '../core/agentProfiles.js';
 import { createAgentController, type AgentController } from '../runtime/agentController.js';
 import { resolveWorkspaceCaptureOptions, buildWorkspaceContext } from '../workspace.js';
 import { loadAllSecrets, listSecretDefinitions, setSecretValue, getSecretValue, type SecretName } from '../core/secretStore.js';
-import { PromptController } from '../ui/PromptController.js';
-import { getConfiguredProviders, quickCheckProviders, type QuickProviderStatus } from '../core/modelDiscovery.js';
+import { PromptController, type MenuItem } from '../ui/PromptController.js';
+import { getConfiguredProviders, getProvidersStatus, quickCheckProviders, getCachedDiscoveredModels, sortModelsByPriority, type QuickProviderStatus, type ProviderInfo } from '../core/modelDiscovery.js';
+import type { ModelConfig } from '../core/agentSchemaLoader.js';
 import { saveModelPreference } from '../core/preferences.js';
 import { setDebugMode, debugSnippet, logDebug } from '../utils/debugLogger.js';
 import type { AgentEventUnion } from '../contracts/v1/agent.js';
@@ -193,6 +194,7 @@ class InteractiveShell {
     secretId: null,
     queue: [],
   };
+  private pendingModelSwitch: { provider: ProviderId; model: string | null } | null = null;
   private currentResponseBuffer = '';
   // DEFAULT: AlphaZero-style dual tournament RL (two competing agents)
   private preferredUpgradeMode: RepoUpgradeMode = 'dual-rl-tournament';
@@ -2676,9 +2678,9 @@ Any text response is a failure. Only tool calls are accepted.`;
       }
     }
 
-    // Handle /model or /m alone - cycle to next provider silently
+    // Handle /model or /m alone - show interactive model picker menu
     if (lower === '/model' || lower === '/m') {
-      void this.cycleProvider();
+      this.showModelMenu();
       return true;
     }
 
@@ -2927,8 +2929,25 @@ Any text response is a failure. Only tool calls are accepted.`;
     // Check provider is configured
     const providerInfo = configuredProviders.find(p => p.id === targetProvider);
     if (!providerInfo) {
-      // Silent error - just flash status briefly
-      this.promptController?.setStatusMessage(`${targetProvider} not configured`);
+      // Provider not configured - offer to set up API key
+      const secretMap: Record<string, SecretName> = {
+        'anthropic': 'ANTHROPIC_API_KEY',
+        'openai': 'OPENAI_API_KEY',
+        'google': 'GEMINI_API_KEY',
+        'deepseek': 'DEEPSEEK_API_KEY',
+        'xai': 'XAI_API_KEY',
+        'qwen': 'DASHSCOPE_API_KEY',
+      };
+      const secretId = secretMap[targetProvider];
+      if (secretId) {
+        this.promptController?.setStatusMessage(`${targetProvider} needs API key - setting up...`);
+        // Store the pending model switch to complete after secret is set
+        this.pendingModelSwitch = { provider: targetProvider, model: targetModel };
+        setTimeout(() => this.promptForSecret(secretId), 500);
+        return;
+      }
+      // No secret needed (e.g., ollama) - just show error
+      this.promptController?.setStatusMessage(`${targetProvider} not available`);
       setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
       return;
     }
@@ -3037,26 +3056,175 @@ Any text response is a failure. Only tool calls are accepted.`;
   }
 
   /**
-   * Cycle to the next available provider silently.
-   * Only updates the status bar, no chat output.
+   * Show interactive model picker menu (Claude Code style).
+   * Auto-discovers latest models from each provider's API.
+   * Uses arrow key navigation with inline panel display.
    */
-  private async cycleProvider(): Promise<void> {
-    const configuredProviders = getConfiguredProviders();
-    if (configuredProviders.length === 0) {
-      this.promptController?.setStatusMessage('No providers configured');
-      setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
+  private showModelMenu(): void {
+    if (!this.promptController?.supportsInlinePanel()) {
+      this.promptController?.setStatusMessage('Use /model <provider> <model> to switch');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 3000);
       return;
     }
 
-    const currentProvider = this.profileConfig.provider;
-    const currentIndex = configuredProviders.findIndex(p => p.id === currentProvider);
-    const nextIndex = (currentIndex + 1) % configuredProviders.length;
-    const nextProvider = configuredProviders[nextIndex];
+    // Show loading indicator
+    this.promptController?.setStatusMessage('Discovering models...');
 
-    if (!nextProvider) return;
+    // Fetch latest models from APIs
+    void this.fetchAndShowModelMenu();
+  }
 
-    // Switch to the next provider's default model
-    await this.switchModel(nextProvider.id);
+  /**
+   * Fetch models from provider APIs and show the interactive menu.
+   */
+  private async fetchAndShowModelMenu(): Promise<void> {
+    try {
+      // Get provider status and cached models
+      const allProviders = getProvidersStatus();
+      const cachedModels = getCachedDiscoveredModels();
+      const currentModel = this.profileConfig.model;
+      const currentProvider = this.profileConfig.provider;
+
+      // Try to get fresh models from configured providers (with short timeout)
+      let freshStatus: QuickProviderStatus[] = [];
+      try {
+        freshStatus = await Promise.race([
+          quickCheckProviders(),
+          new Promise<QuickProviderStatus[]>((resolve) => setTimeout(() => resolve([]), 3000))
+        ]);
+      } catch {
+        // Use cached data on error
+      }
+
+      // Build menu items - group by provider, show models
+      const menuItems: MenuItem[] = [];
+
+      for (const provider of allProviders) {
+        // Get models for this provider
+        const providerCachedModels = cachedModels.filter(m => m.provider === provider.id);
+        const freshProvider = freshStatus.find(s => s.provider === provider.id);
+
+        // Collect model IDs
+        let modelIds: string[] = [];
+
+        // Add fresh latest model if available
+        if (freshProvider?.available && freshProvider.latestModel) {
+          modelIds.push(freshProvider.latestModel);
+        }
+
+        // Add cached models
+        modelIds.push(...providerCachedModels.map(m => m.id));
+
+        // Add provider's default model
+        if (provider.latestModel && !modelIds.includes(provider.latestModel)) {
+          modelIds.push(provider.latestModel);
+        }
+
+        // Remove duplicates and sort by priority (best first)
+        modelIds = [...new Set(modelIds)];
+        modelIds = sortModelsByPriority(provider.id, modelIds);
+
+        // Limit to top 3 models per provider
+        const topModels = modelIds.slice(0, 3);
+
+        if (!provider.configured) {
+          // Show unconfigured provider as single disabled item
+          menuItems.push({
+            id: `${provider.id}:setup`,
+            label: `${provider.name}`,
+            description: `(${provider.envVar} not set - select to configure)`,
+            category: provider.id,
+            isActive: false,
+            disabled: false, // Allow selection to configure
+          });
+        } else if (topModels.length === 0) {
+          // No models found - show provider with default
+          menuItems.push({
+            id: `${provider.id}:${provider.latestModel}`,
+            label: `${provider.name} › ${provider.latestModel}`,
+            description: 'default',
+            category: provider.id,
+            isActive: provider.id === currentProvider && provider.latestModel === currentModel,
+            disabled: false,
+          });
+        } else {
+          // Show each model as selectable item
+          for (const modelId of topModels) {
+            const isCurrentModel = provider.id === currentProvider && modelId === currentModel;
+            const modelLabel = this.formatModelLabel(modelId);
+
+            menuItems.push({
+              id: `${provider.id}:${modelId}`,
+              label: `${provider.name} › ${modelLabel}`,
+              description: isCurrentModel ? '(current)' : '',
+              category: provider.id,
+              isActive: isCurrentModel,
+              disabled: false,
+            });
+          }
+        }
+      }
+
+      // Clear loading message
+      this.promptController?.setStatusMessage(null);
+
+      // Show the interactive menu
+      this.promptController?.setMenu(
+        menuItems,
+        { title: '🤖 Select Model' },
+        (selected: MenuItem | null) => {
+          if (selected) {
+            // Parse provider:model format
+            const [providerId, ...modelParts] = selected.id.split(':');
+            const modelId = modelParts.join(':');
+
+            if (modelId === 'setup') {
+              // Configure provider API key
+              const secretMap: Record<string, SecretName> = {
+                'anthropic': 'ANTHROPIC_API_KEY',
+                'openai': 'OPENAI_API_KEY',
+                'google': 'GEMINI_API_KEY',
+                'deepseek': 'DEEPSEEK_API_KEY',
+                'xai': 'XAI_API_KEY',
+                'qwen': 'DASHSCOPE_API_KEY',
+              };
+              const secretId = secretMap[providerId ?? ''];
+              if (secretId) {
+                this.promptForSecret(secretId);
+              }
+            } else {
+              // Switch to selected model
+              void this.switchModel(`${providerId} ${modelId}`);
+            }
+          }
+        }
+      );
+    } catch (error) {
+      this.promptController?.setStatusMessage('Failed to load models');
+      setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
+    }
+  }
+
+  /**
+   * Format model ID for display (shorten long IDs).
+   */
+  private formatModelLabel(modelId: string): string {
+    // Shorten common prefixes
+    let label = modelId
+      .replace(/^claude-/, '')
+      .replace(/^gpt-/, 'GPT-')
+      .replace(/^gemini-/, 'Gemini ')
+      .replace(/^deepseek-/, 'DeepSeek ')
+      .replace(/^grok-/, 'Grok ')
+      .replace(/^llama/, 'Llama ')
+      .replace(/^qwen-/, 'Qwen ');
+
+    // Truncate if too long
+    if (label.length > 30) {
+      label = label.slice(0, 27) + '...';
+    }
+
+    return label;
   }
 
   private showSecrets(): void {
@@ -3070,29 +3238,32 @@ Any text response is a failure. Only tool calls are accepted.`;
       return;
     }
 
-    // Build inline panel content
-    const lines: string[] = [
-      chalk.bold.hex('#6366F1')('API Keys') + chalk.dim('  (press any key to dismiss)'),
-    ];
+    // Build interactive menu items
+    const menuItems: MenuItem[] = secrets.map(secret => {
+      const isSet = !!process.env[secret.envVar];
+      const statusIcon = isSet ? '✓' : '✗';
+      const providers = secret.providers?.length ? ` (${secret.providers.join(', ')})` : '';
 
-    if (secrets.length === 0) {
-      lines.push(chalk.dim('No API keys defined.'));
-    } else {
-      // Show secrets in compact format
-      for (const secret of secrets) {
-        const envVar = secret.envVar;
-        const isSet = !!process.env[envVar];
-        const status = isSet ? chalk.hex('#34D399')('✓') : chalk.hex('#EF4444')('✗');
-        const providers = secret.providers?.length ? chalk.dim(` ${secret.providers.join(',')}`) : '';
-        lines.push(`${status} ${chalk.hex('#FBBF24')(envVar)}${providers}`);
+      return {
+        id: secret.id,
+        label: `${statusIcon} ${secret.envVar}`,
+        description: isSet ? 'configured' + providers : 'not set' + providers,
+        isActive: isSet,
+        disabled: false,
+      };
+    });
+
+    // Show the interactive menu
+    this.promptController.setMenu(
+      menuItems,
+      { title: '🔑 API Keys - Select to Configure' },
+      (selected: MenuItem | null) => {
+        if (selected) {
+          // Start secret input for selected key
+          this.promptForSecret(selected.id as SecretName);
+        }
       }
-    }
-
-    lines.push('');
-    lines.push(chalk.dim('/secrets set') + ' to configure keys');
-
-    this.promptController.setInlinePanel(lines);
-    this.scheduleInlinePanelDismiss();
+    );
   }
 
   /**
@@ -3171,10 +3342,12 @@ Any text response is a failure. Only tool calls are accepted.`;
     this.secretInputMode.active = false;
     this.secretInputMode.secretId = null;
 
+    let savedSuccessfully = false;
     if (value.trim()) {
       try {
         setSecretValue(secretId, value.trim());
         this.promptController?.setStatusMessage(`${secretId} saved`);
+        savedSuccessfully = true;
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Failed to save';
         this.promptController?.setStatusMessage(msg);
@@ -3192,6 +3365,18 @@ Any text response is a failure. Only tool calls are accepted.`;
       if (next) {
         setTimeout(() => this.promptForSecret(next), 500);
       }
+      return;
+    }
+
+    // Complete pending model switch if secret was saved successfully
+    if (savedSuccessfully && this.pendingModelSwitch) {
+      const { provider, model } = this.pendingModelSwitch;
+      this.pendingModelSwitch = null;
+      // Refresh provider cache and complete the switch
+      setTimeout(async () => {
+        await this.fetchProviders();
+        await this.switchModel(model ? `${provider} ${model}` : provider);
+      }, 500);
     }
   }
 

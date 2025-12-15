@@ -3,10 +3,10 @@
  * Handles input wiring and status/meta updates without any of the legacy scroll-region plumbing.
  */
 
-import { UnifiedUIRenderer, type CommandSuggestion, type RLAgentStatus } from './UnifiedUIRenderer.js';
+import { UnifiedUIRenderer, type CommandSuggestion, type RLAgentStatus, type MenuItem } from './UnifiedUIRenderer.js';
 
 // Re-export types for external use
-export type { RLAgentStatus };
+export type { RLAgentStatus, MenuItem };
 
 export type EditGuardMode = 'display-edits' | 'require-approval' | 'block-writes' | 'ask-permission' | 'plan';
 
@@ -351,6 +351,34 @@ export class PromptController {
    */
   supportsInlinePanel(): boolean {
     return this.renderer.supportsInlinePanel();
+  }
+
+  /**
+   * Show an interactive menu with arrow key navigation (Claude Code style).
+   * @param items - Menu items to display
+   * @param options - Menu options (title, initialIndex)
+   * @param callback - Called when user selects an item (or null if cancelled)
+   */
+  setMenu(
+    items: MenuItem[],
+    options: { title?: string; initialIndex?: number },
+    callback: (item: MenuItem | null) => void
+  ): void {
+    this.renderer.setMenu(items, options, callback);
+  }
+
+  /**
+   * Close the active menu without selecting anything.
+   */
+  closeMenu(): void {
+    this.renderer.closeMenu();
+  }
+
+  /**
+   * Check if an interactive menu is currently active.
+   */
+  isMenuActive(): boolean {
+    return this.renderer.isMenuActive();
   }
 
   /**

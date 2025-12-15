@@ -36,11 +36,12 @@ interface DiscoveredModelsCache {
 }
 
 const MODEL_PROVIDER_HINTS: Array<{ provider: ProviderId; patterns: RegExp[] }> = [
-  { provider: 'openai', patterns: [/^gpt-/i, /^o[13]/i, /^text-/i] },
+  { provider: 'openai', patterns: [/^gpt-/i, /^o[13]/i, /^text-/i, /^chatgpt/i] },
   { provider: 'anthropic', patterns: [/^claude/i] },
   { provider: 'google', patterns: [/^gemini/i] },
   { provider: 'deepseek', patterns: [/^deepseek/i] },
   { provider: 'xai', patterns: [/^grok/i, /^xai-/i] },
+  { provider: 'qwen', patterns: [/^qwen/i, /^qwq/i] },
   { provider: 'ollama', patterns: [/^llama/i, /:/] },
 ];
 
@@ -429,6 +430,58 @@ async function discoverOllamaModels(): Promise<ProviderDiscoveryResult> {
 }
 
 /**
+ * Discover models from Qwen (Alibaba Cloud DashScope - OpenAI-compatible)
+ */
+async function discoverQwenModels(apiKey: string): Promise<ProviderDiscoveryResult> {
+  const provider: ProviderId = 'qwen';
+
+  try {
+    // DashScope uses OpenAI-compatible API
+    const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/models', {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json() as { data: Array<{ id: string }> };
+
+    // Filter for Qwen models and prioritize latest versions
+    const qwenModels: ModelConfig[] = data.data
+      .filter(model => model.id.toLowerCase().includes('qwen'))
+      .map(model => ({
+        id: model.id,
+        label: model.id,
+        provider,
+        description: `Alibaba Qwen ${model.id} (auto-discovered)`,
+        capabilities: ['chat', 'reasoning', 'tools', 'streaming'],
+      }));
+
+    return {
+      provider,
+      success: true,
+      models: qwenModels,
+    };
+  } catch (error) {
+    // Fallback to known models if API fails
+    const fallbackModels: ModelConfig[] = [
+      { id: 'qwen-max', label: 'Qwen Max', provider, description: 'Qwen Max - most capable', capabilities: ['chat', 'reasoning', 'tools', 'streaming'] },
+      { id: 'qwen-plus', label: 'Qwen Plus', provider, description: 'Qwen Plus - balanced', capabilities: ['chat', 'reasoning', 'tools', 'streaming'] },
+      { id: 'qwen-turbo', label: 'Qwen Turbo', provider, description: 'Qwen Turbo - fast', capabilities: ['chat', 'tools', 'streaming'] },
+    ];
+    return {
+      provider,
+      success: false,
+      models: fallbackModels,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
  * Discover models from all configured providers
  *
  * PERF: Uses Promise.allSettled for parallel discovery - all providers queried
@@ -449,6 +502,7 @@ export async function discoverAllModels(): Promise<DiscoveryResult> {
     { id: 'google', envVar: 'GEMINI_API_KEY', discover: discoverGoogleModels },
     { id: 'deepseek', envVar: 'DEEPSEEK_API_KEY', discover: discoverDeepSeekModels },
     { id: 'xai', envVar: 'XAI_API_KEY', discover: discoverXAIModels },
+    { id: 'qwen', envVar: 'DASHSCOPE_API_KEY', discover: discoverQwenModels },
   ];
 
   // PERF: Build discovery promises in parallel
@@ -581,13 +635,58 @@ const PROVIDER_CONFIGS: Array<{
   envVar: string;
   altEnvVars?: string[];
   defaultLatestModel: string;
+  fallbackModels?: string[];
 }> = [
-  { id: 'anthropic', name: 'Anthropic', envVar: 'ANTHROPIC_API_KEY', defaultLatestModel: 'claude-3-5-sonnet-20241022' },
-  { id: 'openai', name: 'OpenAI', envVar: 'OPENAI_API_KEY', defaultLatestModel: 'gpt-4o' },
-  { id: 'google', name: 'Google', envVar: 'GEMINI_API_KEY', altEnvVars: ['GOOGLE_API_KEY'], defaultLatestModel: 'gemini-2.5-flash' },
-  { id: 'deepseek', name: 'DeepSeek', envVar: 'DEEPSEEK_API_KEY', defaultLatestModel: 'deepseek-reasoner' },
-  { id: 'xai', name: 'xAI', envVar: 'XAI_API_KEY', defaultLatestModel: 'grok-4-1-fast-reasoning' },
-  { id: 'ollama', name: 'Ollama', envVar: 'OLLAMA_BASE_URL', defaultLatestModel: 'llama3.2:3b' },
+  {
+    id: 'anthropic',
+    name: 'Anthropic',
+    envVar: 'ANTHROPIC_API_KEY',
+    defaultLatestModel: 'claude-sonnet-4-5-20250514',
+    fallbackModels: ['claude-haiku-4-5-20250514', 'claude-opus-4-5-20250514', 'claude-3-5-sonnet-20241022']
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    envVar: 'OPENAI_API_KEY',
+    defaultLatestModel: 'gpt-5.2-codex',
+    fallbackModels: ['gpt-5.2-codex-mini', 'gpt-4o', 'gpt-4o-mini', 'o3-mini']
+  },
+  {
+    id: 'google',
+    name: 'Google',
+    envVar: 'GEMINI_API_KEY',
+    altEnvVars: ['GOOGLE_API_KEY'],
+    defaultLatestModel: 'gemini-3.0-pro',
+    fallbackModels: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash']
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    envVar: 'DEEPSEEK_API_KEY',
+    defaultLatestModel: 'deepseek-reasoner',
+    fallbackModels: ['deepseek-chat']
+  },
+  {
+    id: 'xai',
+    name: 'xAI',
+    envVar: 'XAI_API_KEY',
+    defaultLatestModel: 'grok-4-1-fast-reasoning',
+    fallbackModels: ['grok-4', 'grok-3', 'grok-3-mini']
+  },
+  {
+    id: 'ollama',
+    name: 'Ollama',
+    envVar: 'OLLAMA_BASE_URL',
+    defaultLatestModel: 'llama3.3:70b',
+    fallbackModels: ['llama3.2:3b', 'llama3.2:1b']
+  },
+  {
+    id: 'qwen',
+    name: 'Qwen (Alibaba)',
+    envVar: 'DASHSCOPE_API_KEY',
+    defaultLatestModel: 'qwen-max',
+    fallbackModels: ['qwen-turbo', 'qwen-plus']
+  },
 ];
 
 /**
@@ -595,45 +694,76 @@ const PROVIDER_CONFIGS: Array<{
  */
 const MODEL_PRIORITIES: Record<string, Record<string, number>> = {
   openai: {
+    // GPT-5.2 Codex series (newest - highest priority)
+    'gpt-5.2-codex': 130,
+    'gpt-5.2-codex-mini': 128,
+    // o-series reasoning models
     'o3-pro': 120,
-    'o3-mini': 114,
-    'o3': 112,
-    'o1-pro': 110,
-    'o1': 108,
-    'o1-mini': 104,
-    'codex-max': 105,
-    'gpt-5.1-codex-max': 105,
-    'gpt-5.1-codex': 100,
-    'gpt-5.1-codex-mini': 98,
-    'gpt-5.1': 96,
-    'gpt-5-pro': 94,
-    'gpt-5-mini': 92,
-    'gpt-5-nano': 90,
+    'o3': 118,
+    'o3-mini': 116,
+    'o1-pro': 114,
+    'o1': 112,
+    'o1-mini': 110,
+    'o1-preview': 108,
+    // GPT-4o series
+    'gpt-4o': 100,
+    'gpt-4o-2024-11-20': 100,
+    'gpt-4o-2024-08-06': 99,
+    'gpt-4o-mini': 95,
+    'gpt-4o-mini-2024-07-18': 95,
+    // GPT-4 Turbo
+    'gpt-4-turbo': 90,
+    'gpt-4-turbo-preview': 89,
+    'gpt-4-turbo-2024-04-09': 89,
+    // Legacy GPT-4
+    'gpt-4': 85,
+    'gpt-4-0613': 84,
+    // GPT-3.5
+    'gpt-3.5-turbo': 70,
+    'gpt-3.5-turbo-0125': 70,
   },
   anthropic: {
-    'claude-opus-4-5': 100,
-    'claude-opus-4-5-20251101': 100,
-    'claude-sonnet-4-5': 98,
-    'claude-sonnet-4-5-20250929': 98,
-    'claude-opus-4-20250514': 95,
-    'claude-opus-4': 95,
-    'claude-sonnet-4': 92,
-    'claude-3-5-sonnet-20241022': 88,
-    'claude-3-5-haiku-20241022': 85,
-    'claude-3-opus-20240229': 80,
-    'claude-3-sonnet-20240229': 75,
-    'claude-3-haiku-20240307': 70,
+    // Claude 4.5 series (newest - highest priority)
+    'claude-opus-4-5-20250514': 130,
+    'claude-sonnet-4-5-20250514': 128,
+    'claude-haiku-4-5-20250514': 125,
+    // Claude 4 series
+    'claude-opus-4-20250514': 120,
+    'claude-sonnet-4-20250514': 118,
+    // Claude 3.5 series
+    'claude-3-5-sonnet-20241022': 95,
+    'claude-3-5-sonnet-latest': 95,
+    'claude-3-5-haiku-20241022': 90,
+    'claude-3-5-haiku-latest': 90,
+    // Claude 3 series
+    'claude-3-opus-20240229': 85,
+    'claude-3-opus-latest': 85,
+    'claude-3-sonnet-20240229': 80,
+    'claude-3-haiku-20240307': 75,
   },
   google: {
-    'gemini-3.0-pro': 100,
-    'gemini-3.0-flash': 98,
-    'gemini-2.5-pro': 95,
-    'gemini-2.5-flash': 93,
-    'gemini-2.0-flash': 90,
-    'gemini-2.0': 88,
-    'gemini-1.5-pro': 80,
-    'gemini-1.5-flash': 75,
-    'gemini-1.0': 50,
+    // Gemini 3.0 series (newest - highest priority)
+    'gemini-3.0-pro': 130,
+    'gemini-3.0-flash': 128,
+    // Gemini 2.5 series
+    'gemini-2.5-pro': 120,
+    'gemini-2.5-flash': 118,
+    // Gemini 2.0 series
+    'gemini-2.0-flash': 100,
+    'gemini-2.0-flash-exp': 100,
+    'gemini-2.0-flash-thinking-exp': 99,
+    'gemini-2.0-flash-thinking-exp-01-21': 99,
+    // Gemini 1.5 series
+    'gemini-1.5-pro': 95,
+    'gemini-1.5-pro-latest': 95,
+    'gemini-1.5-pro-002': 94,
+    'gemini-1.5-flash': 90,
+    'gemini-1.5-flash-latest': 90,
+    'gemini-1.5-flash-002': 89,
+    'gemini-1.5-flash-8b': 85,
+    // Legacy
+    'gemini-pro': 70,
+    'gemini-1.0-pro': 70,
   },
   deepseek: {
     'deepseek-reasoner': 100,
@@ -641,17 +771,53 @@ const MODEL_PRIORITIES: Record<string, Record<string, number>> = {
     'deepseek-coder': 85,
   },
   xai: {
-    'grok-4-1-fast-reasoning': 100,
-    'grok-4-1-fast-non-reasoning': 98,
-    'grok-4-fast-reasoning': 95,
-    'grok-4-fast-non-reasoning': 93,
-    'grok-4': 90,
-    'grok-code-fast-1': 88,
-    'grok-3': 85,
-    'grok-3-mini': 80,
-    'grok-2-vision-1212': 75,
-    'grok-2-1212': 70,
-    'grok-beta': 60,
+    // Grok 4 series (newest - highest priority)
+    'grok-4-1-fast-reasoning': 130,
+    'grok-4': 128,
+    // Grok 3 series
+    'grok-3': 100,
+    'grok-3-mini': 95,
+    'grok-2': 90,
+    'grok-2-vision-1212': 88,
+    'grok-2-1212': 85,
+    'grok-beta': 70,
+  },
+  ollama: {
+    // Meta Llama models
+    'llama3.3:70b': 100,
+    'llama3.3:latest': 100,
+    'llama3.2:latest': 95,
+    'llama3.2:3b': 90,
+    'llama3.2:1b': 85,
+    'llama3.1:405b': 98,
+    'llama3.1:70b': 95,
+    'llama3.1:8b': 90,
+    // Other popular models
+    'qwen2.5:72b': 95,
+    'qwen2.5:32b': 90,
+    'qwen2.5:7b': 85,
+    'codellama:70b': 90,
+    'mistral:latest': 85,
+    'mixtral:latest': 88,
+  },
+  qwen: {
+    // Qwen cloud models
+    'qwen-max': 100,
+    'qwen-max-latest': 100,
+    'qwen-turbo': 98,
+    'qwen-turbo-latest': 98,
+    'qwen-plus': 95,
+    'qwen-plus-latest': 95,
+    'qwq-32b-preview': 92,
+    // Qwen 2.5 series
+    'qwen2.5-72b-instruct': 90,
+    'qwen2.5-32b-instruct': 88,
+    'qwen2.5-14b-instruct': 85,
+    'qwen2.5-7b-instruct': 80,
+    // Qwen coder
+    'qwen2.5-coder-32b-instruct': 87,
+    'qwen2.5-coder-14b-instruct': 84,
+    'qwen2.5-coder-7b-instruct': 82,
   },
 };
 

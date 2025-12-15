@@ -3,6 +3,8 @@ import { join, relative, dirname } from 'node:path';
 import type { ToolDefinition } from '../core/toolRuntime.js';
 import { buildError } from '../core/errors.js';
 import { buildDiffSegmentsFast, formatDiffLines, buildDiffWithContext, formatDiffClaudeStyle } from './diffUtils.js';
+import { scoreEditReality, recordSuccessfulEdit, recordFailedEdit, REALITY_THRESHOLDS, type RealityScore } from '../core/realityScore.js';
+import { logDebug } from '../utils/debugLogger.js';
 
 /**
  * Track edit attempts per file to detect when edits keep being reverted (e.g., by linters/hooks)
@@ -214,6 +216,47 @@ export async function performSurgicalEdit(
       return `Error: old_string appears ${occurrences} times in the file. Either:\n1. Provide a larger unique string that includes more context\n2. Set replace_all: true to replace all ${occurrences} occurrences\n\nFile: ${filePath}`;
     }
 
+    // Reality Score Check - detect potential hallucinations before applying edit
+    const realityScore = scoreEditReality({
+      filePath,
+      oldString: targetString,
+      newString: replacementString,
+      replaceAll,
+    });
+
+    // Log reality score for debugging/learning
+    logDebug(`Edit reality score for ${filePath}: ${realityScore.total}/100 (${realityScore.confidence})`);
+
+    // Block edits with very low reality scores (likely hallucinations)
+    if (realityScore.total < REALITY_THRESHOLDS.REJECT) {
+      const warnings = realityScore.warnings.length > 0
+        ? `\nWarnings:\n${realityScore.warnings.map(w => `  ⚠ ${w}`).join('\n')}`
+        : '';
+      const failed = realityScore.failed.length > 0
+        ? `\nFailed checks:\n${realityScore.failed.map(f => `  ✗ ${f}`).join('\n')}`
+        : '';
+
+      return [
+        `⚠ Edit blocked - Low reality score: ${realityScore.total}/100`,
+        '',
+        'This edit appears to reference content that may not exist.',
+        'Please verify:',
+        '1. The old_string text actually exists in the file',
+        '2. The imports/dependencies in new_string are valid',
+        '3. The syntax in new_string is correct',
+        warnings,
+        failed,
+        '',
+        `File: ${filePath}`,
+      ].join('\n');
+    }
+
+    // Warn on medium-low scores but allow the edit
+    let realityWarning = '';
+    if (realityScore.total < REALITY_THRESHOLDS.REVIEW && realityScore.warnings.length > 0) {
+      realityWarning = `\n⚠ Reality score: ${realityScore.total}/100 - ${realityScore.warnings[0]}`;
+    }
+
     // Perform replacement
     const newContent = replaceAll
       ? currentContent.split(targetString).join(replacementString)
@@ -305,11 +348,20 @@ export async function performSurgicalEdit(
     if (removals > 0) summaryParts.push(removalText);
     const summaryText = summaryParts.length > 0 ? summaryParts.join(' and ') : 'no changes';
 
+    // Include reality score in output for high-confidence edits
+    const realityNote = realityScore.confidence === 'high'
+      ? ''
+      : realityWarning;
+
+    // Record successful edit for RL learning
+    recordSuccessfulEdit(filePath, realityScore);
+
     return [
       `⏺ Update(${displayPath})${occurrencesText}${noteText}`,
       `  ⎿  Updated ${displayPath} with ${summaryText}`,
       diffBlock,
-    ].join('\n');
+      realityNote,
+    ].filter(Boolean).join('\n');
   } catch (error: unknown) {
     return buildError('editing file', error, {
       file_path: typeof pathArg === 'string' ? pathArg : '',
