@@ -19,13 +19,12 @@ export interface PromptCallbacks {
   onResume?: () => void;
   onChange?: (event: { text: string; cursor: number }) => void;
   onEditModeChange?: (mode: EditGuardMode) => void;
-  onToggleVerify?: () => void;
   onToggleAutoContinue?: () => void;
   onToggleThinking?: () => void;
   onClearContext?: () => void;
   onToggleCriticalApproval?: () => void;
   onExpandToolResult?: () => void;
-  onToggleDualRl?: () => void;
+  onToggleAlphaZero?: () => void;
 }
 
 export class PromptController {
@@ -36,28 +35,24 @@ export class PromptController {
   private statusOverride: string | null = null;
   private statusStreaming: string | null = null;
   private modeToggleState: {
-    verificationEnabled: boolean;
-    verificationHotkey?: string;
     autoContinueEnabled: boolean;
     autoContinueHotkey?: string;
     thinkingModeLabel?: string | null;
     thinkingHotkey?: string;
     criticalApprovalMode: 'auto' | 'approval';
     criticalApprovalHotkey?: string;
-    dualRlEnabled: boolean;
-    dualRlHotkey?: string;
+    alphaZeroEnabled: boolean;  // true = dual tournament RL, false = normal single mode
+    alphaZeroHotkey?: string;
     debugEnabled?: boolean;
   } = {
-    verificationEnabled: false,
-    verificationHotkey: '⌥V',
     autoContinueEnabled: false,
     autoContinueHotkey: '⌥G',
     thinkingModeLabel: 'balanced',
     thinkingHotkey: '⌥T',
     criticalApprovalMode: 'auto',
     criticalApprovalHotkey: '⌥A',
-    dualRlEnabled: true,  // AlphaZero dual-agent tournament mode ON by default
-    dualRlHotkey: '⌥D',
+    alphaZeroEnabled: false,  // Normal mode by default, toggle to AlphaZero dual tournament RL
+    alphaZeroHotkey: '⌥D',
   };
   private started = false;
   private disposed = false;
@@ -102,15 +97,10 @@ export class PromptController {
       this.syncModeToggles();
       this.callbacks.onToggleAutoContinue?.();
     });
-    this.addBoundHandler('toggle-dual-rl', () => {
-      this.modeToggleState.dualRlEnabled = !this.modeToggleState.dualRlEnabled;
+    this.addBoundHandler('toggle-alphazero', () => {
+      this.modeToggleState.alphaZeroEnabled = !this.modeToggleState.alphaZeroEnabled;
       this.syncModeToggles();
-      this.callbacks.onToggleDualRl?.();
-    });
-    this.addBoundHandler('toggle-verify', () => {
-      this.modeToggleState.verificationEnabled = !this.modeToggleState.verificationEnabled;
-      this.syncModeToggles();
-      this.callbacks.onToggleVerify?.();
+      this.callbacks.onToggleAlphaZero?.();
     });
     this.addBoundHandler('toggle-critical-approval', () => {
       this.modeToggleState.criticalApprovalMode =
@@ -177,33 +167,26 @@ export class PromptController {
   }
 
   setModeToggles(_options: {
-    verificationEnabled: boolean;
-    verificationHotkey?: string;
     autoContinueEnabled?: boolean;
     autoContinueHotkey?: string;
     thinkingModeLabel?: string | null;
     thinkingHotkey?: string;
     criticalApprovalMode?: 'auto' | 'approval';
     criticalApprovalHotkey?: string;
-    dualRlEnabled?: boolean;
-    dualRlHotkey?: string;
+    alphaZeroEnabled?: boolean;
+    alphaZeroHotkey?: string;
   }): void {
-    const options = _options || {
-      verificationEnabled: false,
-      autoContinueEnabled: false,
-    };
+    const options = _options || { autoContinueEnabled: false };
     this.modeToggleState = {
       ...this.modeToggleState,
-      verificationEnabled: Boolean(options.verificationEnabled),
-      verificationHotkey: options.verificationHotkey,
       autoContinueEnabled: Boolean(options.autoContinueEnabled),
       autoContinueHotkey: options.autoContinueHotkey,
       thinkingModeLabel: options.thinkingModeLabel,
       thinkingHotkey: options.thinkingHotkey,
       criticalApprovalMode: options.criticalApprovalMode ?? this.modeToggleState.criticalApprovalMode,
       criticalApprovalHotkey: options.criticalApprovalHotkey,
-      dualRlEnabled: Boolean(options.dualRlEnabled),
-      dualRlHotkey: options.dualRlHotkey,
+      alphaZeroEnabled: Boolean(options.alphaZeroEnabled),
+      alphaZeroHotkey: options.alphaZeroHotkey,
     };
     this.syncModeToggles();
   }
@@ -213,22 +196,16 @@ export class PromptController {
     this.syncModeToggles();
   }
 
-  toggleDualMode(): void {
-    this.modeToggleState.dualRlEnabled = !this.modeToggleState.dualRlEnabled;
+  toggleAlphaZero(): void {
+    this.modeToggleState.alphaZeroEnabled = !this.modeToggleState.alphaZeroEnabled;
     this.syncModeToggles();
-    this.callbacks.onToggleDualRl?.();
+    this.callbacks.onToggleAlphaZero?.();
   }
 
   toggleAutoContinue(): void {
     this.modeToggleState.autoContinueEnabled = !this.modeToggleState.autoContinueEnabled;
     this.syncModeToggles();
     this.callbacks.onToggleAutoContinue?.();
-  }
-
-  toggleVerify(): void {
-    this.modeToggleState.verificationEnabled = !this.modeToggleState.verificationEnabled;
-    this.syncModeToggles();
-    this.callbacks.onToggleVerify?.();
   }
 
   toggleApprovals(): void {

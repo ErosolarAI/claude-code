@@ -428,9 +428,8 @@ class InteractiveShell {
         onInterrupt: () => this.handleInterrupt(),
         onExit: () => this.handleExit(),
         onCtrlC: (info) => this.handleCtrlC(info),
-        onToggleDualRl: () => this.handleDualRlToggle(),
+        onToggleAlphaZero: () => this.handleAlphaZeroToggle(),
         onToggleAutoContinue: () => this.handleAutoContinueToggle(),
-        onToggleVerify: () => this.handleVerifyToggle(),
         onToggleThinking: () => this.handleThinkingToggle(),
       }
     );
@@ -2576,21 +2575,19 @@ Any text response is a failure. Only tool calls are accepted.`;
     this.preferredUpgradeMode = mode;
 
     const toggles = this.promptController?.getModeToggleState();
-    // Consider both dual-rl-continuous and dual-rl-tournament as "dual RL" modes
-    const isDualRlMode = mode === 'dual-rl-continuous' || mode === 'dual-rl-tournament';
-    const currentlyDual = toggles?.dualRlEnabled ?? true;  // Default ON (AlphaZero mode)
-    if (toggles && currentlyDual !== isDualRlMode) {
+    // Consider both dual-rl-continuous and dual-rl-tournament as "AlphaZero" modes
+    const isAlphaZeroMode = mode === 'dual-rl-continuous' || mode === 'dual-rl-tournament';
+    const currentlyAlphaZero = toggles?.alphaZeroEnabled ?? false;
+    if (toggles && currentlyAlphaZero !== isAlphaZeroMode) {
       this.promptController?.setModeToggles({
-        verificationEnabled: toggles.verificationEnabled,
-        verificationHotkey: toggles.verificationHotkey,
         autoContinueEnabled: toggles.autoContinueEnabled,
         autoContinueHotkey: toggles.autoContinueHotkey,
         thinkingModeLabel: toggles.thinkingModeLabel,
         thinkingHotkey: toggles.thinkingHotkey,
         criticalApprovalMode: toggles.criticalApprovalMode,
         criticalApprovalHotkey: toggles.criticalApprovalHotkey,
-        dualRlEnabled: isDualRlMode,
-        dualRlHotkey: toggles.dualRlHotkey,
+        alphaZeroEnabled: isAlphaZeroMode,
+        alphaZeroHotkey: toggles.alphaZeroHotkey,
       });
     }
 
@@ -2767,20 +2764,20 @@ Any text response is a failure. Only tool calls are accepted.`;
       return true;
     }
 
-    // Toggle auto-continue
+    // Toggle auto mode (runs until prompt fully completed)
     if (lower === '/auto' || lower === '/continue' || lower === '/loop') {
       this.promptController?.toggleAutoContinue();
       const on = this.promptController?.getModeToggleState().autoContinueEnabled;
-      this.promptController?.setStatusMessage(on ? 'Auto-continue on' : 'Auto-continue off');
+      this.promptController?.setStatusMessage(on ? 'Auto on' : 'Auto off');
       setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
       return true;
     }
 
-    // Toggle verification
-    if (lower === '/verify' || lower === '/test') {
-      this.promptController?.toggleVerify();
-      const on = this.promptController?.getModeToggleState().verificationEnabled;
-      this.promptController?.setStatusMessage(on ? 'Verify on' : 'Verify off');
+    // Toggle AlphaZero mode (dual tournament RL)
+    if (lower === '/alphazero' || lower === '/rl' || lower === '/dual') {
+      this.promptController?.toggleAlphaZero();
+      const on = this.promptController?.getModeToggleState().alphaZeroEnabled;
+      this.promptController?.setStatusMessage(on ? 'AlphaZero RL' : 'Normal mode');
       setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
       return true;
     }
@@ -4091,23 +4088,22 @@ Any text response is a failure. Only tool calls are accepted.`;
           await this.processPrompt(next);
         }
       } else if (!this.shouldExit) {
-        // Auto-continue mode: automatically generate follow-up prompts
-        const autoContinueEnabled = this.promptController?.getModeToggleState().autoContinueEnabled ?? false;
-        if (autoContinueEnabled && episodeSuccess && toolsUsed.length > 0) {
-          // Check if task is actually complete using TaskCompletionDetector
+        // Auto mode: keep running until user's prompt is fully completed
+        const autoEnabled = this.promptController?.getModeToggleState().autoContinueEnabled ?? false;
+        if (autoEnabled) {
+          // Check if original user prompt is fully completed
           const detector = getTaskCompletionDetector();
           const analysis = detector.analyzeCompletion(this.currentResponseBuffer, toolsUsed);
-          
-          // Only auto-continue if task is NOT complete
+
+          // Continue until task is complete
           if (!analysis.isComplete) {
-            // Auto-generate follow-up prompt based on response
-            const followUpPrompt = this.generateAutoContinuePrompt(prompt, this.currentResponseBuffer, toolsUsed);
-            if (followUpPrompt) {
-              // Small delay before auto-continue
-              this.promptController?.setStatusMessage('Auto-continue...');
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              await this.processPrompt(followUpPrompt);
-            }
+            this.promptController?.setStatusMessage('Continuing...');
+            await new Promise(resolve => setTimeout(resolve, 500));
+            // Continue with the original prompt context
+            await this.processPrompt('continue');
+          } else {
+            this.promptController?.setStatusMessage('Task complete');
+            setTimeout(() => this.promptController?.setStatusMessage(null), 2000);
           }
         }
       }
@@ -4159,30 +4155,23 @@ Any text response is a failure. Only tool calls are accepted.`;
     }
   }
 
-  private handleDualRlToggle(): void {
+  private handleAlphaZeroToggle(): void {
     this.syncPreferredModeFromToggles();
-    // Check both dual modes (tournament is the AlphaZero style)
-    const dual = this.preferredUpgradeMode === 'dual-rl-continuous' || this.preferredUpgradeMode === 'dual-rl-tournament';
-    this.promptController?.setStatusMessage(dual ? 'AlphaZero RL on' : 'Single mode');
+    const alphaZero = this.promptController?.getModeToggleState().alphaZeroEnabled ?? false;
+    this.promptController?.setStatusMessage(alphaZero ? 'AlphaZero RL' : 'Normal mode');
     setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
   }
 
   private handleAutoContinueToggle(): void {
     const autoContinueEnabled = this.promptController?.getModeToggleState().autoContinueEnabled ?? false;
-    this.promptController?.setStatusMessage(autoContinueEnabled ? 'Auto-continue on' : 'Auto-continue off');
+    this.promptController?.setStatusMessage(autoContinueEnabled ? 'Auto on' : 'Auto off');
     setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
-    
+
     // Reset task completion detector when toggling auto-continue mode
     if (autoContinueEnabled) {
       const detector = getTaskCompletionDetector();
       detector.reset();
     }
-  }
-
-  private handleVerifyToggle(): void {
-    const verificationEnabled = this.promptController?.getModeToggleState().verificationEnabled ?? false;
-    this.promptController?.setStatusMessage(verificationEnabled ? 'Verify on' : 'Verify off');
-    setTimeout(() => this.promptController?.setStatusMessage(null), 1500);
   }
 
   private handleThinkingToggle(): void {
@@ -4192,9 +4181,9 @@ Any text response is a failure. Only tool calls are accepted.`;
   }
 
   private syncPreferredModeFromToggles(): void {
-    const dual = this.promptController?.getModeToggleState().dualRlEnabled ?? true; // Default ON
-    // AlphaZero tournament mode by default (two competing agents)
-    this.preferredUpgradeMode = dual ? 'dual-rl-tournament' : 'single-continuous';
+    const alphaZero = this.promptController?.getModeToggleState().alphaZeroEnabled ?? false;
+    // AlphaZero = dual tournament RL, Normal = single-continuous
+    this.preferredUpgradeMode = alphaZero ? 'dual-rl-tournament' : 'single-continuous';
   }
 
   private handleCtrlC(info: { hadBuffer: boolean }): void {

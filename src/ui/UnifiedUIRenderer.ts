@@ -258,16 +258,14 @@ type InputChangeEvent = {
 };
 
 interface ModeToggleState {
-  verificationEnabled: boolean;
-  verificationHotkey?: string;
   autoContinueEnabled?: boolean;
   autoContinueHotkey?: string;
   thinkingModeLabel?: string | null;
   thinkingHotkey?: string;
   criticalApprovalMode?: 'auto' | 'approval';
   criticalApprovalHotkey?: string;
-  dualRlEnabled?: boolean;
-  dualRlHotkey?: string;
+  alphaZeroEnabled?: boolean;  // true = dual tournament RL, false = normal single mode
+  alphaZeroHotkey?: string;
   debugEnabled?: boolean;
   debugHotkey?: string;
 }
@@ -486,10 +484,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     toolSummary?: string;
   } = {};
   private toggleState: ModeToggleState = {
-    verificationEnabled: false,
     autoContinueEnabled: false,
     criticalApprovalMode: 'auto',
-    dualRlEnabled: true,  // AlphaZero dual-agent tournament mode ON by default
+    alphaZeroEnabled: false,  // Normal mode by default, toggle for AlphaZero dual tournament RL
     debugEnabled: false,
   };
 
@@ -3562,11 +3559,10 @@ export class UnifiedUIRenderer extends EventEmitter {
   updateModeToggles(state: Partial<ModeToggleState>): void {
     this.toggleState = { ...this.toggleState, ...state };
     if (
-      !state.verificationHotkey &&
       !state.thinkingHotkey &&
       !state.criticalApprovalHotkey &&
       !state.autoContinueHotkey &&
-      !state.dualRlHotkey &&
+      !state.alphaZeroHotkey &&
       !state.debugHotkey
     ) {
       this.hotkeysInToggleLine.clear();
@@ -4570,15 +4566,10 @@ export class UnifiedUIRenderer extends EventEmitter {
       toggles.push({ label, on, hotkey: this.formatHotkey(hotkey), value });
     };
 
-    const autoVerifyActive = this.toggleState.autoContinueEnabled ?? false;
-    const verificationActive = this.toggleState.verificationEnabled || autoVerifyActive;
-    const verifyValue = autoVerifyActive
-      ? 'auto'
-      : verificationActive
-        ? 'on'
-        : 'off';
+    // AlphaZero mode: toggle between Normal and AlphaZero dual tournament RL
+    const alphaZeroActive = this.toggleState.alphaZeroEnabled ?? false;
+    addToggle('Mode', true, this.toggleState.alphaZeroHotkey, alphaZeroActive ? 'AlphaZero' : 'Normal');
 
-    addToggle('Verify', verificationActive, this.toggleState.verificationHotkey, verifyValue);
     const approvalMode = this.toggleState.criticalApprovalMode || 'auto';
     const approvalActive = approvalMode !== 'auto';
     addToggle(
@@ -4588,12 +4579,12 @@ export class UnifiedUIRenderer extends EventEmitter {
       approvalMode === 'auto' ? 'auto' : 'ask'
     );
 
-    const autoContinueActive = autoVerifyActive;
+    const autoContinueActive = this.toggleState.autoContinueEnabled ?? false;
     addToggle(
-      'Auto-continue',
+      'Auto',
       autoContinueActive,
       this.toggleState.autoContinueHotkey,
-      autoContinueActive ? 'auto-verify' : 'off'
+      autoContinueActive ? 'on' : 'off'
     );
 
     const thinkingLabelRaw = (this.toggleState.thinkingModeLabel || 'balanced').trim();
@@ -4601,9 +4592,6 @@ export class UnifiedUIRenderer extends EventEmitter {
       thinkingLabelRaw.toLowerCase() === 'extended' ? 'deep' : thinkingLabelRaw || 'balanced';
     const thinkingActive = thinkingLabel.length > 0;
     addToggle('Thinking', thinkingActive, this.toggleState.thinkingHotkey, thinkingLabel);
-
-    // AlphaZero mode is always active
-    addToggle('Mode', true, undefined, 'AlphaZero');
 
     const buildLine = (includeHotkeys: boolean): string => {
       return toggles
@@ -4652,10 +4640,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     addHotkey('clear input', 'Ctrl+U');
 
     // Feature toggles (only if hotkeys are defined)
-    addHotkey('verify', this.toggleState.verificationHotkey);
-    addHotkey('auto-continue', this.toggleState.autoContinueHotkey);
+    addHotkey('auto', this.toggleState.autoContinueHotkey);
     addHotkey('thinking', this.toggleState.thinkingHotkey);
-    addHotkey('mode', this.toggleState.dualRlHotkey);
+    addHotkey('mode', this.toggleState.alphaZeroHotkey);
 
     if (parts.length === 0) {
       return null;
