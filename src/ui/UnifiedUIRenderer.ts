@@ -2232,44 +2232,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
   }
 
-  /**
-   * Fix missing punctuation in model output.
-   * Adds periods before sentence starters like "I can", "What would", etc.
-   */
-  private fixPunctuation(text: string): string {
-    if (!text) return text;
-
-    // Patterns where a period should be inserted before
-    const sentenceStarters = [
-      /([a-z])(\s+)(I can\b)/g,
-      /([a-z])(\s+)(I will\b)/g,
-      /([a-z])(\s+)(I am\b)/g,
-      /([a-z])(\s+)(I'm\b)/g,
-      /([a-z])(\s+)(What would\b)/g,
-      /([a-z])(\s+)(What can\b)/g,
-      /([a-z])(\s+)(Based on\b)/g,
-      /([a-z])(\s+)(All operations\b)/g,
-      /([a-z])(\s+)(This (?:enables|allows|provides|ensures|includes)\b)/g,
-      /([a-z])(\s+)(The (?:new|updated|modified|created)\b)/g,
-      /([a-z])(\s+)(You (?:can|will|should|may)\b)/g,
-      /([a-z])(\s+)(Let me\b)/g,
-      /([a-z])(\s+)(Here (?:is|are)\b)/g,
-    ];
-
-    let result = text;
-    for (const pattern of sentenceStarters) {
-      result = result.replace(pattern, '$1.$2$3');
-    }
-
-    // Fix double spaces after punctuation
-    result = result.replace(/\.(\s{2,})/g, '. ');
-
-    // Ensure first letter after period is capitalized
-    result = result.replace(/\.\s+([a-z])/g, (_, letter) => `. ${letter.toUpperCase()}`);
-
-    return result;
-  }
-
   private formatContent(event: UIEvent): string {
     // Compacted blocks already have separator and formatting
     if (event.isCompacted) {
@@ -2348,11 +2310,9 @@ export class UnifiedUIRenderer extends EventEmitter {
         if (this.isGarbageOutput(event.content)) {
           return '';
         }
-        // Apply punctuation fixes to model output
-        const fixedContent = this.fixPunctuation(event.content);
         // Clean response without excessive bullets, wrapped for readability
         const isError = event.rawType === 'error';
-        return this.wrapBulletText(fixedContent, isError ? { label: 'error', labelColor: theme.error } : undefined);
+        return this.wrapBulletText(event.content, isError ? { label: 'error', labelColor: theme.error } : undefined);
       }
     }
   }
