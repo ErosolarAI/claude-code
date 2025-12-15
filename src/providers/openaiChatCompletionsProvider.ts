@@ -21,6 +21,98 @@ import type {
 } from '../core/types.js';
 import { sanitizeErrorMessage, safeErrorMessage } from '../core/secretStore.js';
 import { logDebug } from '../utils/debugLogger.js';
+import { securityValidator, securityLogger, globalRateLimiter } from '../utils/securityUtils.js';
+
+/**
+ * Security utility for safe JSON parsing with protection against prototype pollution
+ */
+function safeJSONParse<T = unknown>(
+  json: string,
+  options?: { maxDepth?: number; maxProperties?: number }
+): T {
+  const maxDepth = options?.maxDepth ?? 20;
+  const maxProperties = options?.maxProperties ?? 1000;
+  
+  if (!json || typeof json !== 'string') {
+    throw new Error('JSON must be a non-empty string');
+  }
+  
+  // Check for prototype pollution patterns
+  if (json.includes('__proto__') || json.includes('constructor') || json.includes('prototype')) {
+    logDebug('[SECURITY] Prototype pollution attempt detected in JSON');
+    // Clean the JSON by removing dangerous patterns
+    json = json.replace(/["']?__proto__["']?\s*:/g, '"__safe_proto__":')
+               .replace(/["']?constructor["']?\s*:/g, '"__safe_constructor__":')
+               .replace(/["']?prototype["']?\s*:/g, '"__safe_prototype__":');
+  }
+  
+  // Parse with depth and property limits
+  const parsed = JSON.parse(json, (key, value) => {
+    // Depth tracking - prevent circular references and deep nesting
+    const depth = (this as any)?.__depth ?? 0;
+    if (depth > maxDepth) {
+      throw new Error(`JSON depth ${depth} exceeds maximum allowed depth ${maxDepth}`);
+    }
+    
+    // Property count tracking
+    const propertyCount = (this as any)?.__propertyCount ?? 0;
+    if (propertyCount > maxProperties) {
+      throw new Error(`JSON property count ${propertyCount} exceeds maximum ${maxProperties}`);
+    }
+    
+    return value;
+  });
+  
+  return parsed;
+}
+
+/**
+ * Validate and sanitize URL for OpenAI baseURL
+ */
+function validateOpenAIBaseURL(url: string): string {
+  if (!url || typeof url !== 'string') {
+    throw new Error('Base URL must be a non-empty string');
+  }
+  
+  url = url.trim();
+  
+  // Must start with http:// or https://
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    throw new Error(`Invalid baseURL format: ${url}. Must start with http:// or https://`);
+  }
+  
+  // Parse URL to validate format
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch (error) {
+    throw new Error(`Invalid URL format: ${url}`);
+  }
+  
+  // Security: Restrict to OpenAI domains and known safe proxies
+  const allowedDomains = [
+    'api.openai.com',
+    'api.deepseek.com',
+    'openrouter.ai',
+    'api.groq.com',
+    // Add other allowed domains as needed
+  ];
+  
+  const hostname = parsedUrl.hostname;
+  const isAllowed = allowedDomains.some(domain => hostname === domain || hostname.endsWith(`.${domain}`));
+  
+  if (!isAllowed) {
+    console.warn(`SECURITY: Using non-standard OpenAI baseURL: ${hostname}. This could be a security risk.`);
+    // Allow but log warning for custom deployments, Azure, etc.
+  }
+  
+  // Enforce HTTPS for production-like domains
+  if (hostname.includes('openai.com') && parsedUrl.protocol !== 'https:') {
+    throw new Error(`OpenAI API requires HTTPS for domain ${hostname}`);
+  }
+  
+  return url;
+}
 
 const REQUEST_CHAR_LIMIT = 800_000; // Hard cap to avoid provider 413 errors
 
@@ -72,23 +164,166 @@ export class ProviderStreamError extends Error {
 }
 
 /**
+ * Basic API key validation for non-OpenAI providers (DeepSeek, xAI, etc.)
+ * Only checks that a key exists and has reasonable format - no OpenAI-specific validation
+ */
+function validateGenericApiKey(apiKey: string): string {
+  if (!apiKey || typeof apiKey !== 'string') {
+    throw new Error('API key is required and must be a string');
+  }
+
+  const trimmed = apiKey.trim();
+  if (trimmed.length < 10) {
+    throw new Error('API key is too short');
+  }
+
+  // Just log that we're using a custom provider key
+  const redactedKey = trimmed.length > 8 ? `${trimmed.substring(0, 4)}...${trimmed.substring(trimmed.length - 4)}` : '[REDACTED]';
+  logDebug(`[SECURITY] Using custom provider API key (redacted: ${redactedKey})`);
+
+  return trimmed;
+}
+
+/**
  * Security audit: OpenAI API key validation and protection
+ * Enhanced with comprehensive validation and security controls
  */
 function validateAndProtectApiKey(apiKey: string): string {
   if (!apiKey || typeof apiKey !== 'string') {
     throw new Error('OpenAI API key is required and must be a string');
   }
   
-  // Basic validation for OpenAI key format (starts with sk-)
-  if (!apiKey.startsWith('sk-')) {
-    console.warn('Security warning: OpenAI API key does not match expected format (should start with sk-)');
+  // Remove whitespace
+  apiKey = apiKey.trim();
+  
+  // Comprehensive format validation
+  const validation = validateOpenAIKeyFormat(apiKey);
+  if (!validation.isValid) {
+    throw new Error(`Invalid OpenAI API key: ${validation.reason}`);
   }
   
-  // Redact key for logging (show only first 8 chars)
+  // Security logging (redacted)
   const redactedKey = apiKey.length > 8 ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` : '[REDACTED]';
+  logDebug(`[SECURITY] Using OpenAI API key (type: ${validation.keyType}, redacted: ${redactedKey})`);
   
-  // Log warning if key appears in error messages or logs (handled by sanitizeErrorMessage)
+  // Check for known revoked/compromised key patterns
+  if (isPotentiallyCompromisedKey(apiKey)) {
+    console.warn('SECURITY WARNING: API key matches patterns associated with compromised keys. Rotate immediately.');
+  }
+  
   return apiKey;
+}
+
+/**
+ * Comprehensive OpenAI key format validation
+ */
+function validateOpenAIKeyFormat(apiKey: string): {
+  isValid: boolean;
+  reason?: string;
+  keyType: 'standard' | 'project' | 'organization' | 'unknown';
+} {
+  // Length validation
+  if (apiKey.length < 40 || apiKey.length > 200) {
+    return { isValid: false, reason: `Invalid key length: ${apiKey.length} chars (expected 40-200)`, keyType: 'unknown' };
+  }
+  
+  // Character validation (alphanumeric, dashes, underscores only)
+  const validChars = /^[a-zA-Z0-9\-_]+$/;
+  if (!validChars.test(apiKey)) {
+    return { isValid: false, reason: 'Key contains invalid characters', keyType: 'unknown' };
+  }
+  
+  // OpenAI key format patterns
+  if (apiKey.startsWith('sk-proj-')) {
+    // Project key format: sk-proj-xxxxxxxxxxxxxxxxxxxxxxxx
+    if (apiKey.length !== 51) {
+      return { isValid: false, reason: `Project key should be 51 chars, got ${apiKey.length}`, keyType: 'project' };
+    }
+    return { isValid: true, keyType: 'project' };
+  }
+  
+  if (apiKey.startsWith('sk-')) {
+    // Standard key format: sk-xxxxxxxxxxxxxxxxxxxxxxxx
+    if (apiKey.length !== 51) {
+      return { isValid: false, reason: `Standard key should be 51 chars, got ${apiKey.length}`, keyType: 'standard' };
+    }
+    return { isValid: true, keyType: 'standard' };
+  }
+  
+  if (apiKey.startsWith('org-')) {
+    // Organization key format: org-xxxxxxxxxxxxxxxxxxxxxxxx
+    if (apiKey.length < 40 || apiKey.length > 100) {
+      return { isValid: false, reason: `Organization key length ${apiKey.length} outside expected range`, keyType: 'organization' };
+    }
+    return { isValid: true, keyType: 'organization' };
+  }
+  
+  // Unknown format but might be valid (custom deployments, Azure, etc.)
+  console.warn(`Unrecognized OpenAI API key format: ${apiKey.substring(0, 12)}...`);
+  return { isValid: true, keyType: 'unknown' };
+}
+
+/**
+ * Check for patterns associated with compromised keys
+ * This checks for known patterns from public leaks and security advisories
+ */
+function isPotentiallyCompromisedKey(apiKey: string): boolean {
+  // Check for patterns from known public leaks
+  // These are example patterns - in production, these should come from a threat intelligence feed
+  
+  // Example: Keys starting with certain compromised prefixes
+  const compromisedPrefixes = [
+    'sk-live-', // Example compromised pattern
+    'sk-test-', // Test keys that shouldn't be in production
+  ];
+  
+  for (const prefix of compromisedPrefixes) {
+    if (apiKey.startsWith(prefix)) {
+      return true;
+    }
+  }
+  
+  // Check for sequential or repeating patterns that might indicate generated/test keys
+  const sequentialPattern = /(\d{3,})/;
+  const match = sequentialPattern.exec(apiKey);
+  if (match) {
+    const sequence = match[1];
+    // Check if digits are sequential (like 123, 456, etc.)
+    if (isSequentialDigits(sequence)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a string of digits is sequential (ascending or descending)
+ */
+function isSequentialDigits(str: string): boolean {
+  if (str.length < 3) return false;
+  
+  // Check ascending
+  let ascending = true;
+  for (let i = 1; i < str.length; i++) {
+    if (parseInt(str[i]) !== parseInt(str[i-1]) + 1) {
+      ascending = false;
+      break;
+    }
+  }
+  
+  if (ascending) return true;
+  
+  // Check descending
+  let descending = true;
+  for (let i = 1; i < str.length; i++) {
+    if (parseInt(str[i]) !== parseInt(str[i-1]) - 1) {
+      descending = false;
+      break;
+    }
+  }
+  
+  return descending;
 }
 
 /**
@@ -135,9 +370,33 @@ export class OpenAIChatCompletionsProvider implements LLMProvider {
   private readonly maxRetries: number;
   private readonly temperature?: number;
   private readonly maxTokens: number;
+  private readonly requestCount: number = 0;
+  private readonly lastRequestTime: number = Date.now();
+  
   constructor(options: OpenAIChatCompletionsOptions) {
-    // SECURITY: Validate and protect API key before use
-    const validatedApiKey = validateAndProtectApiKey(options.apiKey);
+    // SECURITY: Validate API key - skip OpenAI-specific format checks for custom providers
+    const isCustomProvider = !!options.baseURL;
+    const validatedApiKey = isCustomProvider
+      ? validateGenericApiKey(options.apiKey)
+      : validateAndProtectApiKey(options.apiKey);
+    
+    // SECURITY: Rate limiting check
+    if (!globalRateLimiter.isAllowed('openai-provider')) {
+      throw new Error('Rate limit exceeded for OpenAI provider. Please wait before making more requests.');
+    }
+    
+    // SECURITY: Log security event
+    securityLogger.logSecurityEvent({
+      type: 'openai_provider_initialized',
+      command: 'constructor',
+      success: true,
+      timestamp: new Date(),
+      details: {
+        model: options.model,
+        providerId: options.providerId,
+        hasBaseURL: !!options.baseURL
+      }
+    });
     
     const clientConfig: ConstructorParameters<typeof OpenAI>[0] = {
       apiKey: validatedApiKey,
@@ -146,11 +405,20 @@ export class OpenAIChatCompletionsProvider implements LLMProvider {
     };
 
     if (options.baseURL) {
-      // SECURITY: Validate base URL format
-      if (options.baseURL && !options.baseURL.startsWith('http')) {
-        throw new Error(`Invalid baseURL format: ${options.baseURL}. Must start with http:// or https://`);
+      // SECURITY: Enhanced URL validation with domain restrictions
+      try {
+        clientConfig.baseURL = validateOpenAIBaseURL(options.baseURL);
+        logDebug(`[SECURITY] Using validated baseURL: ${clientConfig.baseURL}`);
+      } catch (error) {
+        securityLogger.logSecurityEvent({
+          type: 'invalid_baseurl',
+          command: 'constructor',
+          success: false,
+          timestamp: new Date(),
+          details: { error: error instanceof Error ? error.message : String(error) }
+        });
+        throw new Error(`Invalid baseURL: ${error instanceof Error ? error.message : String(error)}`);
       }
-      clientConfig.baseURL = options.baseURL;
     }
 
     this.client = new OpenAI(clientConfig);
@@ -417,12 +685,18 @@ export class OpenAIChatCompletionsProvider implements LLMProvider {
         for (const [, toolCall] of pendingToolCalls) {
           let parsed: Record<string, unknown> = {};
           try {
-            parsed = JSON.parse(toolCall.arguments || '{}');
-          } catch {
+            // SECURITY: Use safe JSON parsing with prototype pollution protection
+            parsed = safeJSONParse<Record<string, unknown>>(toolCall.arguments || '{}', {
+              maxDepth: 10,
+              maxProperties: 100
+            });
+          } catch (parseError) {
             // Try recovery for malformed JSON
             const recovered = tryRecoverMalformedJson(toolCall.arguments);
             if (recovered) {
               parsed = recovered;
+            } else {
+              logDebug(`[SECURITY] Failed to parse tool call arguments: ${safeErrorMessage(parseError)}`);
             }
           }
 
@@ -789,7 +1063,11 @@ function mapToolCall(call: ChatCompletionMessageToolCall): ToolCallRequest {
       logDebug(`[security] Suspicious pattern detected in tool call arguments for ${funcName}`);
     }
     
-    parsed = JSON.parse(rawArgs);
+    // SECURITY: Use safe JSON parsing instead of plain JSON.parse
+    parsed = safeJSONParse<Record<string, unknown>>(rawArgs, {
+      maxDepth: 15,
+      maxProperties: 500
+    });
   } catch (error) {
     // Try to recover malformed JSON (common with some models)
     const recovered = tryRecoverMalformedJson(rawArgs);

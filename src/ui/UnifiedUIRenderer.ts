@@ -869,7 +869,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (key.name === 'return' || key.name === 'enter') {
       // If there's a collapsed paste, expand and submit in one action
       if (this.collapsedPaste) {
-        this.expandCollapsedPaste();
+        this.expandCollapsedPasteToBuffer();
         return;
       }
       // If a slash command suggestion is highlighted, pressing Enter submits it immediately
@@ -1411,11 +1411,19 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private submitText(text: string): void {
+    const isBufferSource = text === this.buffer;
+
     // If there's a collapsed paste, submit that instead of the buffer text
     // This handles edge cases where submitText is called programmatically
     if (this.collapsedPaste) {
       this.expandCollapsedPaste();
       return;
+    }
+
+    // Ensure any deferred input has been committed before submission
+    this.commitPendingInsert();
+    if (isBufferSource) {
+      text = this.buffer;
     }
 
     if (this.inputCapture) {
@@ -4066,8 +4074,8 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   /**
-   * Expand collapsed paste and submit immediately (Enter).
-   * Used when user wants to send the pasted content as-is.
+   * Expand collapsed paste and submit immediately.
+   * Useful for programmatic submissions when a paste chip is active.
    */
   private expandCollapsedPaste(): void {
     if (!this.collapsedPaste) return;

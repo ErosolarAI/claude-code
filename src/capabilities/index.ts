@@ -3,3 +3,4 @@ export { EditCapabilityModule } from './editCapability.js';
 export { BashCapabilityModule, type BashCapabilityOptions } from './bashCapability.js';
 export { SearchCapabilityModule, type SearchCapabilityOptions } from './searchCapability.js';
 export { WebCapabilityModule, type WebCapabilityOptions } from './webCapability.js';
+export { AppleSecurityCapabilityModule, type AppleSecurityCapabilityOptions } from './appleSecurityCapability.js';

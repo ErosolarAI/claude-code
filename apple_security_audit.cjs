@@ -29,7 +29,7 @@ class AppleSecurityAudit {
     this.appleServices = this.loadAppleServices();
     this.appleVulnerabilities = this.loadAppleVulnerabilities();
     this.appleExploits = this.loadAppleExploits();
-    this.appleSecurityControls = this.loadAppleSecurityControls();
+    // this.appleSecurityControls = this.loadAppleSecurityControls(); // Commented out as method doesn't exist yet
   }
 
   loadAppleServices() {
@@ -529,4 +529,291 @@ class AppleSecurityAudit {
     fs.appendFileSync(evidenceFile, 'Security Bypass Techniques:\n\n');
     
     for (const technique of bypassTechniques) {
-      fs.appendFileSync(evidenceFile, `${technique.name}:\n
+      fs.appendFileSync(evidenceFile, `${technique.name}:\n`);
+      fs.appendFileSync(evidenceFile, `  Description: ${technique.description}\n`);
+      fs.appendFileSync(evidenceFile, `  Method: ${technique.method}\n`);
+      fs.appendFileSync(evidenceFile, `  Severity: ${technique.severity}\n`);
+      fs.appendFileSync(evidenceFile, `  Detection: ${technique.detection}\n\n`);
+      
+      findings.push({
+        type: 'defense_evasion',
+        name: technique.name,
+        severity: technique.severity,
+        evidence: evidenceFile
+      });
+    }
+    
+    this.results.phases.push('defense_evasion');
+    this.results.findings.push(...findings);
+    this.results.evidencePaths.push({
+      phase: 'defense_evasion',
+      path: evidenceFile
+    });
+    
+    return { bypassTechniques, findings };
+  }
+
+  async phase5Persistance() {
+    console.log('\n' + '='.repeat(70));
+    console.log('PHASE 5: Apple Persistence Mechanisms');
+    console.log('='.repeat(70));
+    
+    const evidenceFile = path.join(this.evidenceDir, 'persistence.txt');
+    fs.writeFileSync(evidenceFile, '=== Apple Persistence Mechanisms ===\n\n');
+    
+    const persistenceMethods = [
+      {
+        name: 'LaunchAgent/LaunchDaemon',
+        description: 'Persistence via macOS launch services',
+        method: 'Create plist files in ~/Library/LaunchAgents or /Library/LaunchDaemons',
+        detection: 'Launchctl list, plist monitoring'
+      },
+      {
+        name: 'Login Item',
+        description: 'Auto-start on user login',
+        method: 'Add to Login Items via System Preferences or LSSharedFileList',
+        detection: 'Login Items list, LSSharedFileList API monitoring'
+      },
+      {
+        name: 'Cron Job',
+        description: 'Scheduled task persistence',
+        method: 'Add to crontab or /etc/cron.* directories',
+        detection: 'Crontab listing, file system monitoring'
+      },
+      {
+        name: 'Browser Extension',
+        description: 'Persistence through web browser',
+        method: 'Install malicious Safari/Chrome extension',
+        detection: 'Browser extension audits, network monitoring'
+      },
+      {
+        name: 'AppleScript/Dropper',
+        description: 'Script-based persistence',
+        method: 'AppleScripts that re-infect or download payloads',
+        detection: 'Script monitoring, network connections'
+      }
+    ];
+    
+    const findings = [];
+    
+    fs.appendFileSync(evidenceFile, 'Persistence Mechanisms:\n\n');
+    
+    for (const method of persistenceMethods) {
+      fs.appendFileSync(evidenceFile, `${method.name}:\n`);
+      fs.appendFileSync(evidenceFile, `  Description: ${method.description}\n`);
+      fs.appendFileSync(evidenceFile, `  Method: ${method.method}\n`);
+      fs.appendFileSync(evidenceFile, `  Detection: ${method.detection}\n\n`);
+      
+      findings.push({
+        type: 'persistence',
+        name: method.name,
+        evidence: evidenceFile
+      });
+    }
+    
+    this.results.phases.push('persistence');
+    this.results.findings.push(...findings);
+    this.results.evidencePaths.push({
+      phase: 'persistence',
+      path: evidenceFile
+    });
+    
+    return { persistenceMethods, findings };
+  }
+
+  async phase6Exfiltration() {
+    console.log('\n' + '='.repeat(70));
+    console.log('PHASE 6: Data Exfiltration Techniques');
+    console.log('='.repeat(70));
+    
+    const evidenceFile = path.join(this.evidenceDir, 'exfiltration.txt');
+    fs.writeFileSync(evidenceFile, '=== Data Exfiltration Techniques ===\n\n');
+    
+    const exfiltrationMethods = [
+      {
+        name: 'iCloud Data Sync',
+        description: 'Exfiltrate data through iCloud sync',
+        method: 'Modify iCloud documents or keychain data',
+        detection: 'iCloud traffic monitoring, data volume anomalies'
+      },
+      {
+        name: 'AirDrop Transfer',
+        description: 'Wireless file transfer to nearby devices',
+        method: 'Use AirDrop to send data to attacker-controlled device',
+        detection: 'AirDrop activity logs, Bluetooth/Wi-Fi monitoring'
+      },
+      {
+        name: 'DNS Tunneling',
+        description: 'Covert channel through DNS queries',
+        method: 'Encode data in DNS requests to malicious resolver',
+        detection: 'DNS query analysis, unusual domain patterns'
+      },
+      {
+        name: 'HTTPS Covert Channel',
+        description: 'Data exfiltration through encrypted web traffic',
+        method: 'Embed data in HTTPS POST requests to legitimate-looking domains',
+        detection: 'Network traffic analysis, TLS inspection'
+      },
+      {
+        name: 'Email Forwarding',
+        description: 'Forward sensitive data via email',
+        method: 'Configure mail rules to forward messages',
+        detection: 'Mail server logs, rule monitoring'
+      }
+    ];
+    
+    const findings = [];
+    
+    fs.appendFileSync(evidenceFile, 'Exfiltration Methods:\n\n');
+    
+    for (const method of exfiltrationMethods) {
+      fs.appendFileSync(evidenceFile, `${method.name}:\n`);
+      fs.appendFileSync(evidenceFile, `  Description: ${method.description}\n`);
+      fs.appendFileSync(evidenceFile, `  Method: ${method.method}\n`);
+      fs.appendFileSync(evidenceFile, `  Detection: ${method.detection}\n\n`);
+      
+      findings.push({
+        type: 'exfiltration',
+        name: method.name,
+        evidence: evidenceFile
+      });
+    }
+    
+    this.results.phases.push('exfiltration');
+    this.results.findings.push(...findings);
+    this.results.evidencePaths.push({
+      phase: 'exfiltration',
+      path: evidenceFile
+    });
+    
+    return { exfiltrationMethods, findings };
+  }
+
+  async phase7Remediation() {
+    console.log('\n' + '='.repeat(70));
+    console.log('PHASE 7: Security Remediation & Hardening');
+    console.log('='.repeat(70));
+    
+    const evidenceFile = path.join(this.evidenceDir, 'remediation.txt');
+    fs.writeFileSync(evidenceFile, '=== Security Remediation & Hardening ===\n\n');
+    
+    const remediationSteps = [
+      {
+        category: 'System Hardening',
+        steps: [
+          'Enable System Integrity Protection (SIP)',
+          'Enable Gatekeeper and XProtect',
+          'Disable automatic login',
+          'Enable FileVault disk encryption',
+          'Configure firewall with stealth mode'
+        ]
+      },
+      {
+        category: 'Network Security',
+        steps: [
+          'Use VPN for all connections',
+          'Disable unnecessary services (AirDrop, AirPlay, etc.)',
+          'Configure DNS filtering',
+          'Implement network segmentation',
+          'Monitor for unusual outbound connections'
+        ]
+      },
+      {
+        category: 'Application Security',
+        steps: [
+          'Keep all software updated',
+          'Use App Store or verified developers only',
+          'Review and limit app permissions',
+          'Disable auto-run for external media',
+          'Regular security audits'
+        ]
+      },
+      {
+        category: 'Monitoring & Detection',
+        steps: [
+          'Implement endpoint detection and response (EDR)',
+          'Enable macOS security logging',
+          'Monitor for privilege escalation attempts',
+          'Set up SIEM for centralized logging',
+          'Regular vulnerability scanning'
+        ]
+      }
+    ];
+    
+    const findings = [];
+    
+    fs.appendFileSync(evidenceFile, 'Remediation Steps:\n\n');
+    
+    for (const category of remediationSteps) {
+      fs.appendFileSync(evidenceFile, `${category.category}:\n`);
+      category.steps.forEach(step => fs.appendFileSync(evidenceFile, `  • ${step}\n`));
+      fs.appendFileSync(evidenceFile, '\n');
+      
+      findings.push({
+        type: 'remediation',
+        category: category.category,
+        steps: category.steps.length,
+        evidence: evidenceFile
+      });
+    }
+    
+    this.results.phases.push('remediation');
+    this.results.findings.push(...findings);
+    this.results.evidencePaths.push({
+      phase: 'remediation',
+      path: evidenceFile
+    });
+    
+    return { remediationSteps, findings };
+  }
+
+  async runFullAudit() {
+    console.log('Starting Apple Security Audit...');
+    console.log('Evidence directory:', this.evidenceDir);
+    console.log('='.repeat(70));
+    
+    try {
+      const phase1 = await this.phase1ServiceDiscovery();
+      const phase2 = await this.phase2VulnerabilityAssessment();
+      const phase3 = await this.phase3ExploitationScenarios();
+      const phase4 = await this.phase4DefenseEvasion();
+      const phase5 = await this.phase5Persistance();
+      const phase6 = await this.phase6Exfiltration();
+      const phase7 = await this.phase7Remediation();
+      
+      this.results.endTime = new Date().toISOString();
+      this.results.duration = new Date(this.results.endTime) - new Date(this.results.startTime);
+      this.results.metrics = {
+        phasesCompleted: this.results.phases.length,
+        findingsCount: this.results.findings.length,
+        evidenceFiles: this.results.evidencePaths.length
+      };
+      
+      const summaryFile = path.join(this.evidenceDir, 'summary.json');
+      fs.writeFileSync(summaryFile, JSON.stringify(this.results, null, 2));
+      
+      console.log('\n' + '='.repeat(70));
+      console.log('AUDIT COMPLETE');
+      console.log('='.repeat(70));
+      console.log(`Phases completed: ${this.results.metrics.phasesCompleted}`);
+      console.log(`Findings identified: ${this.results.metrics.findingsCount}`);
+      console.log(`Evidence directory: ${this.evidenceDir}`);
+      console.log(`Duration: ${this.results.duration}ms`);
+      console.log('Summary saved to:', summaryFile);
+      console.log('='.repeat(70));
+      
+      return this.results;
+    } catch (error) {
+      console.error('Audit failed:', error);
+      throw error;
+    }
+  }
+}
+
+// Main execution
+if (require.main === module) {
+  const audit = new AppleSecurityAudit();
+  audit.runFullAudit().catch(console.error);
+}
+
+module.exports = AppleSecurityAudit;

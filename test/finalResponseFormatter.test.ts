@@ -9,15 +9,12 @@ describe('ensureNextSteps', () => {
     expect(appended).toBeNull();
   });
 
-  it('appends a Next steps block when missing', () => {
+  it('returns content as-is when no Next steps present (no auto-append)', () => {
     const input = 'Implemented the feature.';
     const { output, appended } = ensureNextSteps(input);
 
-    expect(output.startsWith(input)).toBe(true);
-    expect(output).toContain('Next steps:');
-    expect(output).toMatch(/- Perform deeper network reconnaissance to identify additional attack vectors/i);
-    expect(output).toMatch(/- Execute targeted vulnerability exploitation against identified services/i);
-    expect(appended).not.toBeNull();
+    expect(output).toBe(input);
+    expect(appended).toBeNull();
   });
 
   it('handles empty content gracefully', () => {

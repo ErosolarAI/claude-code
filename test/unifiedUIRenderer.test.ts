@@ -137,6 +137,32 @@ describe('UnifiedUIRenderer slash menu', () => {
     }
   });
 
+  it('expands collapsed paste into the buffer on enter before submitting', () => {
+    const { renderer } = createRenderer();
+    try {
+      const submissions: string[] = [];
+      renderer.on('submit', (text: string) => submissions.push(text));
+
+      (renderer as any).handleKeypress('', { sequence: '\x1b[200~' } as any);
+      (renderer as any).handleKeypress('alpha', { sequence: 'alpha' } as any);
+      (renderer as any).handleKeypress('', { name: 'enter', sequence: '\r' } as any);
+      (renderer as any).handleKeypress('beta', { sequence: 'beta' } as any);
+      (renderer as any).handleKeypress('', { sequence: '\x1b[201~' } as any);
+
+      // First enter should insert the paste into the buffer for editing
+      (renderer as any).handleKeypress('', { name: 'enter' } as any);
+      expect(renderer.getBuffer()).toBe('alpha\nbeta');
+      expect(submissions).toEqual([]);
+
+      // Second enter submits the now-visible buffer content
+      (renderer as any).handleKeypress('', { name: 'enter' } as any);
+      expect(submissions).toEqual(['alpha\nbeta']);
+      expect(renderer.getBuffer()).toBe('');
+    } finally {
+      renderer.cleanup();
+    }
+  });
+
   it('renders mode toggles when provided', () => {
     const { renderer, output } = createRenderer();
     try {
