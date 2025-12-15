@@ -6,3 +6,4 @@ export { WebCapabilityModule, type WebCapabilityOptions } from './webCapability.
 export { AppleSecurityCapabilityModule, type AppleSecurityCapabilityOptions } from './appleSecurityCapability.js';
 export { EnhancedGitCapabilityModule } from './enhancedGitCapability.js';
 export { ZeroDayDiscoveryCapabilityModule } from './zeroDayDiscoveryCapability.js';
+export { UniversalSecurityCapabilityModule, type UniversalSecurityCapabilityOptions } from './universalSecurityCapability.js';

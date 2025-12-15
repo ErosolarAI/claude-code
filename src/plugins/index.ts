@@ -133,4 +133,5 @@ export const BUILTIN_PLUGINS = [
   'tool.edit',
   'tool.enhanced-git',
   'tool.tao',
+  'tool.dependency-management',
 ] as const;

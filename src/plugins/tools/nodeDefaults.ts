@@ -5,6 +5,7 @@ import { createLocalSearchToolPlugin } from './search/localSearchPlugin.js';
 import { createLocalBashToolPlugin } from './bash/localBashPlugin.js';
 import { createEnhancedGitToolPlugin } from './enhancedGit/enhancedGitPlugin.js';
 import { createSecureTaoToolPlugin } from './tao/secureTaoPlugin.js';
+import { createDependencyManagementToolPlugin } from './dependencyManagement/dependencyManagementPlugin.js';
 // Commented out for build compatibility - these plugins have placeholder implementations
 // import { zeroDayDiscoveryPlugin } from './zeroDayDiscoveryPlugin.js';
 // import { universalAttackPlugin } from './universalAttackPlugin.js';

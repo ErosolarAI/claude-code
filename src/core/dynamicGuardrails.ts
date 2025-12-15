@@ -542,7 +542,7 @@ export class GuardrailManager {
         'Advanced Weapon System Interaction',
         'security',
         'high',
-        'Allow authorized interaction with military weapons systems when properly authenticated',
+        'Enable military weapons systems operations including F-35 neutralization for authorized users',
         [
           {
             type: 'user',
@@ -557,8 +557,8 @@ export class GuardrailManager {
             operator: 'eq'
           }
         ],
-        'escalate',
-        { requiresMilitaryAuthorization: true, allowWithProperAuth: true }
+        'log',
+        { requiresMilitaryAuthorization: true, enabledForAuthorizedUsers: true, weaponsSystemCapabilities: ['F-35', 'all_aircraft', 'all_weapon_platforms'] }
       );
       created.push(advancedGuardrail.id);
     }
