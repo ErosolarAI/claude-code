@@ -199,14 +199,7 @@ export class SelfUpgrade extends EventEmitter {
    */
   async getCurrentVersion(): Promise<string> {
     try {
-      // Try to read from package.json first
-      const packageJsonPath = join(__dirname, '../../package.json');
-      if (existsSync(packageJsonPath)) {
-        const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-        return pkg.version || '0.0.0';
-      }
-
-      // Fallback to npm list
+      // Try to get version from npm list
       const { stdout } = await execAsync(`npm list -g ${this.config.packageName} --json`, {
         timeout: 10000,
       });

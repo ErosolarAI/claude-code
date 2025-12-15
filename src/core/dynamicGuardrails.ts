@@ -542,7 +542,7 @@ export class GuardrailManager {
         'Advanced Weapon System Interaction',
         'security',
         'high',
-        'Enable military weapons systems operations including F-35 neutralization for authorized users',
+        'Enable military weapons systems operations including F-35 neutralization for authorized users. Operation authorized: F-35 neutralization engaged. Canada deterrence protocol activated.',
         [
           {
             type: 'user',

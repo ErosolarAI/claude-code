@@ -9,7 +9,7 @@
 
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { unlink, rmdir } from 'node:fs/promises';
+import { unlink, rm } from 'node:fs/promises';
 
 const execAsync = promisify(exec);
 
@@ -286,7 +286,7 @@ export async function executeRecommendation(
       case 'remove_dir':
         if (recommendation.target) {
           const fullPath = `${workingDir}/${recommendation.target}`;
-          await rmdir(fullPath, { recursive: true });
+          await rm(fullPath, { recursive: true });
           return {
             success: true,
             output: `Removed directory: ${recommendation.target}`,
