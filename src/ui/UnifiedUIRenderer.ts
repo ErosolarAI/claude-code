@@ -40,6 +40,119 @@ export function formatProgress(phase: string, step: number, totalSteps: number):
   return `${chalk.cyan('⠋')} ${chalk.white(phase)}: [${chalk.green(progressBar)}] ${percentage}% (${step}/${totalSteps})`;
 }
 
+// Apple Security UI compatibility methods (replaces AppleSecurityUI.ts)
+export function createSecurityBanner(title: string, subtitle?: string): string {
+  const width = 70;
+  const lines: string[] = [];
+  lines.push(chalk.cyan('═'.repeat(width)));
+  lines.push(`${chalk.cyan('🛡️')} ${chalk.cyan.bold(title.toUpperCase())}`);
+  if (subtitle) {
+    lines.push(chalk.gray(`  ${subtitle}`));
+  }
+  lines.push(chalk.cyan('═'.repeat(width)));
+  return lines.join('\n');
+}
+
+export function createSecuritySpinner(message: string): string {
+  return `${chalk.cyan('⠋')} ${chalk.white(message)}`;
+}
+
+export function formatSecurityFinding(finding: any): string {
+  const severityColors = {
+    critical: chalk.redBright,
+    high: chalk.red,
+    medium: chalk.yellow,
+    low: chalk.blue,
+    info: chalk.gray
+  };
+  
+  const severityIcons = {
+    critical: chalk.redBright('⚠'),
+    high: chalk.red('▲'),
+    medium: chalk.yellow('▲'),
+    low: chalk.blue('▼'),
+    info: chalk.gray('ℹ')
+  };
+  
+  const color = severityColors[finding.severity] || chalk.white;
+  const icon = severityIcons[finding.severity] || chalk.gray('ℹ');
+  
+  const lines: string[] = [];
+  lines.push(`${icon} ${color.bold(finding.name || finding.type || 'Finding')}`);
+  lines.push(`  ${chalk.gray('Description:')} ${chalk.white(finding.description || 'No description')}`);
+  if (finding.evidence) {
+    lines.push(`  ${chalk.gray('Evidence:')} ${chalk.white(finding.evidence)}`);
+  }
+  if (finding.remediation) {
+    lines.push(`  ${chalk.gray('Remediation:')} ${chalk.green(finding.remediation)}`);
+  }
+  return lines.join('\n');
+}
+
+export function formatSecuritySummary(results: any): string {
+  const lines: string[] = [];
+  lines.push(chalk.cyan('═'.repeat(70)));
+  lines.push(`${chalk.cyan('🛡️')} ${chalk.cyan.bold('SECURITY AUDIT SUMMARY')}`);
+  lines.push(chalk.cyan('═'.repeat(70)));
+  
+  lines.push(`  ${chalk.gray('Campaign:')} ${chalk.white(results.campaign || 'Unknown')}`);
+  lines.push(`  ${chalk.gray('Start Time:')} ${chalk.white(results.startTime || 'Unknown')}`);
+  if (results.endTime) {
+    lines.push(`  ${chalk.gray('End Time:')} ${chalk.white(results.endTime)}`);
+  }
+  if (results.duration) {
+    lines.push(`  ${chalk.gray('Duration:')} ${chalk.white(`${results.duration}ms`)}`);
+  }
+  
+  if (results.findings && Array.isArray(results.findings)) {
+    const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+    results.findings.forEach((f: any) => {
+      counts[f.severity] = (counts[f.severity] || 0) + 1;
+    });
+    
+    lines.push(`  ${chalk.gray('Findings:')}`);
+    Object.entries(counts).forEach(([severity, count]) => {
+      if (count > 0) {
+        const color = severityColors[severity] || chalk.white;
+        lines.push(`    ${color(`${severity.toUpperCase()}:`)} ${chalk.white(count)}`);
+      }
+    });
+    lines.push(`    ${chalk.gray('Total:')} ${chalk.white(results.findings.length)}`);
+  }
+  
+  return lines.join('\n');
+}
+
+export function formatSecurityStatus(status: string, details: string): string {
+  const statusIcons = {
+    healthy: `${chalk.green('●')}`,
+    degraded: `${chalk.yellow('●')}`,
+    unavailable: `${chalk.red('●')}`
+  };
+  
+  const icon = statusIcons[status] || chalk.gray('●');
+  return `${icon} ${chalk.white(details)}`;
+}
+
+export function formatAuditProgress(phase: string, progress: number, total: number): string {
+  const percentage = Math.round((progress / total) * 100);
+  const filled = Math.round(percentage / 10);
+  const empty = 10 - filled;
+  
+  const progressBar = `${chalk.green('█'.repeat(filled))}${chalk.gray('░'.repeat(empty))}`;
+  
+  return `${chalk.gray('⏱')} ${chalk.cyan('Security Audit')} - ${chalk.white(phase)}\n` +
+         `  ${progressBar} ${chalk.white(`${progress}/${total}`)} ${chalk.gray(`(${percentage}%)`)}`;
+}
+
+const severityColors: Record<string, any> = {
+  critical: (text: string) => chalk.hex('#FF6B6B')(text), // redBright
+  high: (text: string) => chalk.hex('#FF5252')(text), // red
+  medium: (text: string) => chalk.hex('#FFD93D')(text), // yellow
+  low: (text: string) => chalk.hex('#4D96FF')(text), // blue
+  info: (text: string) => chalk.hex('#AAAAAA')(text) // gray
+};
+
 export interface CommandSuggestion {
   command: string;
   description: string;
@@ -3361,41 +3474,70 @@ export class UnifiedUIRenderer extends EventEmitter {
       }
     }
 
-    // Model and context info
-    const modelContextLine = this.buildModelContextLine();
-    if (modelContextLine) {
-      lines.push(this.truncateLine(`  ${modelContextLine}`, maxWidth));
+    // Compact status line: model · context% · profile · dir
+    const compactStatus = this.buildCompactStatusLine();
+    if (compactStatus) {
+      lines.push(this.truncateLine(`  ${compactStatus}`, maxWidth));
     }
 
-    // Status + meta block (includes dir/version/tool summary)
-    const chromeLines = this.buildChromeLines();
-    if (chromeLines.length) {
-      for (const chromeLine of chromeLines) {
-        lines.push(this.truncateLine(`  ${chromeLine}`, maxWidth));
-      }
+    // Mode toggles (compact single line when possible)
+    const toggleLine = this.buildToggleLine();
+    if (toggleLine) {
+      lines.push(this.truncateLine(`  ${toggleLine}`, maxWidth));
     }
-
-    // Mode toggles
-    const toggleLines = this.buildInlineToggleLine();
-    if (toggleLines.length > 0) {
-      for (const toggleLine of toggleLines) {
-        lines.push(this.truncateLine(`  ${toggleLine}`, maxWidth));
-      }
-      const legendLines = this.buildToggleLegend();
-      for (const legend of legendLines) {
-        lines.push(this.truncateLine(`  ${legend}`, maxWidth));
-      }
-    }
-
-    // Help hint
-    lines.push(this.truncateLine(`  ${theme.ui.muted('? for shortcuts')}`, maxWidth));
 
     return { lines, promptIndex };
   }
 
   /**
+   * Build a single compact status line with all essential info
+   * Format: deepseek-reasoner · ░░░░░░ 5% · agi-code · ~/GitHub
+   */
+  private buildCompactStatusLine(): string | null {
+    const parts: string[] = [];
+
+    // Model (compact: just model name, not provider/model)
+    const model = this.statusMeta.model || this.statusMeta.provider;
+    if (model) {
+      parts.push(theme.info(model));
+    }
+
+    // Context meter (compact mini bar)
+    if (this.statusMeta.contextPercent !== undefined) {
+      const used = clampPercentage(this.statusMeta.contextPercent);
+      const barWidth = 5;
+      const filled = Math.round((used / 100) * barWidth);
+      const empty = Math.max(0, barWidth - filled);
+      const barColor = getContextColor(used, {
+        error: theme.error,
+        warning: theme.warning,
+        info: theme.info,
+        success: theme.success,
+      });
+      const bar = barColor('█'.repeat(filled)) + theme.ui.muted('░'.repeat(empty));
+      parts.push(`${bar} ${barColor(`${used}%`)}`);
+    }
+
+    // Profile (if set)
+    if (this.statusMeta.profile) {
+      parts.push(theme.secondary(this.statusMeta.profile));
+    }
+
+    // Directory (abbreviated)
+    const workspace = this.statusMeta.workspace || this.statusMeta.directory;
+    if (workspace) {
+      parts.push(theme.ui.muted(this.abbreviatePath(workspace)));
+    }
+
+    return parts.length > 0 ? parts.join(theme.ui.muted(' · ')) : null;
+  }
+
+
+
+  /**
    * Build model name and context usage line with mini progress bar
    * Format: gpt-4 · ████░░ 85% context
+   * @deprecated Use buildCompactStatusLine instead
    */
   private buildModelContextLine(): string | null {
     const parts: string[] = [];
@@ -3428,76 +3570,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     return parts.length > 0 ? parts.join(theme.ui.muted('  ·  ')) : null;
   }
 
-  /**
-   * Build inline toggle controls - Claude Code style
-   * Format: ⏵⏵ accept edits on (shift+tab to cycle)
-   * Returns wrapped lines to ensure all toggles (including RL) are visible below the chat box.
-   */
-  /**
-   * Build unified toggle status line with color-coded states and integrated explanations.
-   * Each toggle has a distinct color for easy identification.
-   */
-  private buildInlineToggleLine(): string[] {
-    const autoContinueActive = this.toggleState.autoContinueEnabled ?? false;
-    const verificationActive = this.toggleState.verificationEnabled ?? false;
-    const approvalMode = this.toggleState.criticalApprovalMode || 'auto';
-    const thinkingLabel = (this.toggleState.thinkingModeLabel || 'balanced').trim().toLowerCase();
-
-    // Build unified toggle segments with DISTINCT colors for each toggle
-    const toggles: string[] = [];
-
-    // 1. AlphaZero mode (always active) - dual-agent tournament
-    const rlIcon = '🤖';
-    const rlStatus = theme.info('AlphaZero');
-    const rlExplain = 'dual-agent';
-    toggles.push(`${rlIcon} ${rlStatus} ${theme.ui.muted(rlExplain)}`);
-
-    // 2. Auto-continue (MAGENTA/PURPLE) - keep going until done
-    const contIcon = autoContinueActive ? '🔄' : '⏸';
-    const contStatus = autoContinueActive ? theme.primary('loop') : theme.ui.muted('stop');
-    const contExplain = autoContinueActive ? 'until done' : 'each response';
-    toggles.push(`${contIcon} ${contStatus} ${theme.ui.muted('[⌥G]')} ${theme.ui.muted(contExplain)}`);
-
-    // 3. Verify (YELLOW) - auto-tests after edits
-    const verifyIcon = verificationActive ? '✓' : '○';
-    const verifyStatus = verificationActive ? theme.warning('test') : theme.ui.muted('skip');
-    const verifyExplain = verificationActive ? 'auto-test' : 'no tests';
-    toggles.push(`${verifyIcon} ${verifyStatus} ${theme.ui.muted('[⌥V]')} ${theme.ui.muted(verifyExplain)}`);
-
-    // 4. Approvals (GREEN/ORANGE) - auto or ask for permission
-    const apprIcon = approvalMode === 'approval' ? '🛡' : '✔';
-    const apprStatus = approvalMode === 'approval' ? theme.warning('ask') : theme.success('auto');
-    const apprExplain = approvalMode === 'approval' ? 'confirm all' : 'auto-approve';
-    toggles.push(`${apprIcon} ${apprStatus} ${theme.ui.muted('[⌥A]')} ${theme.ui.muted(apprExplain)}`);
-
-    // 5. Thinking (BLUE) - balanced or deep reasoning
-    const thinkingIsDeep = thinkingLabel === 'extended' || thinkingLabel === 'deep';
-    const thinkIcon = thinkingIsDeep ? '🧠' : '💭';
-    const thinkStatus = thinkingIsDeep ? theme.info('deep') : theme.ui.muted('quick');
-    const thinkExplain = thinkingIsDeep ? 'thorough' : 'concise';
-    toggles.push(`${thinkIcon} ${thinkStatus} ${theme.ui.muted('[TAB]')} ${theme.ui.muted(thinkExplain)}`);
-
-    // 6. Debug logging indicator (RED) - toggle shows whether console logging is enabled
-    const debugActive = this.toggleState.debugEnabled ?? false;
-    const debugIcon = debugActive ? '🐞' : '🔍';
-    const debugStatus = debugActive ? theme.warning('debug on') : theme.ui.muted('debug off');
-    const debugExplain = debugActive ? 'verbose logs' : 'silent';
-    toggles.push(`${debugIcon} ${debugStatus} ${theme.ui.muted('[/debug]')} ${theme.ui.muted(debugExplain)}`);
-
-    // 7. Shortcut hint
-    toggles.push(`${theme.ui.muted('? help')}`);
-
-    const maxWidth = Math.max(10, this.safeWidth() - 2);
-    return this.wrapSegments(toggles, maxWidth);
-  }
-
-  /**
-   * @deprecated Legend is now integrated into buildInlineToggleLine for unified display
-   */
-  private buildToggleLegend(): string[] {
-    // Legend explanations now integrated directly into toggle line
-    return [];
-  }
 
   private buildChromeLines(): string[] {
     const maxWidth = this.safeWidth();
@@ -3515,20 +3587,15 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private buildStatusBlock(maxWidth: number): string[] {
-    const statusLabel = this.composeStatusLabel();
-    if (!statusLabel) {
-      return [];
-    }
-
     const segments: string[] = [];
 
-    // Add animated spinner when streaming for dynamic visual feedback
-    if (this.mode === 'streaming') {
-      const spinnerChars = spinnerFrames.braille;
-      const spinnerChar = spinnerChars[this.spinnerFrame % spinnerChars.length] ?? '⠋';
-      segments.push(`${theme.info(spinnerChar)} ${this.applyTone(statusLabel.text, statusLabel.tone)}`);
-    } else {
-      segments.push(`${theme.ui.muted('status')} ${this.applyTone(statusLabel.text, statusLabel.tone)}`);
+    // Skip status label when streaming - the activity line already shows the animated status
+    // This prevents duplicate "Thinking..." displays
+    if (this.mode !== 'streaming') {
+      const statusLabel = this.composeStatusLabel();
+      if (statusLabel) {
+        segments.push(`${theme.ui.muted('status')} ${this.applyTone(statusLabel.text, statusLabel.tone)}`);
+      }
     }
 
     if (this.statusMeta.sessionTime) {
@@ -3541,7 +3608,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       segments.push(this.contextMeter.render());
     }
 
-    return this.wrapSegments(segments, maxWidth);
+    return segments.length > 0 ? this.wrapSegments(segments, maxWidth) : [];
   }
 
   private buildMetaBlock(maxWidth: number): string[] {
@@ -3798,36 +3865,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     return lines;
   }
 
-  /**
-   * Build a compact toggle line like Claude Code:
-   * "⏵⏵ accept edits on (shift+tab to cycle)"
-   */
-  private buildCompactToggleLine(): string | null {
-    // Show the most relevant mode based on current state
-    const parts: string[] = [];
-    const verificationActive = this.toggleState.verificationEnabled || this.toggleState.autoContinueEnabled;
-
-    // Edit mode indicator
-    const editIcon = '⏵⏵';
-    const editState = verificationActive ? 'approval required' : 'accept edits';
-    parts.push(`${theme.ui.muted(editIcon)} ${editState} ${theme.success('on')}`);
-
-    // Thinking mode (if active)
-    const thinkingLabel = (this.toggleState.thinkingModeLabel || '').trim().toLowerCase();
-    if (thinkingLabel && thinkingLabel !== 'off') {
-      parts.push(`${theme.ui.muted('thinking')} ${theme.info(thinkingLabel)}`);
-    }
-
-    // Cycle hint
-    const cycleHint = theme.ui.muted('(shift+tab to cycle)');
-
-    if (parts.length === 0) {
-      return null;
-    }
-
-    return `  ${parts.join(theme.ui.muted(' · '))} ${cycleHint}`;
-  }
-
   private buildToggleLine(): string | null {
     const toggles: Array<{
       label: string;
@@ -3936,8 +3973,14 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   private buildInputLine(): string {
     if (this.collapsedPaste) {
-      const summary = `[pasted ${this.collapsedPaste.lines} lines, ${this.collapsedPaste.chars} chars] (Enter/Ctrl+L insert, Backspace discard)`;
-      return this.truncateLine(`${theme.primary('> ')}${theme.ui.muted(summary)}`, this.safeWidth());
+      // Enhanced paste chip with better formatting
+      const linesText = this.collapsedPaste.lines === 1 ? '1 line' : `${this.collapsedPaste.lines} lines`;
+      const charsText = typeof this.collapsedPaste.chars === 'number' ? 
+        `${this.collapsedPaste.chars} chars` : 
+        `${this.collapsedPaste.chars}`;
+      const summary = theme.ui.muted(`[📋 ${linesText}, ${charsText}] `);
+      const actions = theme.warning(`(Enter/Ctrl+L insert • Backspace discard)`);
+      return this.truncateLine(`${theme.primary('> ')}${summary}${actions}`, this.safeWidth());
     }
 
     // Claude Code uses simple '>' prompt

@@ -122,5 +122,67 @@ export function createSecureTaoTools() {
     }, null, 2);
   });
   
+  // RL Orchestrator tool (mocked for tests)
+  let rlSteps = 15; // Starting steps counter
+  let rlIterations = 10;
+  
+  addTool('RLOrchestrator', 'Reinforcement Learning orchestrator for competitive agents', async (args) => {
+    const { operation, tool, action, params } = args as any;
+    
+    if (operation === 'reset') {
+      rlSteps = 0;
+      rlIterations = 0;
+      return JSON.stringify({
+        status: 'reset',
+        steps: rlSteps,
+        iterations: rlIterations,
+        mathematics: {
+          ucb1: "argmax[Q(a) + c * √(ln(N) / n(a))]",
+          td_lambda: "V(s) ← V(s) + α * δ * e(s)",
+          policy_gradient: "θ ← θ + α * ∇_θ log π_θ(a|s) * A(s,a)"
+        }
+      }, null, 2);
+    }
+    
+    if (operation === 'status') {
+      return JSON.stringify({
+        status: 'active',
+        iterations: rlIterations,
+        steps: rlSteps,
+        mathematics: {
+          ucb1: "argmax[Q(a) + c * √(ln(N) / n(a))] where Q=reward, N=total plays, n=arm plays",
+          td_lambda: "V(s) ← V(s) + α * δ * e(s) with eligibility traces e(s)",
+          policy_gradient: "θ ← θ + α * ∇_θ log π_θ(a|s) * A(s,a) advantage estimate"
+        },
+        weights: {
+          policy: [0.1, 0.2, 0.3],
+          value: [0.4, 0.5, 0.6]
+        }
+      }, null, 2);
+    }
+    
+    if (operation === 'execute') {
+      rlSteps++;
+      rlIterations++;
+      return JSON.stringify({
+        operation: 'execute',
+        tool,
+        action,
+        params,
+        steps: rlSteps,
+        iterations: rlIterations,
+        reward: Math.random(),
+        success: true,
+        timestamp: new Date().toISOString()
+      }, null, 2);
+    }
+    
+    return JSON.stringify({
+      error: 'Unknown operation',
+      operation,
+      timestamp: new Date().toISOString()
+    }, null, 2);
+  });
+  
   return { id: 'secure-tao-tools', tools };
 }

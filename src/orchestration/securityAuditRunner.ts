@@ -7,7 +7,13 @@
 
 import { AppleSecurityIntegration, type AppleSecurityConfig, type AppleSecurityFinding } from '../core/appleSecurityIntegration.js';
 import { AppleSecurityAudit, type AppleSecurityAuditOptions, type AuditProgress } from '../core/appleSecurityAudit.js';
-import { AppleSecurityUI } from '../ui/appleSecurityUI.js';
+import {
+  createSecurityBanner,
+  formatSecurityFinding,
+  formatSecuritySummary,
+  formatSecurityStatus,
+  formatAuditProgress,
+} from '../ui/UnifiedUIRenderer.js';
 import {
   runDualTournament,
   type TournamentCandidate,
@@ -146,7 +152,7 @@ export class SecurityAuditRunner {
    * Run the full security audit with dual tournament RL validation
    */
   async run(): Promise<SecurityAuditResult> {
-    console.log(AppleSecurityUI.createSecurityBanner(
+    console.log(createSecurityBanner(
       'AGI Security Audit Runner',
       'Continuous Dual Tournament RL with Validation'
     ));
@@ -215,7 +221,7 @@ export class SecurityAuditRunner {
 
     // Register event handlers
     this.audit.on('finding', (finding: AppleSecurityFinding) => {
-      console.log(AppleSecurityUI.formatSecurityFinding(finding));
+      console.log(formatSecurityFinding(finding));
     });
 
     this.audit.on('phase_complete', (data: { phase: string; result: any }) => {
@@ -591,9 +597,9 @@ export class SecurityAuditRunner {
     const metrics = this.calculateMetrics();
     const findings = this.audit.getFindings();
 
-    console.log('\n' + AppleSecurityUI.createSecurityBanner('Security Audit Report', 'Final Summary'));
+    console.log('\n' + createSecurityBanner('Security Audit Report', 'Final Summary'));
 
-    console.log(AppleSecurityUI.formatSecuritySummary({
+    console.log(formatSecuritySummary({
       campaign: 'AGI Security Audit with Dual Tournament RL',
       startTime: new Date(this.startTime).toISOString(),
       endTime: new Date().toISOString(),
@@ -650,7 +656,7 @@ export class SecurityAuditRunner {
       statusMessage = 'Security audit completed successfully';
     }
 
-    console.log('\n' + AppleSecurityUI.formatSecurityStatus(status, statusMessage));
+    console.log('\n' + formatSecurityStatus(status, statusMessage));
 
     return {
       metrics,
@@ -689,7 +695,7 @@ export class SecurityAuditRunner {
     this.options.onProgress?.(progress);
 
     // Display progress
-    console.log(AppleSecurityUI.formatAuditProgress(phase, currentPhase, totalPhases));
+    console.log(formatAuditProgress(phase, currentPhase, totalPhases));
   }
 }
 

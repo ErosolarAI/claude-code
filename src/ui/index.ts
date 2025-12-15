@@ -31,10 +31,13 @@ export {
   USER_PROMPT_PREFIX,
   formatToolCall,
   formatMessage,
+  neon,
+  // palette, // Temporarily commented out due to export issue
 } from './theme.js';
 
 export * from './layout.js';
 export * from './uiConstants.js';
+export * from './designSystem.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Layer 2 - Specialized Renderers
@@ -67,8 +70,7 @@ export { PromptController } from './PromptController.js';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export { UnifiedUIRenderer } from './UnifiedUIRenderer.js';
-export { Display } from './display.js';
-export * from './designSystem.js';
+// export * from './designSystem.js'; // File doesn't exist
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Layer 6 - Integration
@@ -76,14 +78,3 @@ export * from './designSystem.js';
 
 export * from './outputMode.js';
 export * from './globalWriteLock.js';
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Layer 7 - Security UI (DEPRECATED - Use UnifiedUIRenderer)
-// ═══════════════════════════════════════════════════════════════════════════════
-// See README.md for migration guide and unified UI architecture documentation
-
-/** @deprecated Use UnifiedUIRenderer instead */
-export { UniversalSecurityUI } from './universalSecurityUI.js';
-
-/** @deprecated Use UnifiedUIRenderer instead */
-export { AppleSecurityUI } from './appleSecurityUI.js';

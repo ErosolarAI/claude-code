@@ -164,7 +164,7 @@ function clampWidth(value: number, columns?: number): number {
   return Math.max(minWidth, Math.min(normalized, maxWidth));
 }
 
-function padLine(text: string, width: number): string {
+export function padLine(text: string, width: number): string {
   const visible = measure(text);
   if (visible === width) {
     return text;
@@ -177,7 +177,7 @@ function padLine(text: string, width: number): string {
   return `${text}${' '.repeat(width - visible)}`;
 }
 
-function truncate(text: string, width: number): string {
+export function truncate(text: string, width: number): string {
   const visible = stripAnsi(text);
   if (visible.length <= width) {
     return text;

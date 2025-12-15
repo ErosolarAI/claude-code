@@ -24,7 +24,7 @@ const createNeonStyle = (baseColor: string, glowColor?: string) => {
 };
 
 // Enhanced color palette with modern gradients and vibrancy
-const palette = {
+export const palette = {
   // Premium core colors (enhanced vibrancy)
   indigo: '#4F46E5',
   purple: '#7C3AED',

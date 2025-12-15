@@ -40,10 +40,12 @@ export interface RepoUpgradeFlowOptions {
   repoPolicy?: string;
   /** Enable parallel variant execution in dual-RL modes. */
   parallelVariants?: boolean;
-  /** Apply winning variant's changes to primary workspace after completion. */
+  /** Apply winning variant's changes to primary workspace after completion. Defaults to true for tournament mode. */
   applyWinnerChanges?: boolean;
   /** Custom reward weights for scoring (uses defaults if not provided). */
   rewardWeights?: import('../core/repoUpgradeOrchestrator.js').RewardWeights;
+  /** Optional factory to create variant-specific controllers for parallel execution. */
+  createVariantController?: (variant: UpgradeVariant, workspaceRoot: string) => Promise<AgentController>;
 }
 
 /** Extended report with cross-variant comparison data */
@@ -60,6 +62,7 @@ export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promi
   const plan = buildRepoWidePlan(options.workingDir, options.additionalScopes);
   const modeDefinition = REPO_UPGRADE_MODE_DEFINITIONS[options.mode];
   const isDualMode = modeDefinition.variants.includes('refiner');
+  const isTournamentMode = options.mode === 'dual-rl-tournament';
 
   // Initialize GitWorktreeManager for dual-RL modes with worktree support
   let worktreeManager: GitWorktreeManager | null = null;
@@ -75,8 +78,10 @@ export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promi
 
     await worktreeManager.initialize();
 
-    // Create refiner workspace
+    // Create refiner workspace and wait for completion
     await worktreeManager.createVariantWorkspace('refiner');
+
+    // Get workspace roots after creation is complete
     variantWorkspaceRoots = worktreeManager.getWorkspaceRoots();
 
     options.onEvent?.({
@@ -89,10 +94,33 @@ export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promi
     });
   }
 
-  // Create orchestrator with enhanced scoring
-  const orchestrator = new RepoUpgradeOrchestrator((input) =>
-    executeUpgradeStep(options.controller, input, options.onAgentEvent, options.rewardWeights)
-  );
+  // Cache for variant-specific controllers (for parallel execution)
+  const variantControllers = new Map<UpgradeVariant, AgentController>();
+  variantControllers.set('primary', options.controller);
+
+  // Get or create controller for a specific variant
+  const getVariantController = async (variant: UpgradeVariant, workspaceRoot?: string): Promise<AgentController> => {
+    // Use cached controller if available
+    if (variantControllers.has(variant)) {
+      return variantControllers.get(variant)!;
+    }
+
+    // For refiner in parallel mode, create a new controller if factory is provided
+    if (variant === 'refiner' && options.createVariantController && workspaceRoot) {
+      const controller = await options.createVariantController(variant, workspaceRoot);
+      variantControllers.set(variant, controller);
+      return controller;
+    }
+
+    // Fallback to primary controller (sequential mode)
+    return options.controller;
+  };
+
+  // Create orchestrator with variant-aware executor
+  const orchestrator = new RepoUpgradeOrchestrator(async (input) => {
+    const controller = await getVariantController(input.variant, input.workspaceRoot);
+    return executeUpgradeStep(controller, input, options.onAgentEvent, options.rewardWeights);
+  });
 
   if (options.onEvent) {
     orchestrator.onEvent((event) => options.onEvent?.(event));
@@ -127,11 +155,14 @@ export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promi
       // Comparison is optional, continue without it
     }
 
-    // Determine overall winner and optionally apply changes
+    // Determine overall winner and apply changes
     const overallWinner = determineOverallWinner(report);
     enhancedReport.overallWinner = overallWinner;
 
-    if (options.applyWinnerChanges && overallWinner === 'refiner') {
+    // Default applyWinnerChanges to true for tournament mode
+    const shouldApplyWinner = options.applyWinnerChanges ?? isTournamentMode;
+
+    if (shouldApplyWinner && overallWinner === 'refiner') {
       try {
         const applied = await worktreeManager.applyWinnerChanges('refiner');
         enhancedReport.winnerChangesApplied = applied;
@@ -142,6 +173,9 @@ export async function runRepoUpgradeFlow(options: RepoUpgradeFlowOptions): Promi
       } catch {
         enhancedReport.winnerChangesApplied = false;
       }
+    } else if (shouldApplyWinner && overallWinner === 'primary') {
+      // Primary is already in the main workspace, nothing to apply
+      enhancedReport.winnerChangesApplied = true;
     }
 
     // Cleanup worktrees

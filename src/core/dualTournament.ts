@@ -183,7 +183,8 @@ export function runDualTournament(
     const evaluatorScore = aggregatedEvaluatorScores.get(candidate.id) ?? rewardScore;
 
     // Combine human-like reward with evaluator aggregate (relative preference)
-    const aggregateScore = clamp(0.55 * rewardScore + 0.45 * evaluatorScore);
+    // Weighted 60/40 toward human-like reward to maintain quality focus while incorporating evaluator consensus
+    const aggregateScore = clamp(0.60 * rewardScore + 0.40 * evaluatorScore);
 
     return {
       candidateId: candidate.id,
@@ -263,11 +264,30 @@ function scoreLearnedSignals(signals?: CandidateSignals): number {
   const human = signals.humanPreference;
   const self = signals.selfAssessment;
 
-  const base = typeof rewardModel === 'number' ? rewardModel : 0.5;
-  const blendedHuman = typeof human === 'number' ? (base + human) / 2 : base;
-  const withSelf = typeof self === 'number' ? 0.7 * blendedHuman + 0.3 * self : blendedHuman;
+  // Prioritize reward model score as primary signal (40%)
+  // Human preference as secondary (35%)
+  // Self-assessment as tertiary (25%)
+  // This weights external validation more than self-confidence
+  const components = [
+    { value: rewardModel, weight: 0.40, default: 0.5 },
+    { value: human, weight: 0.35, default: 0.5 },
+    { value: self, weight: 0.25, default: 0.5 }
+  ];
 
-  return clamp(withSelf);
+  let totalWeight = 0;
+  let weightedSum = 0;
+
+  for (const comp of components) {
+    if (typeof comp.value === 'number') {
+      weightedSum += comp.value * comp.weight;
+      totalWeight += comp.weight;
+    } else {
+      weightedSum += comp.default * comp.weight;
+      totalWeight += comp.weight;
+    }
+  }
+
+  return totalWeight > 0 ? clamp(weightedSum / totalWeight) : 0.5;
 }
 
 function combineReward(
@@ -332,9 +352,11 @@ function aggregateEvaluatorScores(
   if (scoresByEvaluator.size === 0) {
     const fallback: CandidateEvaluatorScore[] = [];
     for (const candidate of candidates) {
+      // Use candidate's own reward signals if available
+      const candidateScore = candidate.signals?.rewardModelScore ?? 0.5;
       fallback.push({
         evaluatorId: 'reward-fallback',
-        score: 0.5,
+        score: candidateScore,
         weight: 1,
         candidateId: candidate.id,
       });

@@ -7,7 +7,18 @@
 
 import chalk from 'chalk';
 import { AppleSecurityIntegration, type AppleSecurityConfig, type AppleSecurityFinding } from './appleSecurityIntegration.js';
-import { AppleSecurityUI } from '../ui/appleSecurityUI.js';
+// Unified UI system - AppleSecurityUI is deprecated
+// Using UnifiedUIRenderer for all UI needs
+import {
+  createSecurityBanner,
+  createSecuritySpinner,
+  formatSecurityFinding,
+  formatSecuritySummary,
+  formatSecurityStatus,
+  formatAuditProgress,
+  createBanner,
+  formatProgress
+} from '../ui/UnifiedUIRenderer.js';
 
 export interface AppleSecurityAuditOptions extends Partial<AppleSecurityConfig> {
   /** Enable UI integration for real-time display */
@@ -34,7 +45,7 @@ export interface AuditProgress {
 
 export class AppleSecurityAudit {
   private integration: AppleSecurityIntegration;
-  private ui: typeof AppleSecurityUI;
+  private ui: any; // AppleSecurityUI is deprecated
   private options: AppleSecurityAuditOptions;
   private progress: AuditProgress;
   private eventCallbacks: Map<string, Function[]>;
@@ -57,7 +68,22 @@ export class AppleSecurityAudit {
     };
 
     this.integration = new AppleSecurityIntegration(this.options);
-    this.ui = AppleSecurityUI;
+    // UnifiedUIRenderer provides all UI functions
+    this.ui = {
+      createSecurityBanner,
+      createSecuritySpinner,
+      formatSecurityFinding,
+      formatSecuritySummary,
+      formatSecurityStatus,
+      formatAuditProgress,
+      // Fallback methods for unused AppleSecurityUI features
+      formatVulnerability: (vuln: any) => `${chalk.red(`[${vuln.severity?.toUpperCase() || 'UNKNOWN'}]`)} ${vuln.name || 'Unknown'}: ${vuln.description || 'No description'}`,
+      formatRemediation: (category: string, steps: string[]) => `${chalk.green(`[${category}]`)} ${steps.join('\n  ')}`,
+      formatFindingsTable: (findings: any[]) => findings.map(f => `${chalk.red(`[${f.severity}]`)} ${f.name}`).join('\n'),
+      categoryColors: {},
+      severityColors: {},
+      getServiceIcon: () => '🛡️'
+    };
     this.eventCallbacks = new Map();
     
     this.progress = {

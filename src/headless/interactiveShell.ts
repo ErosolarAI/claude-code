@@ -119,19 +119,9 @@ function getVersion(): string {
   }
 }
 
-// ASCII art banner for AGI - compact version with wider chrome
-const AGI_BANNER = `
-  ╭───────────────────────────────────────────────╮
-  │  ◉ ◉ ◉   A G I   C O R E   ◉ ◉ ◉  │
-  ╰───────────────────────────────────────────────╯
-`;
-
-const BANNER_GRADIENT = gradientString(['#0EA5E9', '#6366F1', '#EC4899', '#FBBF24']);
-const BANNER_GLOW = gradientString(['#22D3EE', '#A855F7', '#F472B6']);
-const AGI_GLOW_BAR = '▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄▅▆▇█▇▆▅▄▃▂▁';
-const AGI_BANNER_LINES = AGI_BANNER.trim().split('\n');
-const AGI_BANNER_RENDERED = AGI_BANNER_LINES.map(line => BANNER_GRADIENT(line)).join('\n');
-const AGI_GLOW_RENDERED = BANNER_GLOW(`  ${AGI_GLOW_BAR}`);
+// Clean minimal banner
+const BANNER_GRADIENT = gradientString(['#0EA5E9', '#6366F1', '#EC4899']);
+const AGI_BANNER_RENDERED = BANNER_GRADIENT('  ◈ AGI CORE');
 
 export interface InteractiveShellOptions {
   argv: string[];
@@ -343,40 +333,12 @@ class InteractiveShell {
     // Clear screen - this needs to be direct for terminal control
     stdout.write('\x1b[2J\x1b[H'); // Clear screen and move to top
 
-    const header = chalk.bold.hex('#8B5CF6')(`v${version}`) +
-      chalk.dim(' • ') + chalk.bold.hex('#EC4899')('Bo Shang');
-
-    const modelChip = chalk.bgHex('#0EA5E9').hex('#0B1120').bold(` ⚡ ${this.profileConfig.model} `);
-    const providerChip = chalk.bgHex('#10B981').hex('#0B1120').bold(` 🔌 ${this.profileConfig.provider} `);
-
-    const commandChip = (label: string, color: string) =>
-      chalk.bgHex(color).hex('#0B1120').bold(` ${label} `);
-
-    const commands = [
-      commandChip('💡 /model', '#FBBF24'),
-      commandChip('🔑 /secrets', '#F59E0B'),
-      commandChip('❓ /help', '#F472B6'),
-      commandChip('🐛 /debug', '#22D3EE'),
-    ].join('  ');
-
-    // Enhanced usage hints
-    const capabilityHint = chalk.dim('  ✨ Capabilities: Code editing • Git management • Security tools • Dual-Agent RL');
-    const exampleHint = chalk.dim('  📝 Examples: "fix this bug", "add new feature", "/upgrade tournament"');
-    const quickHint = chalk.dim('  🚀 Quick mode: agi -q "your prompt" for non-interactive use');
-
+    // Clean, minimal welcome - just the essentials
     const welcomeContent = [
-      AGI_GLOW_RENDERED,
-      AGI_BANNER_RENDERED,
-      AGI_GLOW_RENDERED,
-      '  ' + header,
-      '  ' + modelChip + chalk.dim(' · ') + providerChip,
-      '  ' + commands,
       '',
-      capabilityHint,
-      exampleHint,
-      quickHint,
+      AGI_BANNER_RENDERED + chalk.dim(` v${version}`),
       '',
-      chalk.dim('  Type a prompt to start or /help for full command list...'),
+      chalk.dim(`  ${this.profileConfig.model} · ${this.profileConfig.provider} · /help for commands`),
       ''
     ].join('\n');
 
@@ -711,6 +673,17 @@ class InteractiveShell {
     this.promptController?.setStreaming(true);
 
     try {
+      // Factory to create variant-specific controllers for parallel execution
+      const createVariantController = async (variant: import('../core/repoUpgradeOrchestrator.js').UpgradeVariant, workspaceRoot: string) => {
+        const workspaceContext = buildWorkspaceContext(workspaceRoot, resolveWorkspaceCaptureOptions(process.env));
+        return createAgentController({
+          profile: this.profile,
+          workingDir: workspaceRoot,
+          workspaceContext,
+          env: process.env,
+        });
+      };
+
       const report = await runRepoUpgradeFlow({
         controller: this.controller,
         workingDir: this.workingDir,
@@ -722,6 +695,7 @@ class InteractiveShell {
         enableVariantWorktrees,
         parallelVariants,
         repoPolicy: repoPolicy ?? undefined,
+        createVariantController: parallelVariants ? createVariantController : undefined,
         onEvent: (event) => this.handleUpgradeEvent(event.type, event.data),
         onAgentEvent: (event) => this.handleAgentEventForUpgrade(event),
       });

@@ -68,6 +68,16 @@ export interface ParallelExecutorConfig {
   };
   /** Callback for task events */
   onTaskEvent?: (event: TaskEvent) => void;
+  /** Enable adaptive concurrency based on system resources (default: true) */
+  adaptiveConcurrency?: boolean;
+  /** Enable deadlock detection for competing agents (default: true) */
+  deadlockDetection?: boolean;
+  /** Maximum memory usage percentage before throttling (0-100, default: 80) */
+  maxMemoryUsagePercent?: number;
+  /** Minimum concurrency level (default: 1) */
+  minConcurrency?: number;
+  /** Performance telemetry collection (default: true) */
+  collectTelemetry?: boolean;
 }
 
 export interface TaskEvent {
@@ -258,6 +268,11 @@ export class ParallelExecutor {
       continueOnFailure: config.continueOnFailure ?? true,
       rateLimit: config.rateLimit ?? null!,
       onTaskEvent: config.onTaskEvent ?? (() => {}),
+      adaptiveConcurrency: config.adaptiveConcurrency ?? true,
+      deadlockDetection: config.deadlockDetection ?? true,
+      maxMemoryUsagePercent: config.maxMemoryUsagePercent ?? 80,
+      minConcurrency: config.minConcurrency ?? 1,
+      collectTelemetry: config.collectTelemetry ?? true,
     };
 
     this.pool = new ConcurrencyPool({

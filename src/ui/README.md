@@ -75,30 +75,30 @@ When `AGI_BUILD_TEST_HOOKS=1` is enabled, each variant's edits automatically tri
 
 This ensures the RL system has **real runtime verification** rather than just text pattern matching.
 
-## Legacy UI Components (Deprecated)
+## Security UI Functions
 
-The following components are **deprecated** and maintained only for backward compatibility:
+Security UI functions are now exported directly from `UnifiedUIRenderer.ts`:
 
-### ⚠️ Deprecated Files
-
-- `universalSecurityUI.ts` - Legacy security audit UI
-- `appleSecurityUI.ts` - Legacy Apple security UI
-- `UniversalSecurityUIWrapper.ts` - Wrapper (removed in latest version)
-
-### Migration Guide
-
-**Old Code:**
 ```typescript
-import { UniversalSecurityUI } from './ui/universalSecurityUI.js';
-const ui = new UniversalSecurityUI();
-ui.formatFinding(finding);
-```
+import {
+  createSecurityBanner,
+  formatSecurityFinding,
+  formatSecuritySummary,
+  formatSecurityStatus,
+  formatAuditProgress,
+} from './ui/UnifiedUIRenderer.js';
 
-**New Code:**
-```typescript
-import { UnifiedUIRenderer } from './ui/UnifiedUIRenderer.js';
-const renderer = new UnifiedUIRenderer(stdout, stdin);
-renderer.showSecurityFinding(finding);
+// Create a security banner
+console.log(createSecurityBanner('Security Audit', 'Starting scan...'));
+
+// Format a finding
+console.log(formatSecurityFinding({
+  severity: 'critical',
+  name: 'SQL Injection',
+  description: 'Unsanitized input in query',
+  evidence: 'query.ts:42',
+  remediation: 'Use parameterized queries'
+}));
 ```
 
 **For Competing Agents:**
