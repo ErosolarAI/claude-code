@@ -19,6 +19,10 @@
  */
 
 import { EventEmitter } from 'events';
+import { createRequire } from 'module';
+
+// Create require for dynamic imports in ESM context
+const require = createRequire(import.meta.url);
 
 // Increase max listeners to prevent warnings from protection handlers
 EventEmitter.defaultMaxListeners = 50;
