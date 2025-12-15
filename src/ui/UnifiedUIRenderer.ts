@@ -3080,10 +3080,22 @@ export class UnifiedUIRenderer extends EventEmitter {
     options: { maxWidth?: number; label?: string; labelColor?: (value: string) => string } = {}
   ): string {
     const bullet = '⏺';
-    const cleaned = content.replace(/^[⏺•○]\s*/, '').trimEnd();
+    let cleaned = content.replace(/^[⏺•○]\s*/, '').trimEnd();
     if (!cleaned.trim()) {
       return '';
     }
+
+    // Normalize content: add spaces after headers, fix common formatting issues
+    // Fix headers without space: ##HEADING -> ## HEADING
+    cleaned = cleaned.replace(/^(#{1,6})([A-Z])/gm, '$1 $2');
+    // Fix numbered lists without space: 1.Item -> 1. Item
+    cleaned = cleaned.replace(/^(\d+\.)([A-Z])/gm, '$1 $2');
+    // Add line breaks before headers that are joined to previous text
+    cleaned = cleaned.replace(/([.!?])(\s*)(#{1,6}\s)/g, '$1\n\n$3');
+    // Add line breaks between emoji bullets and next section: ✅ SECTION
+    cleaned = cleaned.replace(/([\u2705\u274C\u2714\u2718\u26A0\uD83C-\uDBFF\uDC00-\uDFFF]+)\s*(#{1,6})/g, '$1\n\n$2');
+    // Fix tables that run together: System Kill Chain Time -> proper table
+    cleaned = cleaned.replace(/(\w+)\s+([-─]{3,})\s+(\w+)/g, '$1\n$2\n$3');
 
     // Reserve a little margin to reduce terminal wrap jitter
     const availableWidth = this.safeWidth();
@@ -3141,15 +3153,22 @@ export class UnifiedUIRenderer extends EventEmitter {
         continue;
       }
 
-      // Handle markdown headers (# ## ### etc.)
-      const headerMatch = trimmedLine.match(/^(#{1,6})\s+(.*)$/);
-      if (headerMatch) {
+      // Handle markdown headers (# ## ### etc.) - also handle ##HEADING without space
+      const headerMatch = trimmedLine.match(/^(#{1,6})\s*(.+)$/);
+      if (headerMatch && headerMatch[2] && !headerMatch[2].startsWith('#')) {
         const level = headerMatch[1]?.length ?? 1;
-        const headerText = headerMatch[2] ?? '';
-        const formattedHeader = this.formatMarkdownHeader(headerText, level, maxWidth, firstNonEmpty ? bulletPrefix : indent);
-        result.push(formattedHeader);
-        firstNonEmpty = false;
-        continue;
+        const headerText = headerMatch[2]?.trim() ?? '';
+        // Skip if it's just hashes or if content is too short
+        if (headerText.length > 0) {
+          // Add blank line before headers for better visual separation
+          if (result.length > 0 && result[result.length - 1] !== '') {
+            result.push('');
+          }
+          const formattedHeader = this.formatMarkdownHeader(headerText, level, maxWidth, firstNonEmpty ? bulletPrefix : indent);
+          result.push(formattedHeader);
+          firstNonEmpty = false;
+          continue;
+        }
       }
 
       // Handle dividers (--- or ***)
@@ -3159,10 +3178,19 @@ export class UnifiedUIRenderer extends EventEmitter {
         continue;
       }
 
-      // Handle list items (- or * or numbered)
-      const listMatch = trimmedLine.match(/^(\*|-|•|\d+\.)\s+(.*)$/);
-      if (listMatch) {
-        const listContent = listMatch[2] ?? '';
+      // Handle markdown tables (lines starting with |)
+      if (trimmedLine.startsWith('|') || /^[-|:]+$/.test(trimmedLine)) {
+        // Table line - render with fixed width font styling
+        const tablePrefix = firstNonEmpty ? bulletPrefix : indent;
+        result.push(`${tablePrefix}${theme.ui.muted(trimmedLine)}`);
+        firstNonEmpty = false;
+        continue;
+      }
+
+      // Handle list items (- or * or numbered) - also handle -Item without space
+      const listMatch = trimmedLine.match(/^(\*|-|•|\d+\.)\s*(.+)$/);
+      if (listMatch && listMatch[2]) {
+        const listContent = listMatch[2].trim();
         const formattedList = formatInlineText(listContent);
         const listBullet = theme.secondary('  • ');
         const listIndent = '    ';
