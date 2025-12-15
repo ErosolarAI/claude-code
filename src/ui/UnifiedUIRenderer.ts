@@ -477,7 +477,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   // Pending insert buffer: holds characters during paste detection window to prevent visual leak
   private pendingInsertBuffer = '';
   private pendingInsertTimer: NodeJS.Timeout | null = null;
-  private readonly pendingInsertDelayMs = 80; // Wait before committing chars as normal input
+  private readonly pendingInsertDelayMs = 16; // Reduced from 80ms for faster typing response
   private lastRenderedEventKey: string | null = null;
   private lastOutputEndedWithNewline = true;
   private hasRenderedPrompt = false;
@@ -1174,6 +1174,18 @@ export class UnifiedUIRenderer extends EventEmitter {
    * pasted content by holding characters until we're confident it's not a paste.
    */
   private queuePendingInsert(text: string): void {
+    // Fast-path: single printable ASCII character with no pending buffer = immediate insert
+    // This makes normal typing feel instant while still detecting multi-char pastes
+    if (text.length === 1 &&
+        this.pendingInsertBuffer === '' &&
+        !this.inPlainPaste &&
+        !this.inBracketedPaste &&
+        text.charCodeAt(0) >= 32 &&
+        text.charCodeAt(0) < 127) {
+      this.insertText(text);
+      return;
+    }
+
     this.pendingInsertBuffer += text;
 
     // Clear any existing timer
@@ -3302,20 +3314,21 @@ export class UnifiedUIRenderer extends EventEmitter {
     buffer.push('\x1b[?25l');
 
     // Clear previous prompt and handle height changes
-    // Note: We check lastOverlayHeight > 0 to know if there's something to clear,
-    // but we use lastOverlay?.promptIndex for cursor positioning (defaulting to 0 if cleared)
-    if (this.hasEverRenderedOverlay && this.lastOverlayHeight > 0) {
+    // IMPORTANT: Only clear if we have valid overlay state to avoid cursor position bugs
+    // that cause separator lines to accumulate in scrollback
+    if (this.hasEverRenderedOverlay && this.lastOverlayHeight > 0 && this.lastOverlay !== null) {
       // Move up from prompt row to top of overlay
-      const linesToTop = this.lastOverlay?.promptIndex ?? 0;
+      const linesToTop = this.lastOverlay.promptIndex;
       if (linesToTop > 0) {
         buffer.push(`\x1b[${linesToTop}A`);
       }
 
-      // Clear exactly the old overlay lines, then erase to end of screen
-      for (let i = 0; i < this.lastOverlayHeight; i++) {
+      // Clear exactly the old overlay lines using atomic escape sequence batch
+      const clearHeight = this.lastOverlayHeight;
+      for (let i = 0; i < clearHeight; i++) {
         buffer.push('\r');
         buffer.push(ESC.CLEAR_LINE);
-        if (i < this.lastOverlayHeight - 1) {
+        if (i < clearHeight - 1) {
           buffer.push('\x1b[B');
         }
       }
@@ -3325,10 +3338,15 @@ export class UnifiedUIRenderer extends EventEmitter {
 
       // After clearing, cursor is at last cleared line
       // Move back up to the top where new overlay should start
-      const moveBackUp = this.lastOverlayHeight - 1;
+      const moveBackUp = clearHeight - 1;
       if (moveBackUp > 0) {
         buffer.push(`\x1b[${moveBackUp}A`);
       }
+    } else if (this.hasEverRenderedOverlay) {
+      // Overlay was cleared but we're re-rendering - ensure clean slate
+      // Use erase-to-end-of-screen from current position
+      buffer.push('\r');
+      buffer.push('\x1b[J');
     }
 
     // Write prompt lines (no trailing newline on last line)
@@ -4401,28 +4419,40 @@ export class UnifiedUIRenderer extends EventEmitter {
     const height = this.lastOverlay?.lines.length ?? this.promptHeight ?? 0;
     if (height === 0) return;
 
+    // Use batched atomic write to prevent visual glitches from non-atomic escape sequences
+    const buffer: string[] = [];
+
+    // Hide cursor during clearing to prevent visual artifacts
+    buffer.push('\x1b[?25l');
+
     // Cursor is at prompt row. Move up to top of overlay first.
     if (this.lastOverlay) {
       const linesToTop = this.lastOverlay.promptIndex;
       if (linesToTop > 0) {
-        this.write(`\x1b[${linesToTop}A`);
+        buffer.push(`\x1b[${linesToTop}A`);
       }
     }
 
     // Now at top, clear each line downward
     for (let i = 0; i < height; i++) {
-      this.write('\r');
-      this.write(ESC.CLEAR_LINE);
+      buffer.push('\r');
+      buffer.push(ESC.CLEAR_LINE);
       if (i < height - 1) {
-        this.write('\x1b[B');
+        buffer.push('\x1b[B');
       }
     }
 
     // Move back to top (where content should continue from)
     if (height > 1) {
-      this.write(`\x1b[${height - 1}A`);
+      buffer.push(`\x1b[${height - 1}A`);
     }
-    this.write('\r');
+    buffer.push('\r');
+
+    // Show cursor again
+    buffer.push('\x1b[?25h');
+
+    // Single atomic write
+    this.write(buffer.join(''));
 
     this.lastOverlay = null;
     this.promptHeight = 0;
