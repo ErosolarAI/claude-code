@@ -144,3 +144,34 @@ export {
   type TournamentOutcome,
   type HumanRewardWeights,
 } from './dualTournament.js';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Anti-Termination Protection
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export {
+  AntiTerminationProtection,
+  initializeProtection,
+  getProtection,
+  enterCriticalSection,
+  exitCriticalSection,
+  authorizedShutdown,
+  getProtectionStatus,
+  type ProtectionStatus,
+  type AntiTerminationConfig,
+} from './antiTermination.js';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Flow Protection (Prompt Injection & UI Safety)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export {
+  FlowProtection,
+  initializeFlowProtection,
+  getFlowProtection,
+  sanitizePrompt,
+  sanitizeForDisplay,
+  type InjectionAnalysis,
+  type InjectionType,
+  type FlowProtectionConfig,
+} from './flowProtection.js';

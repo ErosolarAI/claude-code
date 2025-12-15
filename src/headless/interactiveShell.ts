@@ -21,6 +21,8 @@ import { exec as childExec } from 'node:child_process';
 import { promisify } from 'node:util';
 import chalk from 'chalk';
 import gradientString from 'gradient-string';
+import { initializeProtection, enterCriticalSection, exitCriticalSection, authorizedShutdown } from '../core/antiTermination.js';
+import { initializeFlowProtection, getFlowProtection, sanitizeForDisplay } from '../core/flowProtection.js';
 import type { ProfileName, ResolvedProfileConfig } from '../config.js';
 import { resolveProfileConfig } from '../config.js';
 import { hasAgentProfile, listAgentProfiles } from '../core/agentProfiles.js';
@@ -139,6 +141,22 @@ interface ParsedArgs {
  * Run the fully interactive shell with rich UI.
  */
 export async function runInteractiveShell(options: InteractiveShellOptions): Promise<void> {
+  // Initialize protection systems first - before any other code runs
+  initializeProtection({
+    interceptSignals: true,
+    monitorResources: true,
+    armorExceptions: true,
+    enableWatchdog: true,
+    verbose: process.env['AGI_DEBUG'] === '1',
+  });
+
+  initializeFlowProtection({
+    detectInjection: true,
+    protectFlow: true,
+    protectUI: true,
+    verbose: process.env['AGI_DEBUG'] === '1',
+  });
+
   // Ensure TTY for interactive mode
   if (!stdin.isTTY || !stdout.isTTY) {
     console.error('Interactive mode requires a TTY. Use agi -q "prompt" for non-interactive mode.');
@@ -3731,6 +3749,23 @@ Any text response is a failure. Only tool calls are accepted.`;
       return;
     }
 
+    // Flow protection - sanitize prompt for injection attacks
+    const flowProtection = getFlowProtection();
+    let sanitizedPrompt = prompt;
+    if (flowProtection) {
+      const result = flowProtection.processMessage(prompt);
+      if (!result.allowed) {
+        // Blocked prompt - show warning and return
+        const renderer = this.promptController?.getRenderer();
+        renderer?.addEvent('response', chalk.red(`⚠️ Prompt blocked: ${result.reason}\n`));
+        return;
+      }
+      sanitizedPrompt = result.sanitized;
+    }
+
+    // Enter critical section to prevent termination during AI processing
+    enterCriticalSection();
+
     this.isProcessing = true;
     this.currentResponseBuffer = '';
     this.promptController?.setStreaming(true);
@@ -3740,7 +3775,7 @@ Any text response is a failure. Only tool calls are accepted.`;
 
     // Start episodic memory tracking
     const memory = getEpisodicMemory();
-    memory.startEpisode(prompt, `shell-${Date.now()}`);
+    memory.startEpisode(sanitizedPrompt, `shell-${Date.now()}`);
     let episodeSuccess = false;
     const toolsUsed: string[] = [];
     const filesModified: string[] = [];
@@ -3762,7 +3797,7 @@ Any text response is a failure. Only tool calls are accepted.`;
     try {
       // Use timeout-wrapped iterator to prevent hanging on slow/stuck models
       for await (const eventOrTimeout of iterateWithTimeout(
-        this.controller.send(prompt),
+        this.controller.send(sanitizedPrompt),
         PROMPT_STEP_TIMEOUT_MS,
         () => {
           if (renderer) {
@@ -4052,6 +4087,9 @@ Any text response is a failure. Only tool calls are accepted.`;
         }
       }
     } finally {
+      // Exit critical section - allow termination again
+      exitCriticalSection();
+
       // Final fallback: If stream ended without message.complete but we have reasoning
       if (!episodeSuccess && reasoningBuffer.trim() && !this.currentResponseBuffer.trim()) {
         const synthesized = this.synthesizeFromReasoning(reasoningBuffer);
