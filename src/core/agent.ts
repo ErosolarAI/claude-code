@@ -1051,6 +1051,7 @@ export class AgentRuntime {
     const userContent = [
       'Provide a concise, user-facing explanation of the edit that just completed.',
       'Keep it to 1-3 sentences and mention intent, impact, and any user-visible changes.',
+      'IMPORTANT: Output ONLY the final explanation. Do NOT include any reasoning, thinking, or deliberation.',
       fileLine,
       `Tool: ${toolName}`,
       '',
@@ -1061,10 +1062,81 @@ export class AgentRuntime {
     return [
       {
         role: 'system',
-        content: 'You summarize code edits for the user interface. Be specific about what changed and why, and avoid filler.',
+        content: 'You summarize code edits for the user interface. Output ONLY the final 1-3 sentence summary. No reasoning, no deliberation, no "First...", no "Let me think...", no drafts. Just the clean summary.',
       },
       { role: 'user', content: userContent },
     ];
+  }
+
+  /**
+   * Extract clean explanation from model output that may contain reasoning.
+   * Reasoning models like deepseek-reasoner output chain-of-thought which we need to filter.
+   */
+  private extractCleanExplanation(rawOutput: string): string {
+    if (!rawOutput) return '';
+
+    // Check for common reasoning patterns and extract final output
+    const patterns = [
+      // "Final explanation:" or "Final concise explanation:" patterns
+      /(?:final\s+(?:concise\s+)?explanation\s*:?\s*["']?)([^"'\n]+(?:["']|$))/i,
+      // Quoted final output
+      /"([^"]{20,})"(?:\s*\([^)]+\))?$/,
+      // Last paragraph after deliberation markers
+      /(?:draft|summary|output|result)\s*:?\s*\n?\s*["']?([^"'\n]+)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = rawOutput.match(pattern);
+      if (match?.[1]) {
+        // Clean up the extracted text
+        return match[1].replace(/^["']|["']$/g, '').trim();
+      }
+    }
+
+    // Check if the output looks like reasoning (contains deliberation markers)
+    const reasoningMarkers = [
+      /^first,?\s+(the user|i need|let me|looking at)/i,
+      /^(from this|based on|analyzing|the tool output shows)/i,
+      /^(intent:|impact:|user-visible changes:)/im,
+      /^(now,?\s+i (?:need|should|will)|let me (?:craft|think|analyze))/i,
+      /\b(draft:|final (?:draft|explanation):)/i,
+    ];
+
+    const hasReasoning = reasoningMarkers.some(marker => marker.test(rawOutput));
+
+    if (hasReasoning) {
+      // Try to extract the last meaningful sentence/paragraph
+      const lines = rawOutput.split('\n').filter(l => l.trim());
+      // Look for the last line that looks like a summary (not a reasoning line)
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        // Skip lines that look like reasoning
+        if (reasoningMarkers.some(m => m.test(line))) continue;
+        // Skip very short lines or lines that are just labels
+        if (line.length < 30 || /^[\w\s]+:$/.test(line)) continue;
+        // Found a good candidate
+        return line.replace(/^["']|["']$/g, '').replace(/\([^)]+\)$/, '').trim();
+      }
+
+      // Fallback: take last 200 chars and try to find a sentence
+      const tail = rawOutput.slice(-300);
+      const lastSentence = tail.match(/[A-Z][^.!?]*[.!?](?:\s|$)/g);
+      if (lastSentence?.length) {
+        return lastSentence[lastSentence.length - 1].trim();
+      }
+    }
+
+    // No reasoning detected, return as-is but truncate if too long
+    if (rawOutput.length > 500) {
+      // Find a sentence break near the end
+      const truncated = rawOutput.slice(0, 500);
+      const lastPeriod = truncated.lastIndexOf('.');
+      if (lastPeriod > 200) {
+        return truncated.slice(0, lastPeriod + 1);
+      }
+    }
+
+    return rawOutput.trim();
   }
 
   private async maybeExplainEdits(results: Array<{ call: ToolCallRequest; output: string; fromCache: boolean }>): Promise<void> {
@@ -1086,7 +1158,9 @@ export class AgentRuntime {
         if (response.type !== 'message') {
           continue;
         }
-        const explanation = response.content?.trim();
+        // Extract clean explanation, filtering out any reasoning/deliberation
+        const rawExplanation = response.content?.trim() ?? '';
+        const explanation = this.extractCleanExplanation(rawExplanation);
         if (explanation) {
           this.callbacks.onEditExplanation?.({
             explanation,
