@@ -175,3 +175,15 @@ export {
   type InjectionType,
   type FlowProtectionConfig,
 } from './flowProtection.js';
+
+// Input Protection
+export {
+  InputProtection,
+  initializeInputProtection,
+  getInputProtection,
+  validateChatInput,
+  validatePromptSubmit,
+  type InputValidation,
+  type InputAttackType,
+  type InputProtectionConfig,
+} from './inputProtection.js';

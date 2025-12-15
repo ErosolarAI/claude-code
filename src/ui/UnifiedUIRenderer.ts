@@ -21,6 +21,7 @@ import {
   getContextColor,
 } from './uiConstants.js';
 import { formatInlineText } from './richText.js';
+import { initializeInputProtection, getInputProtection, type InputProtection } from '../core/inputProtection.js';
 
 // UI helper methods for security components
 export function createBanner(title: string, subtitle?: string): string {
@@ -618,6 +619,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   // Bound event handlers for proper cleanup
   private boundResizeHandler: (() => void) | null = null;
   private boundKeypressHandler: ((str: string, key: readline.Key) => void) | null = null;
+  private inputProtection: InputProtection | null = null;
   private inputCapture:
     | {
         resolve: (value: string) => void;
@@ -690,6 +692,17 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     this.updateTerminalSize();
+
+    // Initialize input protection against remote attacks
+    this.inputProtection = initializeInputProtection({
+      verbose: process.env['AGI_DEBUG'] === '1',
+      onAttackDetected: (type, details) => {
+        // Log attack but don't disrupt user experience
+        if (process.env['AGI_DEBUG']) {
+          console.error(`[InputProtection] Attack detected: ${type} - ${details}`);
+        }
+      },
+    });
 
     // Use bound handlers so we can remove them on cleanup
     this.boundResizeHandler = () => {
@@ -1564,7 +1577,21 @@ export class UnifiedUIRenderer extends EventEmitter {
   private commitPasteBuffer(): void {
     if (!this.inBracketedPaste) return;
     // Sanitize to remove any injected escape sequences, then normalize line endings
-    const sanitized = this.sanitizePasteContent(this.pasteBuffer);
+    let sanitized = this.sanitizePasteContent(this.pasteBuffer);
+
+    // Input protection validation against remote paste attacks
+    if (this.inputProtection) {
+      const validation = this.inputProtection.validateInput(sanitized, true);
+      if (validation.blocked) {
+        // Paste blocked - reset state and abort
+        this.inBracketedPaste = false;
+        this.pasteBuffer = '';
+        this.pasteBufferOverflow = false;
+        return;
+      }
+      sanitized = validation.sanitized;
+    }
+
     const content = sanitized.replace(/\r\n?/g, '\n');
     if (content) {
       const lines = content.split('\n');
@@ -1739,7 +1766,23 @@ export class UnifiedUIRenderer extends EventEmitter {
     if (!this.inPlainPaste) return;
 
     // Sanitize to remove any injected escape sequences, then normalize line endings
-    const sanitized = this.sanitizePasteContent(this.plainPasteBuffer);
+    let sanitized = this.sanitizePasteContent(this.plainPasteBuffer);
+
+    // Input protection validation against remote paste attacks
+    if (this.inputProtection) {
+      const validation = this.inputProtection.validateInput(sanitized, true);
+      if (validation.blocked) {
+        // Paste blocked - reset state and abort
+        this.inPlainPaste = false;
+        this.plainPasteBuffer = '';
+        this.plainRecentChunks = [];
+        this.resetPlainPasteBurst();
+        this.pasteBufferOverflow = false;
+        return;
+      }
+      sanitized = validation.sanitized;
+    }
+
     const content = sanitized.replace(/\r\n?/g, '\n');
     const wasTruncated = this.pasteBufferOverflow;
     this.inPlainPaste = false;
@@ -1776,6 +1819,20 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Don't insert during paste operations - content goes to paste buffer
     if (this.inBracketedPaste || this.inPlainPaste) {
       return;
+    }
+
+    // Input protection validation against remote attacks
+    if (this.inputProtection) {
+      const validation = this.inputProtection.validateInput(text, false);
+      if (validation.blocked) {
+        // Input blocked - silently drop to prevent attack
+        return;
+      }
+      if (validation.sanitized !== text) {
+        // Use sanitized version
+        text = validation.sanitized;
+        if (!text) return;
+      }
     }
     // If there's a collapsed paste and user types, expand to buffer first then insert at cursor
     if (this.collapsedPaste) {
@@ -1843,10 +1900,23 @@ export class UnifiedUIRenderer extends EventEmitter {
       return;
     }
 
-    const normalized = text.trim();
+    let normalized = text.trim();
     if (!normalized) {
       this.renderPrompt();
       return;
+    }
+
+    // Final prompt validation before submission to AI
+    if (this.inputProtection) {
+      const validation = this.inputProtection.validatePromptSubmission(normalized);
+      if (validation.blocked) {
+        // Prompt blocked - don't submit
+        this.buffer = '';
+        this.cursor = 0;
+        this.renderPrompt();
+        return;
+      }
+      normalized = validation.sanitized;
     }
 
     // Don't add secrets or slash commands to history/scrollback
