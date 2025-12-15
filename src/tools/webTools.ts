@@ -205,13 +205,13 @@ async function extractTavily(urls: string[], apiKey: string): Promise<string> {
 }
 
 /**
- * Format Tavily search results
+ * Format Tavily search results with enhanced markdown formatting
  */
 function formatTavilyResults(data: TavilySearchResponse, provider: string): string {
   const lines: string[] = [`[WebSearch via ${provider}]`, ''];
 
   if (data.answer) {
-    lines.push('Summary:', data.answer, '');
+    lines.push('**Summary:**', data.answer, '');
   }
 
   if (!data.results || data.results.length === 0) {
@@ -219,29 +219,36 @@ function formatTavilyResults(data: TavilySearchResponse, provider: string): stri
     return lines.join('\n');
   }
 
-  lines.push(`Results for "${data.query}":`);
-  lines.push('');
-
-  for (const result of data.results) {
-    lines.push(`**${result.title}**`);
-    lines.push(result.url);
-    if (result.content) {
-      const snippet = result.content.length > 300
-        ? result.content.slice(0, 300) + '...'
-        : result.content;
-      lines.push(snippet);
-    }
-    if (result.published_date) {
-      lines.push(`Published: ${result.published_date}`);
-    }
+  if (data.results.length > 0) {
+    lines.push('**Search Results:**');
     lines.push('');
+
+    for (let i = 0; i < data.results.length; i++) {
+      const result = data.results[i];
+
+      // Format as numbered list with clickable title link
+      lines.push(`${i + 1}. **[${result.title}](${result.url})**`);
+
+      if (result.content) {
+        const snippet = result.content.length > 300
+          ? result.content.slice(0, 300) + '...'
+          : result.content;
+        lines.push(`   ${snippet}`);
+      }
+
+      if (result.published_date) {
+        lines.push(`   *Published: ${result.published_date}*`);
+      }
+
+      lines.push('');
+    }
   }
 
   return lines.join('\n');
 }
 
 /**
- * Format Tavily extract results
+ * Format Tavily extract results with enhanced markdown formatting
  */
 function formatExtractResults(data: TavilyExtractResponse): string {
   const lines: string[] = ['[WebExtract via Tavily]', ''];
@@ -251,19 +258,23 @@ function formatExtractResults(data: TavilyExtractResponse): string {
     return lines.join('\n');
   }
 
-  for (const result of data.results) {
-    lines.push(`**${result.url}**`);
+  for (let i = 0; i < data.results.length; i++) {
+    const result = data.results[i];
+
+    lines.push(`### Source ${i + 1}: [${result.url}](${result.url})`);
     lines.push('');
     if (result.raw_content) {
       // Truncate very long content
       const content = result.raw_content.length > 5000
-        ? result.raw_content.slice(0, 5000) + '\n\n[Content truncated...]'
+        ? result.raw_content.slice(0, 5000) + '\n\n*[Content truncated...]*'
         : result.raw_content;
       lines.push(content);
     }
     lines.push('');
-    lines.push('---');
-    lines.push('');
+    if (i < data.results.length - 1) {
+      lines.push('---');
+      lines.push('');
+    }
   }
 
   return lines.join('\n');

@@ -443,7 +443,7 @@ function pickDiffColor(line: string) {
   return theme.ui.text;
 }
 
-function formatInlineText(text: string): string {
+export function formatInlineText(text: string): string {
   if (!text) {
     return '';
   }

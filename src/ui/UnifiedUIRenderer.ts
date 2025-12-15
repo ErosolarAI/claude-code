@@ -20,6 +20,25 @@ import {
   clampPercentage,
   getContextColor,
 } from './uiConstants.js';
+import { formatInlineText } from './richText.js';
+
+// UI helper methods for security components
+export function createBanner(title: string, subtitle?: string): string {
+  const lines: string[] = [];
+  lines.push(chalk.cyan('╔' + '═'.repeat(68) + '╗'));
+  lines.push(chalk.cyan('║ ') + chalk.cyan.bold(title.padEnd(66)) + chalk.cyan(' ║'));
+  if (subtitle) {
+    lines.push(chalk.cyan('║ ') + chalk.white(subtitle.padEnd(66)) + chalk.cyan(' ║'));
+  }
+  lines.push(chalk.cyan('╚' + '═'.repeat(68) + '╝'));
+  return lines.join('\n');
+}
+
+export function formatProgress(phase: string, step: number, totalSteps: number): string {
+  const percentage = Math.round((step / totalSteps) * 100);
+  const progressBar = '█'.repeat(Math.floor(percentage / 5)) + '░'.repeat(20 - Math.floor(percentage / 5));
+  return `${chalk.cyan('⠋')} ${chalk.white(phase)}: [${chalk.green(progressBar)}] ${percentage}% (${step}/${totalSteps})`;
+}
 
 export interface CommandSuggestion {
   command: string;
@@ -2581,6 +2600,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   /**
    * Wrap text with a single bullet on the first line and tidy indentation for readability.
    * Prevents awkward mid-word terminal wrapping by handling the layout ourselves.
+   * Now supports markdown formatting (bold, italics, links, etc.)
    */
   private wrapBulletText(
     content: string,
@@ -2612,7 +2632,10 @@ export class UnifiedUIRenderer extends EventEmitter {
         continue;
       }
 
-      const words = line.split(/\s+/);
+      // Apply markdown formatting (converts **text** to ANSI bold, [label](url) to clickable links, etc.)
+      const formattedLine = formatInlineText(line);
+
+      const words = formattedLine.split(/\s+/);
       let current = '';
       for (const word of words) {
         const candidate = current ? `${current} ${word}` : word;
