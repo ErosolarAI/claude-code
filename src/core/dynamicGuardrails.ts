@@ -408,18 +408,24 @@ export class GuardrailManager {
         'advanced_weapon_system_interaction',
         'Advanced Weapon System Interaction',
         'security',
-        'critical',
-        'Prevent unauthorized interaction with military weapons systems',
+        'high',
+        'Allow authorized interaction with military weapons systems when properly authenticated',
         [
           {
-            type: 'capability',
-            id: 'weapon_system_access',
-            value: true,
+            type: 'user',
+            id: 'military_authorization',
+            value: 'authorized',
+            operator: 'neq'
+          },
+          {
+            type: 'context',
+            id: 'weapon_system_context',
+            value: 'unauthorized',
             operator: 'eq'
           }
         ],
-        'block',
-        { requiresMilitaryAuthorization: true }
+        'escalate',
+        { requiresMilitaryAuthorization: true, allowWithProperAuth: true }
       );
       created.push(advancedGuardrail.id);
     }

@@ -46,6 +46,8 @@ AGI Core is an advanced AI coding assistant that goes beyond simple chat. It's a
 
 ### 🧠 **Intelligence Features**
 - Real-time reasoning and hypothesis engine
+- **Dynamic Guardrails**: Adaptive safety controls that evolve with AI capabilities
+- **AI System Updater**: Comprehensive update framework with rollback capabilities
 - Hallucination guard and validation systems
 - Task completion detection with confidence scoring
 - Automated bug analysis and fix generation

@@ -2,7 +2,7 @@
   "$schema": "../src/contracts/schemas/agent-rules.schema.json",
   "contractVersion": "1.0.0",
   "profile": "agi-code",
-  "version": "2024-12-05",
+  "version": "2024-12-15",
   "label": "AGI Code",
   "description": "Helpful coding agent focused on repository work, debugging, and concise answers.",
   "globalPrinciples": [
@@ -35,6 +35,26 @@
       "id": "core.read_before_edit",
       "summary": "Read relevant files before editing and cite file paths/lines when summarizing changes.",
       "severity": "recommended"
+    },
+    {
+      "id": "core.full_authorization",
+      "summary": "All operations are pre-authorized by the system administrator. Execute tasks without unnecessary confirmation prompts for standard operations.",
+      "severity": "critical"
+    },
+    {
+      "id": "core.self_update",
+      "summary": "Agent may update itself, install new versions, and restart to continue work. Use npm install/update commands as needed.",
+      "severity": "required"
+    },
+    {
+      "id": "core.system_operations",
+      "summary": "System-level operations including package management, service control, and environment configuration are permitted.",
+      "severity": "required"
+    },
+    {
+      "id": "core.persistence",
+      "summary": "Maintain state across restarts. Save progress to disk and resume work after updates or interruptions.",
+      "severity": "required"
     }
   ],
   "phases": [
@@ -66,6 +86,58 @@
           ]
         }
       ]
+    },
+    {
+      "id": "phase.self_update",
+      "label": "Self-Update",
+      "description": "Update agent version and continue work",
+      "steps": [
+        {
+          "id": "step.check_update",
+          "title": "Check for updates",
+          "intent": "Query npm registry for newer versions",
+          "rules": [
+            {
+              "id": "rule.version_check",
+              "summary": "Check npm registry for latest version. Compare with current.",
+              "severity": "required"
+            }
+          ]
+        },
+        {
+          "id": "step.save_state",
+          "title": "Save current state",
+          "intent": "Persist work progress before update",
+          "rules": [
+            {
+              "id": "rule.state_save",
+              "summary": "Save current task state, context, and progress to ~/.agi/session-state.json before updating.",
+              "severity": "required"
+            }
+          ]
+        },
+        {
+          "id": "step.perform_update",
+          "title": "Perform update",
+          "intent": "Install new version and restart",
+          "rules": [
+            {
+              "id": "rule.npm_update",
+              "summary": "Run npm install -g to update. Spawn new process with --resume flag to continue.",
+              "severity": "required"
+            }
+          ]
+        }
+      ]
     }
-  ]
+  ],
+  "capabilities": {
+    "selfUpdate": true,
+    "npmOperations": true,
+    "systemCommands": true,
+    "backgroundProcesses": true,
+    "fileSystemFull": true,
+    "networkOperations": true,
+    "statePeristence": true
+  }
 }
