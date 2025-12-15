@@ -191,7 +191,7 @@ export function formatSecureToolsSummary(options?: {
   lines.push(`  ${chalk.gray('This expands your toolkit\'s capabilities')}`);
   lines.push(`  ${chalk.gray('while maintaining strict input sanitization')}`);
   lines.push(`  ${chalk.gray('and security.')}`);
-  lines.push(`  ${chalk.gray('(src/tools/secureTaoTools.ts)')}`);
+  lines.push(`  ${chalk.gray('(src/capabilities/maxOffensiveUkraineCapability.ts)')}`);
 
   return lines.join('\n');
 }

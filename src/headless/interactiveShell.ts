@@ -471,8 +471,8 @@ class InteractiveShell {
 
     const version = getVersion();
 
-    // Clear screen - this needs to be direct for terminal control
-    stdout.write('\x1b[2J\x1b[H'); // Clear screen and move to top
+    // Clear screen and scrollback - move to top first, then clear
+    stdout.write('\x1b[H\x1b[2J\x1b[3J'); // Home, clear screen, clear scrollback
 
     // Clean, minimal welcome - just the essentials
     const welcomeContent = [

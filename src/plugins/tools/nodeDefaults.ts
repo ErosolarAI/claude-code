@@ -4,7 +4,9 @@ import { createEditToolPlugin } from './edit/editPlugin.js';
 import { createLocalSearchToolPlugin } from './search/localSearchPlugin.js';
 import { createLocalBashToolPlugin } from './bash/localBashPlugin.js';
 import { createEnhancedGitToolPlugin } from './enhancedGit/enhancedGitPlugin.js';
+import { createGitHistoryToolPlugin } from './gitHistory/gitHistoryPlugin.js';
 import { createSecureTaoToolPlugin } from './tao/secureTaoPlugin.js';
+import { createAuthorizedSecurityToolPlugin } from './authorizedSecurity/authorizedSecurityPlugin.js';
 let registered = false;
 
 /**
@@ -16,7 +18,9 @@ let registered = false;
  * - search: Unified search (files, content, definitions)
  * - bash: Execute commands
  * - enhanced-git: Git operations
- * - secure-tao: Secure security tooling
+ * - git-history: Git history search and file restoration
+ * - secure-tao: Modular utilities (state, transform, RL)
+ * - authorized-security: Security testing with authorization enforcement
  */
 export function registerDefaultNodeToolPlugins(): void {
   if (registered) return;
@@ -26,11 +30,9 @@ export function registerDefaultNodeToolPlugins(): void {
     registerToolPlugin(createLocalSearchToolPlugin());
     registerToolPlugin(createLocalBashToolPlugin());
     registerToolPlugin(createEnhancedGitToolPlugin());
+    registerToolPlugin(createGitHistoryToolPlugin());
     registerToolPlugin(createSecureTaoToolPlugin());
-
-    // Register advanced security plugins
-    // registerToolPlugin(zeroDayDiscoveryPlugin);
-    // registerToolPlugin(universalAttackPlugin);
+    registerToolPlugin(createAuthorizedSecurityToolPlugin());
 
     registered = true;
 }
