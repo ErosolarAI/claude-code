@@ -229,6 +229,7 @@ export class PromptController {
    * Sync the stored toggle state to the renderer so UI reflects the latest flags.
    */
   private syncModeToggles(): void {
+    process.stderr.write(`[PC] syncModeToggles: autoContinue=${this.modeToggleState.autoContinueEnabled}\n`);
     this.renderer.updateModeToggles(this.modeToggleState);
   }
 

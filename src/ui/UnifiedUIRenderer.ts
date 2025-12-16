@@ -4196,7 +4196,10 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   updateModeToggles(state: Partial<ModeToggleState>): void {
+    const before = this.toggleState.autoContinueEnabled;
     this.toggleState = { ...this.toggleState, ...state };
+    const after = this.toggleState.autoContinueEnabled;
+    process.stderr.write(`[UIR] updateModeToggles: before=${before} state.auto=${state.autoContinueEnabled} after=${after}\n`);
     if (
       !state.thinkingHotkey &&
       !state.criticalApprovalHotkey &&
