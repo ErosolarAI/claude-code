@@ -913,7 +913,44 @@ export class UnifiedUIRenderer extends EventEmitter {
     const normalizedKey = key ?? this.parseEscapeSequence(str);
     const keyForPaste = normalizedKey ?? (str ? { sequence: str } as readline.Key : key);
 
-    // FIRST: Handle macOS Option+key toggles BEFORE any paste detection
+    // CRITICAL: Handle Ctrl+C and Ctrl+D FIRST - must ALWAYS work to quit/interrupt
+    // This is checked before ANY other processing to ensure it can never be blocked
+    if (normalizedKey?.ctrl && (normalizedKey.name === 'c' || normalizedKey.name === 'd')) {
+      // If we're in input capture mode, cancel it first
+      if (this.inputCapture) {
+        this.cancelInputCapture(new Error('Input capture cancelled'));
+        this.clearBuffer();
+        return;
+      }
+
+      if (normalizedKey.name === 'c') {
+        // Ctrl+C behavior:
+        // 1. If buffer has text: clear it first, then notify shell
+        // 2. If buffer is empty: let shell decide to pause AI or quit
+        const hadBuffer = this.buffer.length > 0;
+        if (hadBuffer) {
+          this.buffer = '';
+          this.cursor = 0;
+          this.inputRenderOffset = 0;
+          this.resetSuggestions();
+          this.renderPrompt();
+          this.emitInputChange();
+        }
+        // Emit ctrlc event with buffer state so shell can handle appropriately
+        this.emit('ctrlc', { hadBuffer });
+        return;
+      }
+
+      if (normalizedKey.name === 'd') {
+        // Ctrl+D: interrupt if buffer is empty
+        if (this.buffer.length === 0) {
+          this.emit('interrupt');
+        }
+        return;
+      }
+    }
+
+    // Handle macOS Option+key toggles BEFORE any paste detection
     // These Unicode characters are produced by Option+letter combinations
     // IMPORTANT: Must be checked FIRST so paste detection doesn't intercept them
     const macOptionChars: Record<string, string> = {
@@ -978,11 +1015,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       return;
     }
 
-    if (this.inputCapture && normalizedKey.ctrl && (normalizedKey.name === 'c' || normalizedKey.name === 'd')) {
-      this.cancelInputCapture(new Error('Input capture cancelled'));
-      this.clearBuffer();
-      return;
-    }
+    // inputCapture Ctrl+C/D is handled at the top of handleKeypress
 
     // Detect Ctrl+Shift combinations (fallback for non-macOS or configured terminals)
     const isCtrlShift = (letter: string): boolean => {
@@ -1064,33 +1097,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       return;
     }
 
-    if (normalizedKey.ctrl && normalizedKey.name === 'c') {
-      // Ctrl+C behavior:
-      // 1. If buffer has text: clear it first, then notify shell
-      // 2. If buffer is empty: let shell decide to pause AI or quit
-      //
-      // The InteractiveShell maintains a counter to track Ctrl+C presses and decides
-      // whether to pause AI or exit based on processing state.
-
-      const hadBuffer = this.buffer.length > 0;
-      if (hadBuffer) {
-        // Clear the input buffer first
-        this.buffer = '';
-        this.cursor = 0;
-        this.renderPrompt();
-        this.emitInputChange();
-      }
-      // Emit ctrlc event with buffer state so shell can handle appropriately
-      this.emit('ctrlc', { hadBuffer });
-      return;
-    }
-
-    if (key.ctrl && key.name === 'd') {
-      if (this.buffer.length === 0) {
-        this.emit('interrupt');
-      }
-      return;
-    }
+    // Ctrl+C and Ctrl+D are handled at the top of handleKeypress for guaranteed execution
 
     if (key.ctrl && key.name === 'u') {
       this.clearBuffer();
