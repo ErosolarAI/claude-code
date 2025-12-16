@@ -610,6 +610,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   private renderThrottleTimer: NodeJS.Timeout | null = null;
   // Performance: Cache last rendered state to skip unnecessary renders
   private lastRenderedBuffer = '';
+  private forceNextRender = false;
   private lastRenderedCursor = 0;
   private lastRenderedMode: 'idle' | 'streaming' = 'idle';
   // Disposal state to prevent operations after cleanup
@@ -4206,8 +4207,8 @@ export class UnifiedUIRenderer extends EventEmitter {
     ) {
       this.hotkeysInToggleLine.clear();
     }
-    // Invalidate render cache to force re-render (toggle state changed)
-    this.lastOverlay = null;
+    // Force next render to show updated toggle state
+    this.forceNextRender = true;
     this.renderPromptImmediate();
   }
 
@@ -4524,7 +4525,8 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     // Performance optimization: Skip render if nothing changed (during idle mode only)
     // During streaming mode, we need to update animations and status
-    if (this.mode === 'idle' &&
+    if (!this.forceNextRender &&
+        this.mode === 'idle' &&
         this.buffer === this.lastRenderedBuffer &&
         this.cursor === this.lastRenderedCursor &&
         this.mode === this.lastRenderedMode &&
@@ -4532,6 +4534,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       // Content unchanged, skip expensive re-render
       return;
     }
+    this.forceNextRender = false;
 
     this.lastRenderTime = Date.now();
     this.lastRenderedBuffer = this.buffer;
