@@ -5222,6 +5222,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     );
 
     const autoContinueActive = this.toggleState.autoContinueEnabled ?? false;
+    process.stderr.write(`[RENDER] autoContinueActive=${autoContinueActive} raw=${this.toggleState.autoContinueEnabled}\n`);
     addToggle(
       'Auto',
       autoContinueActive,
