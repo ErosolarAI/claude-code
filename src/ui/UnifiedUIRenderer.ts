@@ -5293,14 +5293,22 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   private buildInputLine(): string {
     if (this.collapsedPaste) {
-      // Enhanced paste chip with better formatting
+      // Clean paste indicator - just show the summary, no action hints
       const linesText = this.collapsedPaste.lines === 1 ? '1 line' : `${this.collapsedPaste.lines} lines`;
-      const charsText = typeof this.collapsedPaste.chars === 'number' ? 
-        `${this.collapsedPaste.chars} chars` : 
+      const charsText = typeof this.collapsedPaste.chars === 'number' ?
+        `${this.collapsedPaste.chars} chars` :
         `${this.collapsedPaste.chars}`;
-      const summary = theme.ui.muted(`[📋 ${linesText}, ${charsText}] `);
-      const actions = theme.warning(`(Enter/Ctrl+L insert • Backspace discard)`);
-      return this.truncateLine(`${theme.primary('> ')}${summary}${actions}`, this.safeWidth());
+      const summary = theme.success(`[📋 ${linesText}, ${charsText}]`);
+      return this.truncateLine(`${theme.primary('> ')}${summary}`, this.safeWidth());
+    }
+
+    // While detecting paste, suppress buffer display to prevent leaking
+    if (this.inPlainPaste || this.inBracketedPaste) {
+      const chars = this.plainPasteBuffer.length || this.pasteBuffer.length || 0;
+      if (chars > 0) {
+        const indicator = theme.ui.muted(`[📋 pasting... ${chars} chars]`);
+        return this.truncateLine(`${theme.primary('> ')}${indicator}`, this.safeWidth());
+      }
     }
 
     // Claude Code uses simple '>' prompt
