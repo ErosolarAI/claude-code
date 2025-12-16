@@ -904,17 +904,12 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
     this.rl.removeAllListeners('line');
 
-    // Remove any existing handlers first
-    if (this.boundDataHandler) {
-      this.input.removeListener('data', this.boundDataHandler);
-    }
-    if (this.boundCtrlHandler) {
-      this.input.removeListener('data', this.boundCtrlHandler);
-    }
+    // CRITICAL: Save ALL existing data listeners, then remove them all
+    // This ensures we can re-add them in the correct order with our handler FIRST
+    const existingDataListeners = this.input.listeners('data').slice();
+    this.input.removeAllListeners('data');
 
-    // CRITICAL: Handle special keys at raw data level BEFORE readline
-    // Use prependListener to ensure this handler ALWAYS runs first,
-    // even if readline.emitKeypressEvents was called before
+    // Create our special key handler that MUST run first
     this.boundDataHandler = (data: Buffer) => {
       if (this.disposed) return;
       const str = data.toString('utf8');
@@ -952,8 +947,16 @@ export class UnifiedUIRenderer extends EventEmitter {
         return;
       }
     };
-    // Use prependListener to ensure we're ALWAYS first, before readline's handler
-    this.input.prependListener('data', this.boundDataHandler);
+
+    // Add OUR handler FIRST (before any other handlers)
+    this.input.on('data', this.boundDataHandler);
+
+    // Re-add any existing listeners that were there before (e.g., readline's handler)
+    for (const listener of existingDataListeners) {
+      if (listener !== this.boundDataHandler && listener !== this.boundCtrlHandler) {
+        this.input.on('data', listener as (...args: unknown[]) => void);
+      }
+    }
 
     // Process intercepted Ctrl keys (stored handler for proper cleanup)
     this.boundCtrlHandler = () => {
@@ -968,6 +971,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     };
     this.input.on('data', this.boundCtrlHandler);
 
+    // Now set up readline's keypress emission (it will add its own data listener after ours)
     readline.emitKeypressEvents(this.input, this.rl);
     if (this.input.isTTY) {
       this.input.setRawMode(true);
