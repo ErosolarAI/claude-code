@@ -4196,10 +4196,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   updateModeToggles(state: Partial<ModeToggleState>): void {
-    const before = this.toggleState.autoContinueEnabled;
     this.toggleState = { ...this.toggleState, ...state };
-    const after = this.toggleState.autoContinueEnabled;
-    process.stderr.write(`[UIR] updateModeToggles: before=${before} state.auto=${state.autoContinueEnabled} after=${after}\n`);
     if (
       !state.thinkingHotkey &&
       !state.criticalApprovalHotkey &&
@@ -4209,7 +4206,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     ) {
       this.hotkeysInToggleLine.clear();
     }
-    this.renderPrompt();
+    // Invalidate render cache to force re-render (toggle state changed)
+    this.lastOverlay = null;
+    this.renderPromptImmediate();
   }
 
   /**
@@ -5222,7 +5221,6 @@ export class UnifiedUIRenderer extends EventEmitter {
     );
 
     const autoContinueActive = this.toggleState.autoContinueEnabled ?? false;
-    process.stderr.write(`[RENDER] autoContinueActive=${autoContinueActive} raw=${this.toggleState.autoContinueEnabled}\n`);
     addToggle(
       'Auto',
       autoContinueActive,

@@ -93,10 +93,7 @@ export class PromptController {
       this.callbacks.onExpandToolResult?.();
     });
     this.addBoundHandler('toggle-auto-continue', () => {
-      const oldValue = this.modeToggleState.autoContinueEnabled;
       this.modeToggleState.autoContinueEnabled = !this.modeToggleState.autoContinueEnabled;
-      const newValue = this.modeToggleState.autoContinueEnabled;
-      process.stderr.write(`[PC] toggle-auto-continue: ${oldValue} -> ${newValue}\n`);
       this.syncModeToggles();
       this.callbacks.onToggleAutoContinue?.();
     });
@@ -229,7 +226,6 @@ export class PromptController {
    * Sync the stored toggle state to the renderer so UI reflects the latest flags.
    */
   private syncModeToggles(): void {
-    process.stderr.write(`[PC] syncModeToggles: autoContinue=${this.modeToggleState.autoContinueEnabled}\n`);
     this.renderer.updateModeToggles(this.modeToggleState);
   }
 
