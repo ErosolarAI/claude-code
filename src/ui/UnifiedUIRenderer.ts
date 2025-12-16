@@ -620,6 +620,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   private boundResizeHandler: (() => void) | null = null;
   private boundKeypressHandler: ((str: string, key: readline.Key) => void) | null = null;
   private boundDataHandler: ((data: Buffer) => void) | null = null;
+  private boundCtrlHandler: (() => void) | null = null;
   private inputProtection: InputProtection | null = null;
   private inputCapture:
     | {
@@ -654,12 +655,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Robust TTY detection with multiple fallbacks
     const outputIsTTY = Boolean(this.output?.isTTY);
     const inputIsTTY = Boolean(this.input?.isTTY);
-    const isCiEnvironment = Boolean(
-      process.env['CI'] ||
-      process.env['GITHUB_ACTIONS'] ||
-      process.env['GITLAB_CI']
-    );
-    this.interactive = outputIsTTY && inputIsTTY && !isCiEnvironment;
+    this.interactive = outputIsTTY && inputIsTTY;
     this.plainMode = isPlainOutputMode() || !this.interactive;
 
     // Initialize animated components with error handling
@@ -839,6 +835,13 @@ export class UnifiedUIRenderer extends EventEmitter {
       this.boundDataHandler = null;
     }
 
+    if (this.boundCtrlHandler) {
+      try {
+        this.input.removeListener('data', this.boundCtrlHandler);
+      } catch { /* ignore */ }
+      this.boundCtrlHandler = null;
+    }
+
     // Remove all EventEmitter listeners from this instance
     try {
       this.removeAllListeners();
@@ -901,13 +904,17 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
     this.rl.removeAllListeners('line');
 
-    // Remove any existing data handler first
+    // Remove any existing handlers first
     if (this.boundDataHandler) {
       this.input.removeListener('data', this.boundDataHandler);
     }
+    if (this.boundCtrlHandler) {
+      this.input.removeListener('data', this.boundCtrlHandler);
+    }
 
     // CRITICAL: Handle special keys at raw data level BEFORE readline
-    // This bypasses readline's keypress parsing which may be unreliable
+    // Use prependListener to ensure this handler ALWAYS runs first,
+    // even if readline.emitKeypressEvents was called before
     this.boundDataHandler = (data: Buffer) => {
       if (this.disposed) return;
       const str = data.toString('utf8');
@@ -923,7 +930,7 @@ export class UnifiedUIRenderer extends EventEmitter {
           console.error(`[KEY] CTRL+C DETECTED AT RAW LEVEL`);
         }
         this.interceptedCtrlC = true;
-        return; // Don't let readline process this
+        return;
       }
       if (code === 4) { // Ctrl+D
         if (process.env['AGI_DEBUG_KEYS']) {
@@ -942,13 +949,14 @@ export class UnifiedUIRenderer extends EventEmitter {
         // Handle toggle immediately - don't wait for keypress event
         this.handleToggle(toggle);
         this.interceptedToggle = toggle; // Also set flag to block in keypress handler
-        return; // Don't let readline process this
+        return;
       }
     };
-    this.input.on('data', this.boundDataHandler);
+    // Use prependListener to ensure we're ALWAYS first, before readline's handler
+    this.input.prependListener('data', this.boundDataHandler);
 
-    // Process intercepted Ctrl keys on next tick (after data handler returns)
-    this.input.on('data', () => {
+    // Process intercepted Ctrl keys (stored handler for proper cleanup)
+    this.boundCtrlHandler = () => {
       if (this.interceptedCtrlC) {
         this.interceptedCtrlC = false;
         this.handleCtrlC();
@@ -957,7 +965,8 @@ export class UnifiedUIRenderer extends EventEmitter {
         this.interceptedCtrlD = false;
         this.handleCtrlD();
       }
-    });
+    };
+    this.input.on('data', this.boundCtrlHandler);
 
     readline.emitKeypressEvents(this.input, this.rl);
     if (this.input.isTTY) {
