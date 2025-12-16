@@ -951,23 +951,27 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     // Handle macOS Option+key toggles BEFORE any paste detection
-    // These Unicode characters are produced by Option+letter combinations
+    // Use character codes for reliable detection across different encodings
     // IMPORTANT: Must be checked FIRST so paste detection doesn't intercept them
-    const macOptionChars: Record<string, string> = {
-      '©': 'g',  // Option+G
-      '™': 'g',  // Option+Shift+G
-      'å': 'a',  // Option+A
-      'Å': 'a',  // Option+Shift+A
-      '√': 'v',  // Option+V / Option+Shift+V
-      '∂': 'd',  // Option+D
-      'Î': 'd',  // Option+Shift+D (common macOS emission)
-      '∆': 'd',  // Common alternate delta symbol
-      '†': 't',  // Option+T
-      '‡': 't',  // Option+Shift+T
+    const getToggleLetterFromChar = (char: string): string | null => {
+      if (!char || char.length !== 1) return null;
+      const code = char.charCodeAt(0);
+      // Option+G: © (0x00A9) or ™ (0x2122)
+      if (code === 0x00A9 || code === 0x2122) return 'g';
+      // Option+A: å (0x00E5) or Å (0x00C5)
+      if (code === 0x00E5 || code === 0x00C5) return 'a';
+      // Option+D: ∂ (0x2202) or ∆ (0x2206) or Î (0x00CE)
+      if (code === 0x2202 || code === 0x2206 || code === 0x00CE) return 'd';
+      // Option+T: † (0x2020) or ‡ (0x2021)
+      if (code === 0x2020 || code === 0x2021) return 't';
+      // Option+V: √ (0x221A)
+      if (code === 0x221A) return 'v';
+      return null;
     };
 
-    if (str && macOptionChars[str]) {
-      const letter = macOptionChars[str];
+    const toggleLetter = str ? getToggleLetterFromChar(str) : null;
+    if (toggleLetter) {
+      const letter = toggleLetter;
       // Clear any pending insert buffer so the symbol never lands in the prompt
       this.pendingInsertBuffer = '';
       // Cancel any plain paste detection in progress
