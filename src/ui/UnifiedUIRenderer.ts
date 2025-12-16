@@ -3086,15 +3086,25 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     // Normalize content: add spaces after headers, fix common formatting issues
-    // Fix headers without space: ##HEADING -> ## HEADING
-    cleaned = cleaned.replace(/^(#{1,6})([A-Z])/gm, '$1 $2');
+    // Fix headers without space: ##HEADING -> ## HEADING (including emoji)
+    cleaned = cleaned.replace(/^(#{1,6})([A-Z🚀⚔️🎯🔐📦✅❌⚡💀🔥🛡️💣🎖️⭐])/gm, '$1 $2');
+    // Fix numbered headers: ###1 Elite -> ### 1. Elite
+    cleaned = cleaned.replace(/^(#{1,6})(\d+)\s+/gm, '$1 $2. ');
+    // Fix dash lists without space: -RSA2048 -> - RSA2048
+    cleaned = cleaned.replace(/^-([A-Z])/gm, '- $1');
     // Fix numbered lists without space: 1.Item -> 1. Item
     cleaned = cleaned.replace(/^(\d+\.)([A-Z])/gm, '$1 $2');
     // Add line breaks before headers that are joined to previous text
-    cleaned = cleaned.replace(/([.!?])(\s*)(#{1,6}\s)/g, '$1\n\n$3');
-    // Add line breaks between emoji bullets and next section: ✅ SECTION
+    cleaned = cleaned.replace(/([.!?)])(\s*)(#{1,6}\s)/g, '$1\n\n$3');
+    // Add line breaks between sections (text followed immediately by ##)
+    cleaned = cleaned.replace(/([a-z])(\s*)(#{2,6}\s)/gi, '$1\n\n$3');
+    // Add line breaks between emoji bullets and next section
     cleaned = cleaned.replace(/([\u2705\u274C\u2714\u2718\u26A0\uD83C-\uDBFF\uDC00-\uDFFF]+)\s*(#{1,6})/g, '$1\n\n$2');
-    // Fix tables that run together: System Kill Chain Time -> proper table
+    // Fix code blocks that run together: bash# -> bash\n#
+    cleaned = cleaned.replace(/(bash|sh|python|javascript|typescript)#/gi, '$1\n```\n#');
+    // Add newlines before code block markers
+    cleaned = cleaned.replace(/([^\n])```(\w+)?/g, '$1\n```$2');
+    // Fix tables that run together
     cleaned = cleaned.replace(/(\w+)\s+([-─]{3,})\s+(\w+)/g, '$1\n$2\n$3');
 
     // Reserve a little margin to reduce terminal wrap jitter
