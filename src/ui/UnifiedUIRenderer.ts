@@ -2100,9 +2100,10 @@ export class UnifiedUIRenderer extends EventEmitter {
     // This should never happen if earlier detection works, but acts as final guard
     const filtered = [...text].filter(c => {
       const code = c.charCodeAt(0);
-      // Block Ctrl+C (3), Ctrl+D (4)
-      if (code === 3 || code === 4) return false;
-      // Block toggle characters
+      // Block ALL control characters (0-31) and DEL (127)
+      // This includes Ctrl+C (3), Ctrl+D (4), ESC (27), etc.
+      if (code < 32 || code === 127) return false;
+      // Block toggle characters (Option+G/A/D/T/V Unicode)
       if (this.isToggleCharacter(c)) return false;
       return true;
     }).join('');
