@@ -4241,20 +4241,29 @@ Any text response is a failure. Only tool calls are accepted.`;
       return;
     }
 
-    if (this.isProcessing) {
-      // Interrupt processing
-      this.handleInterrupt();
+    // Always allow double Ctrl+C to exit, even while processing
+    if (this.ctrlCCount >= 2) {
+      // Use authorized shutdown to bypass anti-termination guard
+      void authorizedShutdown(0);
+      this.shouldExit = true;
+      this.ctrlCCount = 0;
       return;
     }
 
-    // Double Ctrl+C to exit
-    if (this.ctrlCCount >= 2) {
-      this.handleExit();
-    } else {
+    if (this.isProcessing) {
+      // Interrupt processing on first Ctrl+C, then allow next Ctrl+C to exit
+      this.handleInterrupt();
       const renderer = this.promptController?.getRenderer();
       if (renderer) {
         renderer.addEvent('banner', chalk.dim('Press Ctrl+C again to exit'));
       }
+      return;
+    }
+
+    // First Ctrl+C when idle: show hint
+    const renderer = this.promptController?.getRenderer();
+    if (renderer) {
+      renderer.addEvent('banner', chalk.dim('Press Ctrl+C again to exit'));
     }
   }
 

@@ -621,6 +621,8 @@ export class UnifiedUIRenderer extends EventEmitter {
   private boundKeypressHandler: ((str: string, key: readline.Key) => void) | null = null;
   private boundDataHandler: ((data: Buffer) => void) | null = null;
   private boundCtrlHandler: (() => void) | null = null;
+  // Original emit method for restoration on cleanup
+  private originalEmit: ((...args: unknown[]) => boolean) | null = null;
   private inputProtection: InputProtection | null = null;
   private inputCapture:
     | {
@@ -842,6 +844,15 @@ export class UnifiedUIRenderer extends EventEmitter {
       this.boundCtrlHandler = null;
     }
 
+    // Restore original emit method on stdin
+    if (this.originalEmit) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.input as any).emit = this.originalEmit;
+      } catch { /* ignore */ }
+      this.originalEmit = null;
+    }
+
     // Remove all EventEmitter listeners from this instance
     try {
       this.removeAllListeners();
@@ -897,6 +908,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   private interceptedToggle: string | null = null;
   private interceptedCtrlC = false;
   private interceptedCtrlD = false;
+  private pendingToggleSkips = 0;
 
   private setupInputHandlers(): void {
     if (!this.interactive) {
@@ -904,78 +916,74 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
     this.rl.removeAllListeners('line');
 
-    // CRITICAL: Save ALL existing data listeners, then remove them all
-    // This ensures we can re-add them in the correct order with our handler FIRST
-    const existingDataListeners = this.input.listeners('data').slice();
-    this.input.removeAllListeners('data');
+    // CRITICAL: Override the emit method on stdin to intercept data events
+    // BEFORE any listener (including readline) sees them. This is the ONLY
+    // way to truly prevent control characters from being echoed.
+    const self = this;
+    this.originalEmit = this.input.emit.bind(this.input);
 
-    // Create our special key handler that MUST run first
-    this.boundDataHandler = (data: Buffer) => {
-      if (this.disposed) return;
-      const str = data.toString('utf8');
-      const code = str ? str.charCodeAt(0) : 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (this.input as any).emit = function(event: string, ...args: unknown[]): boolean {
+      if (event === 'data' && !self.disposed) {
+        const data = args[0];
+        const str = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
+        const code = str ? str.charCodeAt(0) : 0;
 
-      if (process.env['AGI_DEBUG_KEYS']) {
-        console.error(`[KEY] RAW DATA: str="${str}" code=${code} len=${str.length}`);
-      }
-
-      // CRITICAL: Handle Ctrl+C (code 3) and Ctrl+D (code 4) directly
-      if (code === 3) { // Ctrl+C
         if (process.env['AGI_DEBUG_KEYS']) {
-          console.error(`[KEY] CTRL+C DETECTED AT RAW LEVEL`);
+          console.error(`[KEY] EMIT INTERCEPT: event="${event}" str="${str}" code=${code} len=${str.length}`);
         }
-        this.interceptedCtrlC = true;
-        return;
-      }
-      if (code === 4) { // Ctrl+D
-        if (process.env['AGI_DEBUG_KEYS']) {
-          console.error(`[KEY] CTRL+D DETECTED AT RAW LEVEL`);
+
+        // BLOCK: Ctrl+C (code 3) - handle and suppress
+        if (code === 3) {
+          if (process.env['AGI_DEBUG_KEYS']) {
+            console.error(`[KEY] CTRL+C BLOCKED AT EMIT LEVEL`);
+          }
+          // Use setImmediate to handle after this event loop tick
+          setImmediate(() => self.handleCtrlC());
+          return true; // Suppress the event
         }
-        this.interceptedCtrlD = true;
-        return;
+
+        // BLOCK: Ctrl+D (code 4) - handle and suppress
+        if (code === 4) {
+          if (process.env['AGI_DEBUG_KEYS']) {
+            console.error(`[KEY] CTRL+D BLOCKED AT EMIT LEVEL`);
+          }
+          setImmediate(() => self.handleCtrlD());
+          return true; // Suppress the event
+        }
+
+        // BLOCK: Toggle characters - handle and suppress
+        const toggles = self.extractToggleLetters(str);
+        if (toggles.length > 0) {
+          if (process.env['AGI_DEBUG_KEYS']) {
+            console.error(`[KEY] TOGGLE BLOCKED AT EMIT LEVEL: ${toggles.join(',')}`);
+          }
+          // Handle each toggle
+          for (const letter of toggles) {
+            setImmediate(() => self.handleToggle(letter));
+          }
+          return true; // Suppress the event
+        }
+
+        // BLOCK: Any remaining control characters (0-31, 127)
+        if (code < 32 || code === 127) {
+          if (process.env['AGI_DEBUG_KEYS']) {
+            console.error(`[KEY] CONTROL CHAR BLOCKED AT EMIT LEVEL: code=${code}`);
+          }
+          return true; // Suppress the event
+        }
       }
 
-      // Handle toggle characters
-      const toggle = this.detectToggleFromRawData(str);
-      if (toggle) {
-        if (process.env['AGI_DEBUG_KEYS']) {
-          console.error(`[KEY] TOGGLE DETECTED AT RAW LEVEL: ${toggle}`);
-        }
-        // Handle toggle immediately - don't wait for keypress event
-        this.handleToggle(toggle);
-        this.interceptedToggle = toggle; // Also set flag to block in keypress handler
-        return;
-      }
+      // Allow all other events to pass through
+      return self.originalEmit!(event, ...args);
     };
 
-    // Add OUR handler FIRST (before any other handlers)
-    this.input.on('data', this.boundDataHandler);
-
-    // Re-add any existing listeners that were there before (e.g., readline's handler)
-    for (const listener of existingDataListeners) {
-      if (listener !== this.boundDataHandler && listener !== this.boundCtrlHandler) {
-        this.input.on('data', listener as (...args: unknown[]) => void);
-      }
-    }
-
-    // Process intercepted Ctrl keys (stored handler for proper cleanup)
-    this.boundCtrlHandler = () => {
-      if (this.interceptedCtrlC) {
-        this.interceptedCtrlC = false;
-        this.handleCtrlC();
-      }
-      if (this.interceptedCtrlD) {
-        this.interceptedCtrlD = false;
-        this.handleCtrlD();
-      }
-    };
-    this.input.on('data', this.boundCtrlHandler);
-
-    // Now set up readline's keypress emission (it will add its own data listener after ours)
+    // Now set up readline's keypress emission
     readline.emitKeypressEvents(this.input, this.rl);
     if (this.input.isTTY) {
       this.input.setRawMode(true);
     }
+
     // Use bound handler so we can remove it on cleanup
     this.boundKeypressHandler = (str: string, key: readline.Key) => {
       if (!this.disposed) {
@@ -1007,6 +1015,72 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     return null;
+  }
+
+  /**
+   * Extract all toggle letters from an arbitrary chunk of input data.
+   * Handles both Unicode toggles and ESC-prefixed Meta sequences, and
+   * supports multiple toggles in a single data event.
+   */
+  private extractToggleLetters(input: string): string[] {
+    if (!input) return [];
+    const toggles: string[] = [];
+    const chars = [...input];
+
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i];
+      const code = ch.charCodeAt(0);
+
+      // Detect ESC + letter (Option sends Meta)
+      if (code === 27 && i + 1 < chars.length) {
+        const letter = chars[i + 1].toLowerCase();
+        if (['g', 'a', 'd', 't', 'v'].includes(letter)) {
+          toggles.push(letter);
+          i++; // Skip the meta letter so it isn't double-counted
+          continue;
+        }
+      }
+
+      const detected = this.detectToggleFromRawData(ch);
+      if (detected) {
+        toggles.push(detected);
+      }
+    }
+
+    return toggles;
+  }
+
+  /**
+   * Remove toggle symbols (and their ESC prefixes) from a string so they
+   * can never leak into the prompt buffer.
+   */
+  private stripToggleSymbols(input: string): string {
+    if (!input) return '';
+    const chars = [...input];
+    let result = '';
+
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i];
+      const code = ch.charCodeAt(0);
+
+      // Drop Unicode toggle characters outright
+      if (this.isToggleCharacter(ch)) {
+        continue;
+      }
+
+      // Drop ESC + toggle letter (Option sends Meta)
+      if (code === 27 && i + 1 < chars.length) {
+        const letter = chars[i + 1].toLowerCase();
+        if (['g', 'a', 'd', 't', 'v'].includes(letter)) {
+          i++; // Skip the meta letter as well
+          continue;
+        }
+      }
+
+      result += ch;
+    }
+
+    return result;
   }
 
   /**
@@ -1134,6 +1208,15 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private handleKeypress(str: string, key: readline.Key): void {
+    // Skip processing if a raw-level toggle was already handled for this keypress
+    if (this.pendingToggleSkips > 0) {
+      this.pendingToggleSkips--;
+      if (process.env['AGI_DEBUG_KEYS']) {
+        console.error(`[KEY] SKIP KEYPRESS (pending toggle)`);
+      }
+      return;
+    }
+
     // BLOCK: If Ctrl+C/D was intercepted at raw level, it's already handled
     if (this.interceptedCtrlC || this.interceptedCtrlD) {
       return; // Already handled in raw data handler
@@ -1720,6 +1803,21 @@ export class UnifiedUIRenderer extends EventEmitter {
    * pasted content by holding characters until we're confident it's not a paste.
    */
   private queuePendingInsert(text: string): void {
+    // If toggle characters slipped through, handle them here and strip them before insertion
+    const toggles = this.extractToggleLetters(text);
+    if (toggles.length > 0) {
+      for (const letter of toggles) {
+        this.handleToggle(letter);
+      }
+      text = this.stripToggleSymbols(text);
+      if (!text) {
+        if (process.env['AGI_DEBUG_KEYS']) {
+          console.error('[KEY] QUEUE INSERT DROPPED: toggle-only input');
+        }
+        return;
+      }
+    }
+
     // Fast-path: single printable ASCII character with no pending buffer = immediate insert
     // This makes normal typing feel instant while still detecting multi-char pastes
     if (text.length === 1 &&
