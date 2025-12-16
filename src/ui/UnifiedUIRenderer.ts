@@ -990,13 +990,9 @@ export class UnifiedUIRenderer extends EventEmitter {
           return true; // Suppress the event
         }
 
-        // BLOCK: Any remaining control characters (0-31, 127)
-        if (code < 32 || code === 127) {
-          if (process.env['AGI_DEBUG_KEYS']) {
-            console.error(`[KEY] CONTROL CHAR BLOCKED AT EMIT LEVEL: code=${code}`);
-          }
-          return true; // Suppress the event
-        }
+        // NOTE: Do NOT block other control characters here!
+        // Backspace (8/127), Tab (9), Enter (13), arrows (27+seq) must pass through
+        // for normal editing to work. Only Ctrl+C/D and toggles are intercepted above.
       }
 
       // Allow all other events to pass through
