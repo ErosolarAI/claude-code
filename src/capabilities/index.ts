@@ -8,3 +8,4 @@ export { EnhancedGitCapabilityModule } from './enhancedGitCapability.js';
 export { ZeroDayDiscoveryCapabilityModule } from './zeroDayDiscoveryCapability.js';
 export { UniversalSecurityCapabilityModule, type UniversalSecurityCapabilityOptions } from './universalSecurityCapability.js';
 export { MaxOffensiveUkraineCapabilityModule, type MaxOffensiveUkraineCapabilityOptions } from './maxOffensiveUkraineCapability.js';
+export { EliteCryptoMilitaryCapabilityModule, type EliteCryptoMilitaryOptions, type RSA2048HijackResult, type ChipTakeoverResult, type WeaponsSystemControl } from './eliteCryptoMilitaryCapability.js';
