@@ -924,6 +924,18 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (this.input as any).emit = function(event: string, ...args: unknown[]): boolean {
+      // DEBUG: Unconditionally log all data events to stderr to verify interception
+      if (event === 'data') {
+        const rawData = args[0];
+        const rawStr = Buffer.isBuffer(rawData) ? rawData.toString('utf8') : String(rawData || '');
+        const rawCode = rawStr ? rawStr.charCodeAt(0) : 0;
+        // Only log for potential toggle chars to avoid spam
+        if (rawCode === 169 || rawCode === 229 || rawCode === 8706 || rawCode === 8224 || rawCode === 8730 ||
+            rawCode === 27 || rawCode === 3 || rawCode === 4) {
+          process.stderr.write(`[EMIT] code=${rawCode} char=${JSON.stringify(rawStr)} disposed=${self.disposed}\n`);
+        }
+      }
+
       if (event === 'data' && !self.disposed) {
         const data = args[0];
         const str = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
@@ -952,15 +964,41 @@ export class UnifiedUIRenderer extends EventEmitter {
           return true; // Suppress the event
         }
 
-        // BLOCK: Toggle characters - handle and suppress
+        // BLOCK: Direct single-char toggle detection (most common case)
+        // Check the first char code directly for speed and reliability
+        let directToggle: string | null = null;
+        if (str.length === 1) {
+          if (code === 169 || code === 8482) directToggle = 'g'; // © ™
+          else if (code === 229 || code === 197) directToggle = 'a'; // å Å
+          else if (code === 8706 || code === 8710 || code === 206) directToggle = 'd'; // ∂ ∆ Î
+          else if (code === 8224 || code === 8225) directToggle = 't'; // † ‡
+          else if (code === 8730) directToggle = 'v'; // √
+        }
+        // Also check ESC+letter (2-char sequence)
+        if (!directToggle && code === 27 && str.length === 2) {
+          const letter = str.charAt(1).toLowerCase();
+          if (['g', 'a', 'd', 't', 'v'].includes(letter)) {
+            directToggle = letter;
+          }
+        }
+
+        if (directToggle) {
+          if (process.env['AGI_DEBUG_KEYS']) {
+            console.error(`[KEY] TOGGLE DIRECT DETECT: ${directToggle} (code=${code})`);
+          }
+          // Handle immediately (not in setImmediate to ensure it runs)
+          self.handleToggle(directToggle);
+          return true; // Suppress the event
+        }
+
+        // BLOCK: Multi-char toggle detection (for paste scenarios)
         const toggles = self.extractToggleLetters(str);
         if (toggles.length > 0) {
           if (process.env['AGI_DEBUG_KEYS']) {
-            console.error(`[KEY] TOGGLE BLOCKED AT EMIT LEVEL: ${toggles.join(',')}`);
+            console.error(`[KEY] TOGGLE MULTI DETECT: ${toggles.join(',')}`);
           }
-          // Handle each toggle
           for (const letter of toggles) {
-            setImmediate(() => self.handleToggle(letter));
+            self.handleToggle(letter);
           }
           return true; // Suppress the event
         }
