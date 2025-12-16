@@ -1169,22 +1169,34 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     switch (letter) {
-      case 'a':
+      case 'a': {
+        const listeners = this.listenerCount('toggle-critical-approval');
+        process.stderr.write(`[TOGGLE] Emitting toggle-critical-approval (${listeners} listeners)\n`);
         this.emit('toggle-critical-approval');
         forceRender();
         break;
-      case 'g':
+      }
+      case 'g': {
+        const listeners = this.listenerCount('toggle-auto-continue');
+        process.stderr.write(`[TOGGLE] Emitting toggle-auto-continue (${listeners} listeners)\n`);
         this.emit('toggle-auto-continue');
         forceRender();
         break;
-      case 'd':
+      }
+      case 'd': {
+        const listeners = this.listenerCount('toggle-alphazero');
+        process.stderr.write(`[TOGGLE] Emitting toggle-alphazero (${listeners} listeners)\n`);
         this.emit('toggle-alphazero');
         forceRender();
         break;
-      case 't':
+      }
+      case 't': {
+        const listeners = this.listenerCount('toggle-thinking');
+        process.stderr.write(`[TOGGLE] Emitting toggle-thinking (${listeners} listeners)\n`);
         this.emit('toggle-thinking');
         forceRender();
         break;
+      }
       case 'v':
         // Option+V: Available for future toggle
         break;
