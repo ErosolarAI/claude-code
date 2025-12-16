@@ -619,6 +619,7 @@ export class UnifiedUIRenderer extends EventEmitter {
   // Bound event handlers for proper cleanup
   private boundResizeHandler: (() => void) | null = null;
   private boundKeypressHandler: ((str: string, key: readline.Key) => void) | null = null;
+  private boundDataHandler: ((data: Buffer) => void) | null = null;
   private inputProtection: InputProtection | null = null;
   private inputCapture:
     | {
@@ -831,6 +832,13 @@ export class UnifiedUIRenderer extends EventEmitter {
       this.boundKeypressHandler = null;
     }
 
+    if (this.boundDataHandler) {
+      try {
+        this.input.removeListener('data', this.boundDataHandler);
+      } catch { /* ignore */ }
+      this.boundDataHandler = null;
+    }
+
     // Remove all EventEmitter listeners from this instance
     try {
       this.removeAllListeners();
@@ -891,10 +899,15 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
     this.rl.removeAllListeners('line');
 
+    // Remove any existing data handler first
+    if (this.boundDataHandler) {
+      this.input.removeListener('data', this.boundDataHandler);
+    }
+
     // Intercept toggle characters at the raw data level BEFORE readline processes them
     // NOTE: This doesn't prevent readline from seeing the data, but it sets a flag
     // that our keypress handler checks FIRST before doing anything else
-    this.input.on('data', (data: Buffer) => {
+    this.boundDataHandler = (data: Buffer) => {
       if (this.disposed) return;
       const str = data.toString('utf8');
       const toggle = this.detectToggleFromRawData(str);
@@ -908,7 +921,8 @@ export class UnifiedUIRenderer extends EventEmitter {
           console.error(`[KEY] INTERCEPTED TOGGLE SET: ${toggle}`);
         }
       }
-    });
+    };
+    this.input.on('data', this.boundDataHandler);
 
     readline.emitKeypressEvents(this.input, this.rl);
     if (this.input.isTTY) {
@@ -945,6 +959,22 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     return null;
+  }
+
+  /**
+   * Check if a character is a toggle character that should never be inserted.
+   * Used as a safety guard to prevent toggle symbols from appearing in input.
+   */
+  private isToggleCharacter(input: string): boolean {
+    if (!input || input.length !== 1) return false;
+    const code = input.charCodeAt(0);
+    // Unicode toggle characters
+    if (code === 169 || code === 8482) return true; // © ™ (Option+G)
+    if (code === 229 || code === 197) return true;  // å Å (Option+A)
+    if (code === 8706 || code === 8710 || code === 206) return true; // ∂ ∆ Î (Option+D)
+    if (code === 8224 || code === 8225) return true; // † ‡ (Option+T)
+    if (code === 8730) return true; // √ (Option+V)
+    return false;
   }
 
   /**
@@ -1058,9 +1088,20 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     // Handle macOS Option+key toggles BEFORE any paste detection
-    // Uses detectToggleFromRawData which also handles key.meta patterns
+    // Check multiple sources: str, key.sequence, and key.meta+key.name
     // This is a fallback - primary detection happens in the raw 'data' event handler
-    const toggleLetter = this.detectToggleFromRawData(str);
+
+    // Check str first
+    let toggleLetter = this.detectToggleFromRawData(str);
+
+    // Also check key.sequence if str didn't match (readline may transform the input)
+    if (!toggleLetter && key?.sequence) {
+      toggleLetter = this.detectToggleFromRawData(key.sequence);
+      if (toggleLetter && process.env['AGI_DEBUG_KEYS']) {
+        console.error(`[KEY] TOGGLE DETECTED via key.sequence: ${toggleLetter}`);
+      }
+    }
+
     if (toggleLetter) {
       if (process.env['AGI_DEBUG_KEYS']) {
         console.error(`[KEY] TOGGLE DETECTED (keypress fallback): ${toggleLetter}`);
@@ -1069,7 +1110,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       return;
     }
 
-    // Also check meta+key pattern if str didn't match
+    // Also check meta+key pattern if str/sequence didn't match
     if (normalizedKey?.meta && normalizedKey.name) {
       const metaLetter = normalizedKey.name.toLowerCase();
       if (['g', 'a', 'd', 't', 'v'].includes(metaLetter)) {
@@ -1493,6 +1534,15 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (str && !normalizedKey.ctrl && !normalizedKey.meta) {
+      // SAFETY: Final guard to prevent toggle characters from ever being inserted
+      // This should never trigger if earlier detection works, but acts as a safety net
+      if (this.isToggleCharacter(str)) {
+        if (process.env['AGI_DEBUG_KEYS']) {
+          console.error(`[KEY] BLOCKED toggle character from insertion: "${str}" code=${str.charCodeAt(0)}`);
+        }
+        return;
+      }
+
       // Queue text input during streaming - process after AI completes
       if (this.mode === 'streaming') {
         this.streamingInputQueue.push(str);
@@ -1501,7 +1551,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       // Debug: trace why toggle didn't catch this character
       if (process.env['AGI_DEBUG_KEYS']) {
         const code = str.charCodeAt(0);
-        console.error(`[KEY] QUEUE INSERT: str="${str}" code=${code} (toggle should have caught codes 169,229,8706,8224,8730)`);
+        console.error(`[KEY] QUEUE INSERT: str="${str}" code=${code}`);
       }
       // Defer insertion to allow paste detection window to catch rapid input
       this.queuePendingInsert(str);
