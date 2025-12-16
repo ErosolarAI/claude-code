@@ -913,16 +913,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     const normalizedKey = key ?? this.parseEscapeSequence(str);
     const keyForPaste = normalizedKey ?? (str ? { sequence: str } as readline.Key : key);
 
-    if (this.handleBracketedPaste(str, keyForPaste)) {
-      return;
-    }
-
-    if (this.handlePlainPaste(str, keyForPaste)) {
-      return;
-    }
-
-    // macOS Option+key produces Unicode characters; handle them before key metadata checks.
-    // IMPORTANT: These toggles MUST work during streaming mode - they are processed before any mode checks
+    // FIRST: Handle macOS Option+key toggles BEFORE any paste detection
+    // These Unicode characters are produced by Option+letter combinations
+    // IMPORTANT: Must be checked FIRST so paste detection doesn't intercept them
     const macOptionChars: Record<string, string> = {
       '©': 'g',  // Option+G
       '™': 'g',  // Option+Shift+G
@@ -940,6 +933,8 @@ export class UnifiedUIRenderer extends EventEmitter {
       const letter = macOptionChars[str];
       // Clear any pending insert buffer so the symbol never lands in the prompt
       this.pendingInsertBuffer = '';
+      // Cancel any plain paste detection in progress
+      this.cancelPlainPasteCapture();
       // Force immediate render for toggles - works during streaming
       const forceRender = () => {
         // Use immediate render to ensure toggle state updates are visible during streaming
@@ -969,6 +964,14 @@ export class UnifiedUIRenderer extends EventEmitter {
         default:
           break;
       }
+    }
+
+    if (this.handleBracketedPaste(str, keyForPaste)) {
+      return;
+    }
+
+    if (this.handlePlainPaste(str, keyForPaste)) {
+      return;
     }
 
     if (!normalizedKey) {
