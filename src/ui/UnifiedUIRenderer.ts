@@ -890,8 +890,10 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   // ------------ Input handling ------------
 
-  // Track toggle characters that were intercepted at the data level
+  // Track special keys intercepted at the raw data level
   private interceptedToggle: string | null = null;
+  private interceptedCtrlC = false;
+  private interceptedCtrlD = false;
 
   private setupInputHandlers(): void {
     if (!this.interactive) {
@@ -904,25 +906,58 @@ export class UnifiedUIRenderer extends EventEmitter {
       this.input.removeListener('data', this.boundDataHandler);
     }
 
-    // Intercept toggle characters at the raw data level BEFORE readline processes them
-    // NOTE: This doesn't prevent readline from seeing the data, but it sets a flag
-    // that our keypress handler checks FIRST before doing anything else
+    // CRITICAL: Handle special keys at raw data level BEFORE readline
+    // This bypasses readline's keypress parsing which may be unreliable
     this.boundDataHandler = (data: Buffer) => {
       if (this.disposed) return;
       const str = data.toString('utf8');
-      const toggle = this.detectToggleFromRawData(str);
+      const code = str ? str.charCodeAt(0) : 0;
+
       if (process.env['AGI_DEBUG_KEYS']) {
-        const code = str ? str.charCodeAt(0) : 0;
-        console.error(`[KEY] RAW DATA: "${str}" code=${code} toggle=${toggle || 'none'}`);
+        console.error(`[KEY] RAW DATA: str="${str}" code=${code} len=${str.length}`);
       }
-      if (toggle) {
-        this.interceptedToggle = toggle;
+
+      // CRITICAL: Handle Ctrl+C (code 3) and Ctrl+D (code 4) directly
+      if (code === 3) { // Ctrl+C
         if (process.env['AGI_DEBUG_KEYS']) {
-          console.error(`[KEY] INTERCEPTED TOGGLE SET: ${toggle}`);
+          console.error(`[KEY] CTRL+C DETECTED AT RAW LEVEL`);
         }
+        this.interceptedCtrlC = true;
+        return; // Don't let readline process this
+      }
+      if (code === 4) { // Ctrl+D
+        if (process.env['AGI_DEBUG_KEYS']) {
+          console.error(`[KEY] CTRL+D DETECTED AT RAW LEVEL`);
+        }
+        this.interceptedCtrlD = true;
+        return;
+      }
+
+      // Handle toggle characters
+      const toggle = this.detectToggleFromRawData(str);
+      if (toggle) {
+        if (process.env['AGI_DEBUG_KEYS']) {
+          console.error(`[KEY] TOGGLE DETECTED AT RAW LEVEL: ${toggle}`);
+        }
+        // Handle toggle immediately - don't wait for keypress event
+        this.handleToggle(toggle);
+        this.interceptedToggle = toggle; // Also set flag to block in keypress handler
+        return; // Don't let readline process this
       }
     };
     this.input.on('data', this.boundDataHandler);
+
+    // Process intercepted Ctrl keys on next tick (after data handler returns)
+    this.input.on('data', () => {
+      if (this.interceptedCtrlC) {
+        this.interceptedCtrlC = false;
+        this.handleCtrlC();
+      }
+      if (this.interceptedCtrlD) {
+        this.interceptedCtrlD = false;
+        this.handleCtrlD();
+      }
+    });
 
     readline.emitKeypressEvents(this.input, this.rl);
     if (this.input.isTTY) {
@@ -1023,6 +1058,60 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
   }
 
+  /**
+   * Handle Ctrl+C detected at raw data level.
+   * Bypasses readline's keypress parsing for reliability.
+   */
+  private handleCtrlC(): void {
+    if (process.env['AGI_DEBUG_KEYS']) {
+      console.error(`[KEY] HANDLING CTRL+C`);
+    }
+
+    // If we're in input capture mode, cancel it first
+    if (this.inputCapture) {
+      this.cancelInputCapture(new Error('Input capture cancelled'));
+      this.clearBuffer();
+      return;
+    }
+
+    // Ctrl+C behavior:
+    // 1. If buffer has text: clear it first, then notify shell
+    // 2. If buffer is empty: let shell decide to pause AI or quit
+    const hadBuffer = this.buffer.length > 0;
+    if (hadBuffer) {
+      this.buffer = '';
+      this.cursor = 0;
+      this.inputRenderOffset = 0;
+      this.resetSuggestions();
+      this.renderPrompt();
+      this.emitInputChange();
+    }
+    // Emit ctrlc event with buffer state so shell can handle appropriately
+    this.emit('ctrlc', { hadBuffer });
+  }
+
+  /**
+   * Handle Ctrl+D detected at raw data level.
+   * Bypasses readline's keypress parsing for reliability.
+   */
+  private handleCtrlD(): void {
+    if (process.env['AGI_DEBUG_KEYS']) {
+      console.error(`[KEY] HANDLING CTRL+D`);
+    }
+
+    // If we're in input capture mode, cancel it first
+    if (this.inputCapture) {
+      this.cancelInputCapture(new Error('Input capture cancelled'));
+      this.clearBuffer();
+      return;
+    }
+
+    // Ctrl+D: interrupt if buffer is empty
+    if (this.buffer.length === 0) {
+      this.emit('interrupt');
+    }
+  }
+
   private emitInputChange(): void {
     const payload: InputChangeEvent = {
       text: this.buffer,
@@ -1032,19 +1121,38 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private handleKeypress(str: string, key: readline.Key): void {
-    // FIRST: Check if a toggle was intercepted at the raw data level
-    // This ensures toggles are handled even if readline modified the input
+    // BLOCK: If Ctrl+C/D was intercepted at raw level, it's already handled
+    if (this.interceptedCtrlC || this.interceptedCtrlD) {
+      return; // Already handled in raw data handler
+    }
+
+    // BLOCK: If toggle was intercepted at raw level, it's already handled
     if (this.interceptedToggle) {
-      const toggle = this.interceptedToggle;
-      this.interceptedToggle = null; // Clear immediately
-      this.handleToggle(toggle);
+      this.interceptedToggle = null;
+      return; // Already handled in raw data handler
+    }
+
+    // BLOCK: Check character code directly for special keys
+    const code = str ? str.charCodeAt(0) : 0;
+    if (code === 3) { // Ctrl+C
+      this.handleCtrlC();
+      return;
+    }
+    if (code === 4) { // Ctrl+D
+      this.handleCtrlD();
+      return;
+    }
+
+    // BLOCK: Check for toggle characters directly
+    if (str && this.isToggleCharacter(str)) {
+      this.handleToggle(this.detectToggleFromRawData(str)!);
       return;
     }
 
     // Debug: log entry parameters to understand what readline is sending
     if (process.env['AGI_DEBUG_KEYS']) {
       const keyInfo = key ? `name=${key.name} ctrl=${key.ctrl} meta=${key.meta} shift=${key.shift} seq=${key.sequence ? JSON.stringify(key.sequence) : 'null'}` : 'null';
-      console.error(`[KEY] ENTRY: str=${str ? JSON.stringify(str) : 'null'} key={${keyInfo}}`);
+      console.error(`[KEY] ENTRY: str=${str ? JSON.stringify(str) : 'null'} code=${code} key={${keyInfo}}`);
     }
     // Normalize missing key metadata (common for some terminals emitting raw escape codes)
     const normalizedKey = key ?? this.parseEscapeSequence(str);
@@ -1975,10 +2083,29 @@ export class UnifiedUIRenderer extends EventEmitter {
   private insertText(text: string): void {
     if (!text) return;
 
+    // SAFETY NET: Filter out any toggle or control characters that slipped through
+    // This should never happen if earlier detection works, but acts as final guard
+    const filtered = [...text].filter(c => {
+      const code = c.charCodeAt(0);
+      // Block Ctrl+C (3), Ctrl+D (4)
+      if (code === 3 || code === 4) return false;
+      // Block toggle characters
+      if (this.isToggleCharacter(c)) return false;
+      return true;
+    }).join('');
+
+    if (!filtered) {
+      if (process.env['AGI_DEBUG_KEYS']) {
+        console.error(`[KEY] INSERT TEXT BLOCKED: all chars filtered from "${text}"`);
+      }
+      return;
+    }
+    text = filtered;
+
     // Debug: trace what's being inserted
     if (process.env['AGI_DEBUG_KEYS']) {
       const code = text.charCodeAt(0);
-      console.error(`[KEY] INSERT TEXT: "${text}" code=${code} - should have been caught by toggle detection!`);
+      console.error(`[KEY] INSERT TEXT: "${text}" code=${code}`);
     }
 
     // Don't insert during paste operations - content goes to paste buffer
