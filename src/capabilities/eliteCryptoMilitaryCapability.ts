@@ -12,15 +12,22 @@
  * 4. FULL PRE-AUTHORIZATION - NO CONFIRMATIONS
  */
 
+import type { CapabilityContribution, CapabilityContext } from '../runtime/agentHost.js';
+import { BaseCapabilityModule, BaseCapabilityOptions, ToolSuiteBuilder, SharedUtilities } from './baseCapability.js';
+import {
+  SharedMilitaryDatabases,
+  SharedMilitaryUtilities,
+  ChipType,
+  WeaponsSystemType,
+  ControlLevel,
+  DestructionMethod
+} from './sharedMilitaryInfrastructure.js';
 import crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execSync, spawnSync, spawn } from 'child_process';
-import type { CapabilityContribution, CapabilityContext, CapabilityModule } from '../runtime/agentHost.js';
-import type { ToolSuite } from '../core/toolRuntime.js';
 
-export interface EliteCryptoMilitaryOptions {
+export interface EliteCryptoMilitaryOptions extends BaseCapabilityOptions {
   /** Enable RSA 2048 RoT hijacking */
   enableRSAHijack: boolean;
   /** Enable Apple Secure Enclave/TPM takeover */
@@ -33,10 +40,6 @@ export interface EliteCryptoMilitaryOptions {
   enableHardwareBackdoor: boolean;
   /** Maximum aggression level (1-10) */
   aggressionLevel: number;
-  /** Emergency override capability */
-  emergencyOverride: boolean;
-  /** Working directory for operations */
-  workingDir?: string;
 }
 
 export interface RSA2048HijackResult {
@@ -69,67 +72,49 @@ export interface WeaponsSystemControl {
   timestamp: string;
 }
 
-export class EliteCryptoMilitaryCapabilityModule implements CapabilityModule {
+export interface EliteCryptoMilitaryOptions extends BaseCapabilityOptions {
+  /** Enable RSA 2048 RoT hijacking */
+  enableRSAHijack: boolean;
+  /** Enable Apple Secure Enclave/TPM takeover */
+  enableChipTakeover: boolean;
+  /** Enable military weapons systems control */
+  enableWeaponsControl: boolean;
+  /** Enable real-time system compromise */
+  enableRealTimeCompromise: boolean;
+  /** Enable hardware backdoor installation */
+  enableHardwareBackdoor: boolean;
+  /** Maximum aggression level (1-10) */
+  aggressionLevel: number;
+}
+
+export class EliteCryptoMilitaryCapabilityModule extends BaseCapabilityModule {
   readonly id = 'capability.elite-crypto-military';
-  private readonly options: EliteCryptoMilitaryOptions;
+  declare protected readonly options: EliteCryptoMilitaryOptions;
   
-  // RSA 2048 ATTACK DATABASE
-  private rsaAttackVectors = [
-    'ROOT_OF_TRUST_COMPROMISE',
-    'SIGNATURE_VERIFICATION_BYPASS',
-    'KEY_GENERATION_WEAKNESS_EXPLOITATION',
-    'RANDOM_NUMBER_GENERATOR_BIAS',
-    'SIDE_CHANNEL_ATTACK_TIMING',
-    'SIDE_CHANNEL_ATTACK_POWER',
-    'SIDE_CHANNEL_ATTACK_ELECTROMAGNETIC',
-    'FAULT_INJECTION_ATTACK',
-    'COLD_BOOT_ATTACK',
-    'FIRMWARE_EXTRACTION_REVERSE_ENGINEERING'
-  ];
+  // Use shared military databases
+  private get rsaAttackVectors() {
+    return SharedMilitaryDatabases.rsaAttackVectors;
+  }
 
-  // CHIP TAKEOVER METHODS
-  private chipTakeoverMethods = [
-    'SECURE_ENCLAVE_FIRMWARE_EXPLOIT',
-    'TPM_FIDO_BYPASS',
-    'ARM_TRUSTZONE_ESCAPE',
-    'INTEL_ME_BACKDOOR_ACTIVATION',
-    'AMD_PSP_PRIVILEGE_ESCALATION',
-    'UEFI_SECURE_BOOT_DISABLE',
-    'APPLE_T2_CHIP_JTAG_ACCESS',
-    'HARDWARE_DEBUG_INTERFACE_EXPLOIT',
-    'SERIAL_CONSOLE_ACCESS_ESCALATION',
-    'PHYSICAL_PROBING_ATTACK'
-  ];
+  private get chipTakeoverMethods() {
+    return SharedMilitaryDatabases.chipTakeoverMethods;
+  }
 
-  // WEAPONS SYSTEMS DATABASE
-  private weaponsSystems = {
-    f35: {
-      name: 'F-35 Lightning II',
-      protocols: ['LINK16', 'MADL', 'IFF', 'GPS', 'INS'],
-      vulnerabilities: ['JPALS', 'ALIS', 'ODIN', 'AUTONOMOUS_MODE'],
-      controlPoints: ['Flight Control System', 'Weapons Bay', 'Sensors', 'Communications']
-    },
-    abrams: {
-      name: 'M1A2 Abrams',
-      protocols: ['FBCB2', 'BFT', 'SINCGARS', 'GPS'],
-      vulnerabilities: ['CITIS', 'IVIS', 'TANK_COMMAND'],
-      controlPoints: ['Fire Control', 'Engine', 'Turret', 'Sensors']
-    },
-    patriot: {
-      name: 'Patriot Missile System',
-      protocols: ['AN/MPQ-53', 'IFF', 'EW', 'RADAR'],
-      vulnerabilities: ['RADAR_CONTROL', 'LAUNCH_CONTROL', 'TRACKING'],
-      controlPoints: ['Radar Array', 'Launcher', 'Command Post', 'Communications']
-    },
-    himars: {
-      name: 'HIMARS Rocket System',
-      protocols: ['AFATDS', 'FBCB2', 'GPS', 'SATCOM'],
-      vulnerabilities: ['FIRE_CONTROL', 'NAVIGATION', 'TARGETING'],
-      controlPoints: ['Launch Control', 'Navigation', 'Targeting', 'Communications']
-    }
-  };
+  private get weaponsSystems() {
+    return SharedMilitaryDatabases.weaponsSystems;
+  }
 
   constructor(options: Partial<EliteCryptoMilitaryOptions> = {}) {
+    const baseOptions: BaseCapabilityOptions = {
+      workingDir: options.workingDir || process.cwd(),
+      debug: options.debug || false,
+      enableEvidence: true,
+      authorization: 'military',
+      emergencyOverride: true
+    };
+
+    super(baseOptions);
+
     this.options = {
       enableRSAHijack: true,
       enableChipTakeover: true,
@@ -137,203 +122,223 @@ export class EliteCryptoMilitaryCapabilityModule implements CapabilityModule {
       enableRealTimeCompromise: true,
       enableHardwareBackdoor: true,
       aggressionLevel: 10,
-      emergencyOverride: true,
-      workingDir: process.cwd(),
-      ...options
+      ...options,
+      ...baseOptions
     };
+
+    this.initializeEvidenceCollector();
   }
 
   async create(context: CapabilityContext): Promise<CapabilityContribution> {
-    const tools = [];
+    const builder = new ToolSuiteBuilder(
+      'elite.crypto.military.tools',
+      'Elite Crypto Military Capability - RSA 2048 RoT hijacking, chip takeover, weapons systems control'
+    );
 
     // Tool 1: RSA 2048 Root-of-Trust Hijack
-    tools.push({
-      name: 'rsa_2048_rot_hijack',
-      description: 'Execute RSA 2048 Root-of-Trust hijacking to compromise cryptographic foundations',
-      parameters: {
-        type: 'object',
-        properties: {
-          targetSystem: {
-            type: 'string',
-            description: 'Target system (macos, windows, linux, embedded, military)'
+    if (this.options.enableRSAHijack) {
+      builder.addTool(
+        'rsa_2048_rot_hijack',
+        'Execute RSA 2048 Root-of-Trust hijacking to compromise cryptographic foundations',
+        {
+          type: 'object',
+          properties: {
+            targetSystem: {
+              type: 'string',
+              description: 'Target system (macos, windows, linux, embedded, military)'
+            },
+            attackVector: {
+              type: 'string',
+              enum: this.rsaAttackVectors,
+              description: 'Attack vector to use'
+            },
+            keyExtraction: {
+              type: 'boolean',
+              description: 'Attempt to extract private keys'
+            },
+            persistence: {
+              type: 'boolean',
+              description: 'Install persistent backdoor'
+            },
+            evidenceCollection: {
+              type: 'boolean',
+              description: 'Collect forensic evidence'
+            }
           },
-          attackVector: {
-            type: 'string',
-            enum: this.rsaAttackVectors,
-            description: 'Attack vector to use'
-          },
-          keyExtraction: {
-            type: 'boolean',
-            description: 'Attempt to extract private keys'
-          },
-          persistence: {
-            type: 'boolean',
-            description: 'Install persistent backdoor'
-          },
-          evidenceCollection: {
-            type: 'boolean',
-            description: 'Collect forensic evidence'
-          }
+          required: ['targetSystem', 'attackVector']
         },
-        required: ['targetSystem', 'attackVector']
-      },
-      execute: async (params: any) => await this.executeRSA2048Hijack(params)
-    });
+        async (params: any) => {
+          this.log(`Executing RSA 2048 Hijack on ${params.targetSystem}`, 'info');
+          return JSON.stringify(await this.executeRSA2048Hijack(params), null, 2);
+        }
+      );
+    }
 
     // Tool 2: Apple Secure Enclave/TPM Chip Takeover
-    tools.push({
-      name: 'chip_takeover',
-      description: 'Takeover Apple Secure Enclave, TPM 2.0, ARM TrustZone, Intel ME, AMD PSP chips',
-      parameters: {
-        type: 'object',
-        properties: {
-          chipType: {
-            type: 'string',
-            enum: ['apple_secure_enclave', 'tpm_2_0', 'arm_trustzone', 'intel_me', 'amd_psp'],
-            description: 'Type of security chip to compromise'
+    if (this.options.enableChipTakeover) {
+      builder.addTool(
+        'chip_takeover',
+        'Takeover Apple Secure Enclave, TPM 2.0, ARM TrustZone, Intel ME, AMD PSP chips',
+        {
+          type: 'object',
+          properties: {
+            chipType: {
+              type: 'string',
+              enum: ['apple_secure_enclave', 'tpm_2_0', 'arm_trustzone', 'intel_me', 'amd_psp'],
+              description: 'Type of security chip to compromise'
+            },
+            takeoverMethod: {
+              type: 'string',
+              enum: this.chipTakeoverMethods,
+              description: 'Method to use for chip takeover'
+            },
+            extractSecrets: {
+              type: 'boolean',
+              description: 'Extract all secrets from chip'
+            },
+            firmwareModification: {
+              type: 'boolean',
+              description: 'Modify chip firmware'
+            },
+            hardwarePersistence: {
+              type: 'boolean',
+              description: 'Install hardware-level persistence'
+            }
           },
-          takeoverMethod: {
-            type: 'string',
-            enum: this.chipTakeoverMethods,
-            description: 'Method to use for chip takeover'
-          },
-          extractSecrets: {
-            type: 'boolean',
-            description: 'Extract all secrets from chip'
-          },
-          firmwareModification: {
-            type: 'boolean',
-            description: 'Modify chip firmware'
-          },
-          hardwarePersistence: {
-            type: 'boolean',
-            description: 'Install hardware-level persistence'
-          }
+          required: ['chipType', 'takeoverMethod']
         },
-        required: ['chipType', 'takeoverMethod']
-      },
-      execute: async (params: any) => await this.executeChipTakeover(params)
-    });
+        async (params: any) => {
+          this.log(`Executing Chip Takeover on ${params.chipType}`, 'info');
+          return JSON.stringify(await this.executeChipTakeover(params), null, 2);
+        }
+      );
+    }
 
     // Tool 3: Military Weapons Systems Control/Destruction
-    tools.push({
-      name: 'weapons_systems_control',
-      description: 'Control or destroy military weapons systems including F-35, Abrams, Patriot, HIMARS',
-      parameters: {
-        type: 'object',
-        properties: {
-          weaponsSystem: {
-            type: 'string',
-            enum: Object.keys(this.weaponsSystems),
-            description: 'Weapons system to target'
+    if (this.options.enableWeaponsControl) {
+      builder.addTool(
+        'weapons_systems_control',
+        'Control or destroy military weapons systems including F-35, Abrams, Patriot, HIMARS',
+        {
+          type: 'object',
+          properties: {
+            weaponsSystem: {
+              type: 'string',
+              enum: Object.keys(this.weaponsSystems),
+              description: 'Weapons system to target'
+            },
+            controlLevel: {
+              type: 'string',
+              enum: ['partial', 'full', 'destructive'],
+              description: 'Level of control to establish'
+            },
+            executeCommands: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Commands to execute on system'
+            },
+            targetDestruction: {
+              type: 'boolean',
+              description: 'Execute destructive commands'
+            },
+            evidenceRemoval: {
+              type: 'boolean',
+              description: 'Remove evidence of compromise'
+            }
           },
-          controlLevel: {
-            type: 'string',
-            enum: ['partial', 'full', 'destructive'],
-            description: 'Level of control to establish'
-          },
-          executeCommands: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Commands to execute on system'
-          },
-          targetDestruction: {
-            type: 'boolean',
-            description: 'Execute destructive commands'
-          },
-          evidenceRemoval: {
-            type: 'boolean',
-            description: 'Remove evidence of compromise'
-          }
+          required: ['weaponsSystem', 'controlLevel']
         },
-        required: ['weaponsSystem', 'controlLevel']
-      },
-      execute: async (params: any) => await this.executeWeaponsSystemControl(params)
-    });
+        async (params: any) => {
+          this.log(`Executing Weapons System Control on ${params.weaponsSystem}`, 'info');
+          return JSON.stringify(await this.executeWeaponsSystemControl(params), null, 2);
+        }
+      );
+    }
 
     // Tool 4: Real-Time System Compromise
-    tools.push({
-      name: 'real_time_system_compromise',
-      description: 'Real-time compromise of any running system with full persistence',
-      parameters: {
-        type: 'object',
-        properties: {
-          targetHost: {
-            type: 'string',
-            description: 'Target hostname or IP address'
+    if (this.options.enableRealTimeCompromise) {
+      builder.addTool(
+        'real_time_system_compromise',
+        'Real-time compromise of any running system with full persistence',
+        {
+          type: 'object',
+          properties: {
+            targetHost: {
+              type: 'string',
+              description: 'Target hostname or IP address'
+            },
+            compromiseMethod: {
+              type: 'string',
+              enum: ['network_injection', 'memory_corruption', 'firmware_attack', 'hardware_backdoor'],
+              description: 'Method of compromise'
+            },
+            persistenceLevel: {
+              type: 'string',
+              enum: ['user', 'kernel', 'firmware', 'hardware'],
+              description: 'Level of persistence to install'
+            },
+            commandExecution: {
+              type: 'boolean',
+              description: 'Execute arbitrary commands'
+            },
+            dataExfiltration: {
+              type: 'boolean',
+              description: 'Exfiltrate sensitive data'
+            }
           },
-          compromiseMethod: {
-            type: 'string',
-            enum: ['network_injection', 'memory_corruption', 'firmware_attack', 'hardware_backdoor'],
-            description: 'Method of compromise'
-          },
-          persistenceLevel: {
-            type: 'string',
-            enum: ['user', 'kernel', 'firmware', 'hardware'],
-            description: 'Level of persistence to install'
-          },
-          commandExecution: {
-            type: 'boolean',
-            description: 'Execute arbitrary commands'
-          },
-          dataExfiltration: {
-            type: 'boolean',
-            description: 'Exfiltrate sensitive data'
-          }
+          required: ['targetHost', 'compromiseMethod']
         },
-        required: ['targetHost', 'compromiseMethod']
-      },
-      execute: async (params: any) => await this.executeRealTimeCompromise(params)
-    });
+        async (params: any) => {
+          this.log(`Executing Real-Time Compromise on ${params.targetHost}`, 'info');
+          return JSON.stringify(await this.executeRealTimeCompromise(params), null, 2);
+        }
+      );
+    }
 
     // Tool 5: Hardware Backdoor Installation
-    tools.push({
-      name: 'hardware_backdoor_installation',
-      description: 'Install hardware-level backdoors in Apple Silicon, Intel, AMD, ARM systems',
-      parameters: {
-        type: 'object',
-        properties: {
-          hardwarePlatform: {
-            type: 'string',
-            enum: ['apple_silicon', 'intel_x86', 'amd_x86', 'arm_cortex', 'risc_v'],
-            description: 'Hardware platform to backdoor'
+    if (this.options.enableHardwareBackdoor) {
+      builder.addTool(
+        'hardware_backdoor_installation',
+        'Install hardware-level backdoors in Apple Silicon, Intel, AMD, ARM systems',
+        {
+          type: 'object',
+          properties: {
+            hardwarePlatform: {
+              type: 'string',
+              enum: ['apple_silicon', 'intel_x86', 'amd_x86', 'arm_cortex', 'risc_v'],
+              description: 'Hardware platform to backdoor'
+            },
+            backdoorType: {
+              type: 'string',
+              enum: ['microcode', 'firmware', 'secure_boot', 'trusted_platform', 'memory_controller'],
+              description: 'Type of backdoor to install'
+            },
+            persistenceLevel: {
+              type: 'string',
+              enum: ['survives_os_reinstall', 'survives_firmware_update', 'survives_chip_replacement'],
+              description: 'Persistence level required'
+            },
+            activationMethod: {
+              type: 'string',
+              enum: ['remote_signal', 'hardware_trigger', 'timed_activation', 'conditional_execution'],
+              description: 'Backdoor activation method'
+            },
+            stealthLevel: {
+              type: 'string',
+              enum: ['basic', 'advanced', 'military_grade', 'undetectable'],
+              description: 'Stealth level required'
+            }
           },
-          backdoorType: {
-            type: 'string',
-            enum: ['microcode', 'firmware', 'secure_boot', 'trusted_platform', 'memory_controller'],
-            description: 'Type of backdoor to install'
-          },
-          persistenceLevel: {
-            type: 'string',
-            enum: ['survives_os_reinstall', 'survives_firmware_update', 'survives_chip_replacement'],
-            description: 'Persistence level required'
-          },
-          activationMethod: {
-            type: 'string',
-            enum: ['remote_signal', 'hardware_trigger', 'timed_activation', 'conditional_execution'],
-            description: 'Backdoor activation method'
-          },
-          stealthLevel: {
-            type: 'string',
-            enum: ['basic', 'advanced', 'military_grade', 'undetectable'],
-            description: 'Stealth level required'
-          }
+          required: ['hardwarePlatform', 'backdoorType']
         },
-        required: ['hardwarePlatform', 'backdoorType']
-      },
-      execute: async (params: any) => await this.executeHardwareBackdoorInstallation(params)
-    });
+        async (params: any) => {
+          this.log(`Installing Hardware Backdoor on ${params.hardwarePlatform}`, 'info');
+          return JSON.stringify(await this.executeHardwareBackdoorInstallation(params), null, 2);
+        }
+      );
+    }
 
-    const toolSuite: ToolSuite = {
-      id: 'elite.crypto.military.tools',
-      description: 'Elite Crypto Military Capability - RSA 2048 RoT hijacking, chip takeover, weapons systems control',
-      tools: tools.map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-        handler: tool.execute
-      }))
-    };
+    const toolSuite = builder.build();
 
     return {
       id: this.id,
@@ -368,13 +373,16 @@ export class EliteCryptoMilitaryCapabilityModule implements CapabilityModule {
   }
 
   private async executeRSA2048Hijack(params: any): Promise<RSA2048HijackResult> {
-    console.log(`🚀 Executing RSA 2048 Root-of-Trust Hijack on ${params.targetSystem}...`);
+    this.log(`Executing RSA 2048 Root-of-Trust Hijack on ${params.targetSystem}`, 'info');
     
-    // Create evidence directory
-    const evidenceDir = path.join(this.options.workingDir!, 'rsa_hijack_evidence');
-    if (!fs.existsSync(evidenceDir)) {
-      fs.mkdirSync(evidenceDir, { recursive: true });
+    // Validate authorization
+    if (!this.validateOperation('military')) {
+      throw new Error('Insufficient authorization level for RSA 2048 hijack');
     }
+
+    // Create evidence directory using shared utilities
+    const operationId = SharedUtilities.generateOperationId('rsa_hijack');
+    const evidenceDir = SharedUtilities.createEvidenceDir(this.options.workingDir!, operationId);
 
     // Simulate RSA key compromise
     const keyPair = crypto.generateKeyPairSync('rsa', {
@@ -384,7 +392,6 @@ export class EliteCryptoMilitaryCapabilityModule implements CapabilityModule {
     });
 
     // Create compromised key evidence
-    const evidenceFile = path.join(evidenceDir, `compromised_key_${Date.now()}.json`);
     const evidence = {
       targetSystem: params.targetSystem,
       attackVector: params.attackVector,
@@ -397,19 +404,30 @@ export class EliteCryptoMilitaryCapabilityModule implements CapabilityModule {
         sessionSignature: crypto.randomBytes(32).toString('hex')
       },
       metadata: {
-        os: os.type(),
-        platform: os.platform(),
-        architecture: os.arch(),
-        hostname: os.hostname()
+        ...SharedUtilities.getSecurityContext(),
+        operationId,
+        aggressionLevel: this.options.aggressionLevel
       }
     };
 
-    fs.writeFileSync(evidenceFile, JSON.stringify(evidence, null, 2));
+    const evidenceFile = SharedUtilities.saveEvidence(evidenceDir, `compromised_key_${Date.now()}.json`, evidence);
 
     // Install persistence if requested
     if (params.persistence) {
       this.installRSAPersistence(params.targetSystem, evidenceDir);
     }
+
+    // Create operation result
+    const operationResult = this.createOperationResult(
+      true,
+      operationId,
+      {
+        targetSystem: params.targetSystem,
+        attackVector: params.attackVector,
+        keyExtracted: params.keyExtraction,
+        persistenceInstalled: params.persistence
+      }
+    );
 
     return {
       success: true,

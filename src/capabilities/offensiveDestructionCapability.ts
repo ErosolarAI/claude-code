@@ -13,38 +13,19 @@
  * 5. NO RESTRICTIONS - FULL MILITARY CAPABILITY
  */
 
-import type { CapabilityContribution, CapabilityContext, CapabilityModule } from '../runtime/agentHost.js';
+import type { CapabilityContribution, CapabilityContext } from '../runtime/agentHost.js';
+import { BaseCapabilityModule, BaseCapabilityOptions, ToolSuiteBuilder } from './baseCapability.js';
+import {
+  SharedMilitaryDatabases,
+  SharedMilitaryUtilities,
+  MilitaryAuthorizationLevel,
+  InfrastructureType,
+  DestructionMethod
+} from './sharedMilitaryInfrastructure.js';
 import crypto from 'crypto';
 import os from 'os';
 
-export type MilitaryAuthorizationLevel = 
-  | 'full_combat' 
-  | 'strategic_strike' 
-  | 'tactical_engagement' 
-  | 'reconnaissance_only'
-  | 'training_simulation';
-
-export type InfrastructureType = 
-  | 'network_infrastructure'
-  | 'weapons_system'
-  | 'command_control'
-  | 'cyber_operations'
-  | 'logistics_support'
-  | 'surveillance_assets'
-  | 'communication_nodes'
-  | 'power_grid'
-  | 'industrial_control'
-  | 'data_centers';
-
-export type DestructionMethod =
-  | 'physical_destruction'
-  | 'cyber_disruption'
-  | 'electromagnetic_pulse'
-  | 'kinetic_strike'
-  | 'psychological_operations'
-  | 'information_warfare'
-  | 'supply_chain_attack'
-  | 'zero_day_exploitation';
+// Types are now imported from sharedMilitaryInfrastructure
 
 export interface OffensiveDestructionCapabilityOptions {
   /** Default military authorization level */
@@ -87,9 +68,26 @@ export interface OperationPlan {
   commanderApproval: boolean;
 }
 
-export class OffensiveDestructionCapabilityModule implements CapabilityModule {
+export interface OffensiveDestructionCapabilityOptions extends BaseCapabilityOptions {
+  /** Default military authorization level */
+  defaultAuthorization: MilitaryAuthorizationLevel;
+  /** Enable fail-safe mechanisms */
+  enableFailSafe: boolean;
+  /** Enable comprehensive logging */
+  enableComprehensiveLogging: boolean;
+  /** Enable emergency shutdown capability */
+  enableEmergencyShutdown: boolean;
+  /** Enable ethical compliance checks */
+  enableEthicalChecks: boolean;
+  /** Require explicit military context declaration */
+  requireMilitaryContext: boolean;
+  /** Maximum concurrent operations */
+  maxConcurrentOperations: number;
+}
+
+export class OffensiveDestructionCapabilityModule extends BaseCapabilityModule {
   readonly id = 'capability.offensive-destruction';
-  private readonly options: OffensiveDestructionCapabilityOptions;
+  declare protected readonly options: OffensiveDestructionCapabilityOptions;
   private operationLog: Array<{
     timestamp: string;
     operationId: string;
@@ -101,6 +99,16 @@ export class OffensiveDestructionCapabilityModule implements CapabilityModule {
   }> = [];
 
   constructor(options: Partial<OffensiveDestructionCapabilityOptions> = {}) {
+    const baseOptions: BaseCapabilityOptions = {
+      workingDir: options.workingDir || process.cwd(),
+      debug: options.debug || false,
+      enableEvidence: true,
+      authorization: 'military',
+      emergencyOverride: true
+    };
+
+    super(baseOptions);
+
     this.options = {
       defaultAuthorization: 'training_simulation',
       enableFailSafe: true,
@@ -109,8 +117,11 @@ export class OffensiveDestructionCapabilityModule implements CapabilityModule {
       enableEthicalChecks: true,
       requireMilitaryContext: true,
       maxConcurrentOperations: 5,
-      ...options
+      ...options,
+      ...baseOptions
     };
+
+    this.initializeEvidenceCollector();
   }
 
   async create(context: CapabilityContext): Promise<CapabilityContribution> {

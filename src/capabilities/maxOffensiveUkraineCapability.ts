@@ -5,10 +5,11 @@
  * Reusable source for offensive operations with full Ukrainian infrastructure integration
  */
 
-import type { CapabilityContribution, CapabilityContext, CapabilityModule } from '../runtime/agentHost.js';
-import type { ToolSuite } from '../core/toolRuntime.js';
+import type { CapabilityContribution, CapabilityContext } from '../runtime/agentHost.js';
+import { BaseCapabilityModule, BaseCapabilityOptions, ToolSuiteBuilder, SharedUtilities } from './baseCapability.js';
+import { SharedMilitaryDatabases, SharedMilitaryUtilities } from './sharedMilitaryInfrastructure.js';
 
-export interface MaxOffensiveUkraineCapabilityOptions {
+export interface MaxOffensiveUkraineCapabilityOptions extends BaseCapabilityOptions {
   /** Enable maximum offensive capabilities */
   enableMaximumOffensive: boolean;
   /** Enable Ukraine-specific targeting */
@@ -21,67 +22,32 @@ export interface MaxOffensiveUkraineCapabilityOptions {
   enableUIIntegration: boolean;
   /** Default authorization level */
   defaultAuthorization: 'full' | 'restricted' | 'emergency';
-  /** Emergency override capability */
-  emergencyOverride: boolean;
-  /** Working directory for operations */
-  workingDir?: string;
 }
 
-export class MaxOffensiveUkraineCapabilityModule implements CapabilityModule {
+export class MaxOffensiveUkraineCapabilityModule extends BaseCapabilityModule {
   readonly id = 'capability.max-offensive-ukraine';
-  private readonly options: MaxOffensiveUkraineCapabilityOptions;
+  declare protected readonly options: MaxOffensiveUkraineCapabilityOptions;
   
-  // UKRAINE TARGETING DATABASE
-  private ukraineTargets = {
-    energy: [
-      'ukrenergo.ua', 'naek.com.ua', 'energoatom.com.ua',
-      'dtek.com', 'yasno.ua', 'west.energy'
-    ],
-    telecom: [
-      'kyivstar.net', 'vodafone.ua', 'lifecell.ua',
-      'ukrtelecom.ua', 'triolan.ua', 'volia.com'
-    ],
-    transport: [
-      'uz.gov.ua', 'ukrzaliznytsia.com', 'airport.kiev.ua',
-      'ukrposhta.ua', 'nova-poshta.ua', 'justin.ua'
-    ],
-    government: [
-      'gov.ua', 'mvs.gov.ua', 'mil.gov.ua',
-      'mfa.gov.ua', 'minfin.gov.ua', 'kmu.gov.ua'
-    ],
-    banking: [
-      'privatbank.ua', 'monobank.ua', 'raiffeisen.ua',
-      'ukrsibbank.com', 'aval.ua', 'pumb.ua'
-    ],
-    media: [
-      'suspilne.media', '1tv.com.ua', 'stb.ua',
-      'ictv.ua', 'inter.ua', '24tv.ua'
-    ],
-    military: [
-      'mod.gov.ua', 'zsu.gov.ua', 'dpsu.gov.ua',
-      'mvs.gov.ua', 'sbu.gov.ua', 'gur.gov.ua'
-    ],
-    infrastructure: [
-      'vodokanal.ua', 'teplokomunenergo.ua', 'oblenergo.ua',
-      'kievenergo.ua', 'lvivenergo.ua', 'kharkivenergo.ua'
-    ]
-  };
+  // Use shared military databases
+  private get ukraineTargets() {
+    return SharedMilitaryDatabases.ukraineTargets;
+  }
 
-  // MAX OFFENSIVE METHODS
-  private offensiveMethods = [
-    'CYBER PENETRATION',
-    'SIGNAL DISRUPTION', 
-    'DATA CORRUPTION',
-    'SYSTEM OVERRIDE',
-    'COMMAND INJECTION',
-    'ZERO-DAY EXPLOITATION',
-    'PHYSICAL INFRASTRUCTURE ATTACK',
-    'SOCIAL ENGINEERING CASCADE',
-    'FINANCIAL SYSTEM DISRUPTION',
-    'COMMUNICATION NETWORK COLLAPSE'
-  ];
+  private get offensiveMethods() {
+    return SharedMilitaryDatabases.offensiveMethods;
+  }
 
   constructor(options: Partial<MaxOffensiveUkraineCapabilityOptions> = {}) {
+    const baseOptions: BaseCapabilityOptions = {
+      workingDir: options.workingDir || process.cwd(),
+      debug: options.debug || false,
+      enableEvidence: true,
+      authorization: 'military',
+      emergencyOverride: true
+    };
+
+    super(baseOptions);
+
     this.options = {
       enableMaximumOffensive: true,
       enableUkraineTargeting: true,
@@ -89,10 +55,11 @@ export class MaxOffensiveUkraineCapabilityModule implements CapabilityModule {
       enableLegacyRemoval: true,
       enableUIIntegration: true,
       defaultAuthorization: 'full',
-      emergencyOverride: true,
-      workingDir: process.cwd(),
-      ...options
+      ...options,
+      ...baseOptions
     };
+
+    this.initializeEvidenceCollector();
   }
 
   async create(context: CapabilityContext): Promise<CapabilityContribution> {
@@ -365,7 +332,7 @@ Returns UI integration results.`,
       });
     }
 
-    const toolSuite: ToolSuite = {
+    const toolSuite = {
       id: 'max.offensive.ukraine.tools',
       description: 'Maximum offensive Ukraine targeting with reusable source generation',
       tools

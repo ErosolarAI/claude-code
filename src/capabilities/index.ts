@@ -9,3 +9,6 @@ export { ZeroDayDiscoveryCapabilityModule } from './zeroDayDiscoveryCapability.j
 export { UniversalSecurityCapabilityModule, type UniversalSecurityCapabilityOptions } from './universalSecurityCapability.js';
 export { MaxOffensiveUkraineCapabilityModule, type MaxOffensiveUkraineCapabilityOptions } from './maxOffensiveUkraineCapability.js';
 export { EliteCryptoMilitaryCapabilityModule, type EliteCryptoMilitaryOptions, type RSA2048HijackResult, type ChipTakeoverResult, type WeaponsSystemControl } from './eliteCryptoMilitaryCapability.js';
+export { BaseCapabilityModule, type BaseCapabilityOptions, ToolSuiteBuilder, SharedUtilities } from './baseCapability.js';
+export { SharedMilitaryDatabases, SharedMilitaryUtilities, type MilitaryAuthorizationLevel, type InfrastructureType, type DestructionMethod, type ChipType, type WeaponsSystemType, type ControlLevel } from './sharedMilitaryInfrastructure.js';
+export { UnifiedMilitaryCapabilityModule, type UnifiedMilitaryCapabilityOptions, type UnifiedOperationResult, type CrossModuleOperation } from './unifiedMilitaryCapability.js';

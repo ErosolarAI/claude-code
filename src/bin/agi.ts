@@ -47,7 +47,8 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
     '--zero-day', '--zeroday', '--attack', '--pentest',
     '--target', '--phases', '--aggressive', '--no-exploit',
     '--persist', '--lateral', '--exploit', '--quick',
-    '--military', '--rsa-hijack', '--chip-takeover', '--weapons-control'
+    '--military', '--rsa-hijack', '--chip-takeover', '--weapons-control',
+    '--unified-military', '--cross-module'
   ]);
   const unknownFlags = rawArgs.filter((arg) => arg.startsWith('-') && !knownFlags.has(arg.split('=')[0]));
   if (unknownFlags.length) {
@@ -239,6 +240,48 @@ async function main(): Promise<void> {
       process.exit(0);
     } catch (error) {
       console.error('❌ Elite Crypto Military Operation Failed:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  }
+
+  // Check for unified military mode
+  if (rawArgs.includes('--unified-military') || rawArgs.includes('--cross-module')) {
+    console.log('\n⚡ UNIFIED MILITARY CAPABILITY ACTIVATED\n');
+    console.log('🚀 INTEGRATING ALL MILITARY MODULES FOR MAXIMUM OPERATIONAL EFFICIENCY');
+    console.log('🔗 CROSS-MODULE INTEGRATION ENABLED - SHARED RESOURCES - UNIFIED COMMAND\n');
+    
+    try {
+      const { UnifiedMilitaryCapabilityModule } = await import('../capabilities/unifiedMilitaryCapability.js');
+      
+      const unifiedCapability = new UnifiedMilitaryCapabilityModule({
+        enableEliteCryptoMilitary: rawArgs.includes('--military') || rawArgs.includes('--rsa-hijack') || rawArgs.includes('--chip-takeover') || rawArgs.includes('--weapons-control'),
+        enableMaxOffensiveUkraine: true,
+        enableOffensiveDestruction: true,
+        enableCrossModuleIntegration: rawArgs.includes('--cross-module'),
+        unifiedAuthorization: 'full',
+        debug: rawArgs.includes('--debug')
+      });
+
+      // Execute unified operation
+      const targets = rawArgs
+        .filter(arg => arg.startsWith('--target='))
+        .map(arg => arg.split('=')[1]) || ['default_target'];
+      
+      const operationType = rawArgs.find(arg => arg.startsWith('--op-type='))?.split('=')[1] || 'integrated';
+      const synchronization = rawArgs.find(arg => arg.startsWith('--sync='))?.split('=')[1] || 'tight';
+
+      // Initialize and configure the unified capability
+      console.log('✅ Unified Military Capability Module Initialized');
+      console.log(`🎯 Operation Type: ${operationType}`);
+      console.log(`🎯 Targets: ${targets.join(', ')}`);
+      console.log(`🔄 Synchronization: ${synchronization}`);
+      console.log(`🔗 Cross-Module: ${rawArgs.includes('--cross-module') ? 'enabled' : 'disabled'}`);
+      console.log(`\n📦 Module ID: ${unifiedCapability.id}`);
+      console.log('✅ Military capabilities ready for agent integration')
+
+      process.exit(0);
+    } catch (error) {
+      console.error('❌ Unified Military Operation Failed:', error instanceof Error ? error.message : error);
       process.exit(1);
     }
   }

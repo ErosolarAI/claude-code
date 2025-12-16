@@ -922,6 +922,7 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     // macOS Option+key produces Unicode characters; handle them before key metadata checks.
+    // IMPORTANT: These toggles MUST work during streaming mode - they are processed before any mode checks
     const macOptionChars: Record<string, string> = {
       '©': 'g',  // Option+G
       '™': 'g',  // Option+Shift+G
@@ -939,22 +940,31 @@ export class UnifiedUIRenderer extends EventEmitter {
       const letter = macOptionChars[str];
       // Clear any pending insert buffer so the symbol never lands in the prompt
       this.pendingInsertBuffer = '';
+      // Force immediate render for toggles - works during streaming
+      const forceRender = () => {
+        // Use immediate render to ensure toggle state updates are visible during streaming
+        if (this.mode === 'streaming') {
+          this.renderPromptImmediate();
+        } else {
+          this.renderPrompt();
+        }
+      };
       switch (letter) {
         case 'a':
           this.emit('toggle-critical-approval');
-          this.renderPrompt();
+          forceRender();
           return;
         case 'g':
           this.emit('toggle-auto-continue');
-          this.renderPrompt();
+          forceRender();
           return;
         case 'd':
           this.emit('toggle-alphazero');
-          this.renderPrompt();
+          forceRender();
           return;
         case 't':
           this.emit('toggle-thinking');
-          this.renderPrompt();
+          forceRender();
           return;
         default:
           break;
@@ -1018,7 +1028,12 @@ export class UnifiedUIRenderer extends EventEmitter {
       } else if (letter === 't') {
         this.emit('toggle-thinking');
       }
-      this.renderPrompt();
+      // Force immediate render during streaming to ensure toggle state is visible
+      if (this.mode === 'streaming') {
+        this.renderPromptImmediate();
+      } else {
+        this.renderPrompt();
+      }
     };
 
     if (isCtrlShift('a')) {
@@ -2965,12 +2980,18 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   /**
    * Format a compact tool result: ⎿  Found X lines (ctrl+o to expand)
+   * For edits, show a small inline diff preview
    */
   private formatCompactToolResult(content: string): string {
     // Sanitize content first - filter out garbage/reasoning output that leaked through
     const sanitized = this.sanitizeToolResultContent(content);
     if (!sanitized || this.isGarbageOutput(sanitized)) {
       return ''; // Don't render garbage tool results
+    }
+
+    // Special handling for edit results - show inline diff
+    if (this.lastToolName?.toLowerCase() === 'edit') {
+      return this.formatEditResultWithDiff(sanitized);
     }
 
     // Parse common result patterns for summary
@@ -3061,6 +3082,69 @@ export class UnifiedUIRenderer extends EventEmitter {
       return theme.success(summary);
     }
     return theme.info(summary);
+  }
+
+  /**
+   * Format edit result with inline diff preview
+   * Shows: ⎿ ✓ Updated (filename) - removed X, added Y chars
+   *        │ - old content...
+   *        │ + new content...
+   */
+  private formatEditResultWithDiff(content: string): string {
+    const lines: string[] = [];
+    const indent = '  ';
+
+    // Extract file path from content
+    const fileMatch = content.match(/(?:file[_\s]*path|updated|edited).*?([\/\w.\-]+\.\w+)/i);
+    const fileName = fileMatch ? fileMatch[1]!.split('/').pop() : 'file';
+
+    // Try to extract old/new content from edit result
+    const oldMatch = content.match(/old[_\s]*string[:\s]*["']?([^"'\n]+)["']?/i);
+    const newMatch = content.match(/new[_\s]*string[:\s]*["']?([^"'\n]+)["']?/i);
+
+    // Calculate diff stats
+    const oldLen = oldMatch?.[1]?.length || 0;
+    const newLen = newMatch?.[1]?.length || 0;
+    const diffStat = oldLen || newLen
+      ? theme.ui.muted(` (${theme.error(`-${oldLen}`)} ${theme.success(`+${newLen}`)} chars)`)
+      : '';
+
+    // Main summary line
+    lines.push(`${indent}${theme.ui.muted('⎿')}  ${theme.success('✓')} ${theme.success(`Updated`)} ${theme.file?.path ? theme.file.path(`(${fileName})`) : theme.warning(`(${fileName})`)}${diffStat}`);
+
+    // Show mini diff if we have old/new content
+    if (oldMatch?.[1] || newMatch?.[1]) {
+      const maxDiffLen = 60;
+
+      if (oldMatch?.[1]) {
+        const oldPreview = oldMatch[1].length > maxDiffLen
+          ? oldMatch[1].slice(0, maxDiffLen) + '…'
+          : oldMatch[1];
+        lines.push(`${indent}${theme.ui.muted('│')} ${theme.error('- ' + oldPreview)}`);
+      }
+
+      if (newMatch?.[1]) {
+        const newPreview = newMatch[1].length > maxDiffLen
+          ? newMatch[1].slice(0, maxDiffLen) + '…'
+          : newMatch[1];
+        lines.push(`${indent}${theme.ui.muted('│')} ${theme.success('+ ' + newPreview)}`);
+      }
+    }
+
+    // Store for expansion
+    this.collapsedToolResults.push({
+      toolName: 'edit',
+      content,
+      summary: `Updated ${fileName}`,
+      timestamp: Date.now(),
+    });
+
+    if (this.collapsedToolResults.length > this.maxCollapsedResults) {
+      this.collapsedToolResults.shift();
+    }
+
+    const expandHint = content.length > 100 ? ` ${theme.ui.muted('(ctrl+o to expand)')}` : '';
+    return lines.join('\n') + expandHint + '\n';
   }
 
   /**
@@ -3302,10 +3386,36 @@ export class UnifiedUIRenderer extends EventEmitter {
   private formatThinkingBlock(content: string): string {
     if (!content.trim()) return '';
 
+    // Detect thought type for better labeling
+    const lower = content.toLowerCase();
+    let label = 'thinking';
+    let labelColor = theme.secondary ?? theme.ui.muted;
+
+    // Detect initial acknowledgement
+    if (lower.includes('acknowledge') || lower.includes('understand') ||
+        lower.includes("user wants") || lower.includes("user is asking") ||
+        lower.includes("the request") || lower.includes("i'll help")) {
+      label = 'understood';
+      labelColor = theme.success ?? theme.info;
+    }
+    // Detect planning thoughts
+    else if (lower.includes('plan') || lower.includes('steps') ||
+             lower.includes('first') || lower.includes('then') ||
+             lower.includes('approach') || lower.includes('strategy')) {
+      label = 'planning';
+      labelColor = theme.info ?? theme.primary;
+    }
+    // Detect analysis/reasoning
+    else if (lower.includes('analyzing') || lower.includes('examining') ||
+             lower.includes('looking at') || lower.includes('reviewing')) {
+      label = 'analyzing';
+      labelColor = theme.warning ?? theme.secondary;
+    }
+
     const normalized = content.replace(/\s+/g, ' ').trim();
     return this.wrapBulletText(normalized, {
-      label: 'thinking',
-      labelColor: theme.secondary ?? theme.ui.muted, // Purple for thinking (distinct from blue tools)
+      label,
+      labelColor,
     });
   }
 
