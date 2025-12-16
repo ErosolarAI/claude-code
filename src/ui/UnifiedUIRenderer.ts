@@ -967,6 +967,10 @@ export class UnifiedUIRenderer extends EventEmitter {
         // BLOCK: Direct single-char toggle detection (most common case)
         // Check the first char code directly for speed and reliability
         let directToggle: string | null = null;
+
+        // DEBUG: Log the conditions being checked
+        process.stderr.write(`[CHECK] str.length=${str.length} code=${code}\n`);
+
         if (str.length === 1) {
           if (code === 169 || code === 8482) directToggle = 'g'; // © ™
           else if (code === 229 || code === 197) directToggle = 'a'; // å Å
@@ -982,12 +986,13 @@ export class UnifiedUIRenderer extends EventEmitter {
           }
         }
 
+        process.stderr.write(`[CHECK] directToggle=${directToggle}\n`);
+
         if (directToggle) {
-          if (process.env['AGI_DEBUG_KEYS']) {
-            console.error(`[KEY] TOGGLE DIRECT DETECT: ${directToggle} (code=${code})`);
-          }
+          process.stderr.write(`[CHECK] Calling handleToggle(${directToggle})\n`);
           // Handle immediately (not in setImmediate to ensure it runs)
           self.handleToggle(directToggle);
+          process.stderr.write(`[CHECK] handleToggle returned\n`);
           return true; // Suppress the event
         }
 
@@ -1142,6 +1147,9 @@ export class UnifiedUIRenderer extends EventEmitter {
    * and keypress processing for reliability.
    */
   private handleToggle(letter: string): void {
+    // DEBUG: Always log toggle handling
+    process.stderr.write(`[TOGGLE] handleToggle called with: ${letter}\n`);
+
     // Clear any pending insert buffer so the symbol never lands in the prompt
     this.pendingInsertBuffer = '';
     // Cancel any plain paste detection in progress
