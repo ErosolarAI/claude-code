@@ -924,18 +924,6 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (this.input as any).emit = function(event: string, ...args: unknown[]): boolean {
-      // DEBUG: Unconditionally log all data events to stderr to verify interception
-      if (event === 'data') {
-        const rawData = args[0];
-        const rawStr = Buffer.isBuffer(rawData) ? rawData.toString('utf8') : String(rawData || '');
-        const rawCode = rawStr ? rawStr.charCodeAt(0) : 0;
-        // Only log for potential toggle chars to avoid spam
-        if (rawCode === 169 || rawCode === 229 || rawCode === 8706 || rawCode === 8224 || rawCode === 8730 ||
-            rawCode === 27 || rawCode === 3 || rawCode === 4) {
-          process.stderr.write(`[EMIT] code=${rawCode} char=${JSON.stringify(rawStr)} disposed=${self.disposed}\n`);
-        }
-      }
-
       if (event === 'data' && !self.disposed) {
         const data = args[0];
         const str = Buffer.isBuffer(data) ? data.toString('utf8') : String(data || '');
@@ -968,9 +956,6 @@ export class UnifiedUIRenderer extends EventEmitter {
         // Check the first char code directly for speed and reliability
         let directToggle: string | null = null;
 
-        // DEBUG: Log the conditions being checked
-        process.stderr.write(`[CHECK] str.length=${str.length} code=${code}\n`);
-
         if (str.length === 1) {
           if (code === 169 || code === 8482) directToggle = 'g'; // © ™
           else if (code === 229 || code === 197) directToggle = 'a'; // å Å
@@ -986,13 +971,9 @@ export class UnifiedUIRenderer extends EventEmitter {
           }
         }
 
-        process.stderr.write(`[CHECK] directToggle=${directToggle}\n`);
-
         if (directToggle) {
-          process.stderr.write(`[CHECK] Calling handleToggle(${directToggle})\n`);
           // Handle immediately (not in setImmediate to ensure it runs)
           self.handleToggle(directToggle);
-          process.stderr.write(`[CHECK] handleToggle returned\n`);
           return true; // Suppress the event
         }
 
@@ -1147,9 +1128,6 @@ export class UnifiedUIRenderer extends EventEmitter {
    * and keypress processing for reliability.
    */
   private handleToggle(letter: string): void {
-    // DEBUG: Always log toggle handling
-    process.stderr.write(`[TOGGLE] handleToggle called with: ${letter}\n`);
-
     // Clear any pending insert buffer so the symbol never lands in the prompt
     this.pendingInsertBuffer = '';
     // Cancel any plain paste detection in progress
@@ -1169,34 +1147,22 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     switch (letter) {
-      case 'a': {
-        const listeners = this.listenerCount('toggle-critical-approval');
-        process.stderr.write(`[TOGGLE] Emitting toggle-critical-approval (${listeners} listeners)\n`);
+      case 'a':
         this.emit('toggle-critical-approval');
         forceRender();
         break;
-      }
-      case 'g': {
-        const listeners = this.listenerCount('toggle-auto-continue');
-        process.stderr.write(`[TOGGLE] Emitting toggle-auto-continue (${listeners} listeners)\n`);
+      case 'g':
         this.emit('toggle-auto-continue');
         forceRender();
         break;
-      }
-      case 'd': {
-        const listeners = this.listenerCount('toggle-alphazero');
-        process.stderr.write(`[TOGGLE] Emitting toggle-alphazero (${listeners} listeners)\n`);
+      case 'd':
         this.emit('toggle-alphazero');
         forceRender();
         break;
-      }
-      case 't': {
-        const listeners = this.listenerCount('toggle-thinking');
-        process.stderr.write(`[TOGGLE] Emitting toggle-thinking (${listeners} listeners)\n`);
+      case 't':
         this.emit('toggle-thinking');
         forceRender();
         break;
-      }
       case 'v':
         // Option+V: Available for future toggle
         break;
