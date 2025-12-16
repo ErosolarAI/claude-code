@@ -1841,10 +1841,14 @@ export class UnifiedUIRenderer extends EventEmitter {
 
     // Fast-path: single printable ASCII character with no pending buffer = immediate insert
     // This makes normal typing feel instant while still detecting multi-char pastes
+    // BUT: skip fast path if burst activity suggests incoming paste
+    const now = Date.now();
+    const burstActive = this.pasteBurstWindowStart > 0 && now - this.pasteBurstWindowStart <= this.plainPasteWindowMs;
     if (text.length === 1 &&
         this.pendingInsertBuffer === '' &&
         !this.inPlainPaste &&
         !this.inBracketedPaste &&
+        !burstActive &&
         text.charCodeAt(0) >= 32 &&
         text.charCodeAt(0) < 127) {
       this.insertText(text);
@@ -2286,7 +2290,10 @@ export class UnifiedUIRenderer extends EventEmitter {
     this.cursor += text.length;
     this.clampCursor(); // Ensure cursor remains valid after modification
     this.updateSuggestions();
-    this.renderPrompt();
+    // Suppress render during paste detection to prevent visual leak
+    if (!this.inPlainPaste && !this.inBracketedPaste) {
+      this.renderPrompt();
+    }
     this.emitInputChange();
   }
 
@@ -4531,6 +4538,14 @@ export class UnifiedUIRenderer extends EventEmitter {
       return;
     }
     this.forceNextRender = false;
+
+    // Suppress render during paste burst to prevent visual leak
+    // Only allow render if we have a collapsed paste to show
+    const now = Date.now();
+    const burstActive = this.pasteBurstWindowStart > 0 && now - this.pasteBurstWindowStart <= this.plainPasteWindowMs;
+    if ((burstActive || this.inPlainPaste || this.inBracketedPaste) && !this.collapsedPaste) {
+      return;
+    }
 
     this.lastRenderTime = Date.now();
     this.lastRenderedBuffer = this.buffer;
