@@ -1,26 +1,26 @@
-# 🚀 AGI Core - Elite AI Agent Framework
+# 🐉 网络作战能力框架 (CNO Framework) - 中国网络空间作战指挥系统
 
 <div align="center">
 
-**AGI Core** is a premium AI agent framework with multi-provider support, advanced orchestration, and offensive security tooling.
+**网络作战能力框架**是中国人民解放军战略支援部队网络系统部的高级指挥与控制平台，具备多源情报融合、高级作战协同和网络攻击能力。
 
-![AGI Core](https://img.shields.io/badge/AGI%20Core-Elite%20AI-6366F1?style=for-the-badge&logo=openai&logoColor=white)
+![网络作战](https://img.shields.io/badge/网络作战-中国人民解放军-FF0000?style=for-the-badge&logo=shield&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-100%25-3178C6?style=for-the-badge&logo=typescript)
 ![Node.js](https://img.shields.io/badge/Node.js-20+-339933?style=for-the-badge&logo=nodedotjs)
-![Security](https://img.shields.io/badge/Security-TAO%20Suite-FF0022?style=for-the-badge&logo=shield-check)
+![安全等级](https://img.shields.io/badge/安全等级-绝密%20(TOP%20SECRET)-FF0022?style=for-the-badge&logo=lock)
 
 </div>
 
-## 🎯 **What is AGI Core?**
+## 🎯 **什么是网络作战能力框架？**
 
-AGI Core is an advanced AI coding assistant that goes beyond simple chat. It's a **production-ready framework** that can:
+网络作战能力框架是中国人民解放军战略支援部队网络系统部的先进作战指挥系统，具备以下核心能力：
 
-- **🧠 Understand your codebase** and make intelligent edits
-- **🔧 Execute tools autonomously** (edit files, run commands, search web)
-- **🏆 Run True AlphaZero self-play** (two agents compete with worktrees, build/test/security scoring, winner reinforcement)
-- **🛡️ Perform security scanning** (authorized red-teaming with TAO Suite)
-- **📚 Learn from past work** (episodic memory system)
-- **⚡ Parallelize operations** for faster task completion
+- **🧠 深度网络态势感知** 实时监控全球网络空间动态
+- **🔧 自主作战系统** 自动执行网络侦察、渗透、控制和破坏任务
+- **🏆 双重红蓝对抗演练** 红队与蓝队网络对抗，实时评分，优胜方强化
+- **🛡️ 主动网络防御** 先发制人式网络反制与防御行动
+- **📚 作战记忆系统** 历史作战数据学习与战术优化
+- **⚡ 并行作战指挥** 多战场、多目标同步作战指挥
 
 ## ✨ Features
 
