@@ -532,6 +532,8 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   /** Strip ANSI escape sequences and special formatting from text to get clean plaintext */
   private sanitizePasteContent(text: string): string {
+    if (!text) return '';
+    
     // Remove all ANSI escape sequences (CSI, OSC, etc.)
     // Including bracketed paste markers (\x1b[200~ and \x1b[201~) which end with ~
     // eslint-disable-next-line no-control-regex
@@ -541,6 +543,30 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Remove any stray escape character at start/end
     // eslint-disable-next-line no-control-regex
     sanitized = sanitized.replace(/^\x1b+|\x1b+$/g, '');
+
+    // Strip toggle symbols that might have leaked through
+    // This is a safety net - primary removal happens in stripToggleSymbols
+    const isToggleCharacter = (ch: string): boolean => {
+      if (!ch || ch.length !== 1) return false;
+      const code = ch.charCodeAt(0);
+      if (code === 169 || code === 8482) return true; // © ™ (Option+G)
+      if (code === 229 || code === 197) return true;  // å Å (Option+A)
+      if (code === 8706 || code === 8710 || code === 206) return true; // ∂ ∆ Î (Option+D)
+      if (code === 8224 || code === 8225) return true; // † ‡ (Option+T)
+      if (code === 8730) return true; // √ (Option+V)
+      return false;
+    };
+    
+    const chars = [...sanitized];
+    let result = '';
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i];
+      if (isToggleCharacter(ch)) {
+        continue;
+      }
+      result += ch;
+    }
+    sanitized = result;
 
     // Strip special formatting characters for clean plaintext:
     // - Zero-width characters (ZWSP, ZWNJ, ZWJ, BOM/ZWNBSP)
@@ -595,6 +621,10 @@ export class UnifiedUIRenderer extends EventEmitter {
   private pendingInsertBuffer = '';
   private pendingInsertTimer: NodeJS.Timeout | null = null;
   private readonly pendingInsertDelayMs = 16; // Reduced from 80ms for faster typing response
+  // Emit-level paste detection - accumulate all rapid input then commit
+  private emitPasteBuffer = '';
+  private emitPasteTimer: NodeJS.Timeout | null = null;
+  private readonly emitPasteCommitMs = 30; // Commit after 30ms of no input
   private lastRenderedEventKey: string | null = null;
   private lastOutputEndedWithNewline = true;
   private hasRenderedPrompt = false;
@@ -990,6 +1020,65 @@ export class UnifiedUIRenderer extends EventEmitter {
           return true; // Suppress the event
         }
 
+        // PASTE DETECTION at emit level: Multi-char data = paste
+        // When user types, each character arrives separately
+        // When user pastes, all characters arrive as one chunk OR rapidly
+        // Check for bracketed paste markers first
+        const pasteStartMarker = '\x1b[200~';
+        const pasteEndMarker = '\x1b[201~';
+        const hasBracketedStart = str.includes(pasteStartMarker);
+        const hasBracketedEnd = str.includes(pasteEndMarker);
+
+        // Handle bracketed paste (terminal sends markers)
+        if (hasBracketedStart || hasBracketedEnd || self.inBracketedPaste) {
+          // Let the regular bracketed paste handler deal with it
+          // Fall through to readline
+        }
+        // Detect plain paste: multi-char, has printable content, not escape sequence
+        // This is handled by the buffer logic below, so we can remove this special case
+        // The buffer logic at the bottom handles both single-char and multi-char
+        // Buffer ALL input (including multi-char chunks) and commit after idle
+        // This catches paste whether terminal sends it as one chunk or char-by-char
+        const isPrintable = (c: number) => (c >= 32 && c < 127) || c > 127; // ASCII printable or Unicode
+        const isNewline = (c: number) => c === 10 || c === 13;
+        const inPasteBurst = self.emitPasteBuffer.length > 0;
+
+        // PASTE DETECTION: Only buffer when we detect paste-like input
+        // - Multi-char string (definitely paste - terminal sent chunk)
+        // - Continuation of existing paste burst
+        // For single chars, let them through immediately for responsive typing
+        let shouldBuffer = false;
+
+        // Multi-char non-escape = definitely paste
+        if (str.length > 1 && !str.startsWith('\x1b')) {
+          shouldBuffer = true;
+        }
+        // Continue buffering if we're already in a paste burst
+        else if (inPasteBurst && str.length === 1 && (isPrintable(code) || isNewline(code))) {
+          shouldBuffer = true;
+        }
+
+        if (shouldBuffer) {
+          // Add to buffer (strip any toggle symbols that might have slipped through)
+          const cleaned = self.stripToggleSymbols(str);
+          if (!cleaned) return true; // Was only toggle chars
+          self.emitPasteBuffer += cleaned;
+
+          // Clear existing timer
+          if (self.emitPasteTimer) {
+            clearTimeout(self.emitPasteTimer);
+          }
+
+          // Set timer to commit after idle
+          self.emitPasteTimer = setTimeout(() => {
+            self.commitEmitPasteBuffer();
+          }, self.emitPasteCommitMs);
+
+          return true; // Suppress - we're buffering
+        }
+        // Single char when NOT in paste burst = normal typing, let through
+        // Newline when not in burst = Enter key, let through
+
         // NOTE: Do NOT block other control characters here!
         // Backspace (8/127), Tab (9), Enter (13), arrows (27+seq) must pass through
         // for normal editing to work. Only Ctrl+C/D and toggles are intercepted above.
@@ -1090,11 +1179,26 @@ export class UnifiedUIRenderer extends EventEmitter {
       }
 
       // Drop ESC + toggle letter (Option sends Meta)
-      if (code === 27 && i + 1 < chars.length) {
-        const letter = chars[i + 1].toLowerCase();
-        if (['g', 'a', 'd', 't', 'v'].includes(letter)) {
-          i++; // Skip the meta letter as well
-          continue;
+      // Also handle case where ESC might be followed by [ (CSI sequence start)
+      if (code === 27) {
+        if (i + 1 < chars.length) {
+          const letter = chars[i + 1].toLowerCase();
+          if (['g', 'a', 'd', 't', 'v'].includes(letter)) {
+            i++; // Skip the meta letter as well
+            continue;
+          }
+          // Also drop ESC + '[' (CSI sequence start) to prevent partial escape sequences
+          if (chars[i + 1] === '[') {
+            i++; // Skip the '[' as well
+            // Skip any digits, semicolons, and the final character
+            while (i + 1 < chars.length && /[0-9;]/.test(chars[i + 1])) {
+              i++;
+            }
+            if (i + 1 < chars.length) {
+              i++; // Skip the final character (A-Z, a-z, ~, etc.)
+            }
+            continue;
+          }
         }
       }
 
@@ -1217,6 +1321,128 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Ctrl+D: interrupt if buffer is empty
     if (this.buffer.length === 0) {
       this.emit('interrupt');
+    }
+  }
+
+  /**
+   * Commit buffered emit-level input after idle period.
+   * Decides whether to treat as paste (collapse) or normal typing (insert).
+   */
+  private commitEmitPasteBuffer(): void {
+    const content = this.emitPasteBuffer;
+    this.emitPasteBuffer = '';
+    this.emitPasteTimer = null;
+
+    if (!content) return;
+
+    if (process.env['AGI_DEBUG_KEYS']) {
+      console.error(`[KEY] COMMIT EMIT BUFFER: ${content.length} chars`);
+    }
+
+    // Sanitize content
+    let sanitized = this.sanitizePasteContent(content);
+    sanitized = sanitized.replace(/\r\n?/g, '\n');
+
+    // Input protection validation
+    if (this.inputProtection) {
+      const validation = this.inputProtection.validateInput(sanitized, true);
+      if (validation.blocked) {
+        return;
+      }
+      sanitized = validation.sanitized;
+    }
+
+    if (!sanitized) return;
+
+    const lines = sanitized.split('\n');
+    const isMultiLine = lines.length > 1;
+    const isLongContent = sanitized.length > 100; // Lower threshold for better UX
+
+    // Multi-line or long content: show collapsed indicator
+    if (isMultiLine || isLongContent) {
+      // Combine with existing collapsed paste if any
+      if (this.collapsedPaste) {
+        sanitized = this.collapsedPaste.text + sanitized;
+        const newLines = sanitized.split('\n');
+        this.collapsedPaste = {
+          text: sanitized,
+          lines: newLines.length,
+          chars: sanitized.length,
+        };
+      } else {
+        this.collapsedPaste = {
+          text: sanitized,
+          lines: lines.length,
+          chars: sanitized.length,
+        };
+        this.buffer = '';
+        this.cursor = 0;
+      }
+      this.updateSuggestions();
+      this.forceNextRender = true;
+      this.renderPrompt();
+      this.emitInputChange();
+    } else {
+      // Short single-line content: insert directly as if typed
+      if (this.collapsedPaste) {
+        this.expandCollapsedPasteToBuffer();
+      }
+      this.insertSingleLineText(sanitized);
+    }
+  }
+
+  /**
+   * Handle paste detected at emit level (multi-char data arriving at once).
+   * This bypasses readline processing for reliable paste detection.
+   */
+  private handleEmitLevelPaste(content: string): void {
+    if (process.env['AGI_DEBUG_KEYS']) {
+      console.error(`[KEY] EMIT PASTE HANDLING: ${content.length} chars`);
+    }
+
+    // Sanitize content (remove control chars, normalize line endings)
+    let sanitized = this.sanitizePasteContent(content);
+    sanitized = sanitized.replace(/\r\n?/g, '\n');
+
+    // Input protection validation
+    if (this.inputProtection) {
+      const validation = this.inputProtection.validateInput(sanitized, true);
+      if (validation.blocked) {
+        return;
+      }
+      sanitized = validation.sanitized;
+    }
+
+    if (!sanitized) return;
+
+    const lines = sanitized.split('\n');
+    const isMultiLine = lines.length > 1;
+    const isLongContent = sanitized.length > 200;
+
+    // Multi-line or long content: show collapsed indicator
+    if (isMultiLine || isLongContent) {
+      // Clear any existing collapsed paste first
+      if (this.collapsedPaste) {
+        this.expandCollapsedPasteToBuffer();
+      }
+      this.collapsedPaste = {
+        text: sanitized,
+        lines: lines.length,
+        chars: sanitized.length,
+      };
+      this.buffer = '';
+      this.cursor = 0;
+      this.updateSuggestions();
+      this.forceNextRender = true;
+      this.renderPrompt();
+      this.emitInputChange();
+    } else {
+      // Short single-line content: insert directly as if typed
+      // If there's a collapsed paste, expand it first
+      if (this.collapsedPaste) {
+        this.expandCollapsedPasteToBuffer();
+      }
+      this.insertSingleLineText(sanitized);
     }
   }
 
@@ -1596,22 +1822,9 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (key.name === 'return' || key.name === 'enter') {
-      // During streaming, queue the input for processing after AI completes
-      if (this.mode === 'streaming') {
-        const queuedInput = this.streamingInputQueue.join('').trim();
-        if (queuedInput) {
-          this.emit('queue', queuedInput);
-          this.streamingInputQueue = [];
-        }
-        return;
-      }
-      // If there's a collapsed paste, expand and submit in one action
-      if (this.collapsedPaste) {
-        this.expandCollapsedPasteToBuffer();
-        return;
-      }
-      // If a slash command suggestion is highlighted, pressing Enter submits it immediately
+      // Check for slash command completion first (works in both streaming and non-streaming modes)
       if (this.applySuggestion(true)) return;
+      
       // Fallback: if buffer starts with '/' and suggestions exist, use the selected/first one
       if (this.buffer.startsWith('/') && this.suggestions.length > 0) {
         const safeIndex = this.suggestionIndex >= 0 && this.suggestionIndex < this.suggestions.length
@@ -1619,13 +1832,38 @@ export class UnifiedUIRenderer extends EventEmitter {
           : 0;
         this.buffer = this.suggestions[safeIndex]?.command ?? this.buffer;
       }
+      
+      // During streaming, queue the input for processing after AI completes
+      if (this.mode === 'streaming') {
+        const queuedInput = this.streamingInputQueue.join('').trim();
+        if (queuedInput) {
+          this.emit('queue', queuedInput);
+          this.streamingInputQueue = [];
+        }
+        // Also submit current buffer if it has content
+        if (this.buffer.trim()) {
+          this.submitText(this.buffer);
+        }
+        return;
+      }
+      
+      // If there's a collapsed paste, expand and submit in one action
+      if (this.collapsedPaste) {
+        this.expandCollapsedPasteToBuffer();
+        return;
+      }
+      
       this.submitText(this.buffer);
       return;
     }
 
     if (normalizedKey.name === 'backspace') {
+      // Reset any paste detection state to ensure clean render
+      this.resetPlainPasteBurst();
+      this.cancelPlainPasteCapture();
       if (this.collapsedPaste) {
         this.collapsedPaste = null;
+        this.forceNextRender = true;
         this.renderPrompt();
         this.emitInputChange();
         return;
@@ -1634,6 +1872,7 @@ export class UnifiedUIRenderer extends EventEmitter {
         this.buffer = this.buffer.slice(0, this.cursor - 1) + this.buffer.slice(this.cursor);
         this.cursor--;
         this.updateSuggestions();
+        this.forceNextRender = true;
         this.renderPrompt();
         this.emitInputChange();
       }
@@ -1641,9 +1880,13 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (normalizedKey.name === 'delete') {
+      // Reset any paste detection state to ensure clean render
+      this.resetPlainPasteBurst();
+      this.cancelPlainPasteCapture();
       if (this.collapsedPaste) {
         // If there's a collapsed paste, delete it completely (similar to backspace)
         this.collapsedPaste = null;
+        this.forceNextRender = true;
         this.renderPrompt();
         this.emitInputChange();
         return;
@@ -1651,6 +1894,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       if (this.cursor < this.buffer.length) {
         this.buffer = this.buffer.slice(0, this.cursor) + this.buffer.slice(this.cursor + 1);
         this.updateSuggestions();
+        this.forceNextRender = true;
         this.renderPrompt();
         this.emitInputChange();
       }
@@ -1683,9 +1927,16 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (normalizedKey.name === 'left') {
+      // Reset paste state to ensure clean render
+      this.resetPlainPasteBurst();
+      // If there's a collapsed paste, expand it first
+      if (this.collapsedPaste) {
+        this.expandCollapsedPasteToBuffer();
+      }
       if (this.cursor > 0) {
         this.cursor--;
         this.ensureCursorVisible();
+        this.forceNextRender = true;
         this.renderPrompt();
         this.emitInputChange();
       }
@@ -1693,9 +1944,16 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (normalizedKey.name === 'right') {
+      // Reset paste state to ensure clean render
+      this.resetPlainPasteBurst();
+      // If there's a collapsed paste, expand it first
+      if (this.collapsedPaste) {
+        this.expandCollapsedPasteToBuffer();
+      }
       if (this.cursor < this.buffer.length) {
         this.cursor++;
         this.ensureCursorVisible();
+        this.forceNextRender = true;
         this.renderPrompt();
         this.emitInputChange();
       }
@@ -1871,6 +2129,7 @@ export class UnifiedUIRenderer extends EventEmitter {
 
   /**
    * Commit pending characters as normal input (not a paste).
+   * If we reach here, paste detection didn't trigger, so this is normal typing.
    */
   private commitPendingInsert(): void {
     if (this.pendingInsertTimer) {
@@ -1879,6 +2138,10 @@ export class UnifiedUIRenderer extends EventEmitter {
     }
 
     if (this.pendingInsertBuffer && !this.inPlainPaste && !this.inBracketedPaste) {
+      // Reset burst state BEFORE inserting so render isn't suppressed
+      // If paste detection didn't trigger, this is just fast typing, not a paste
+      this.resetPlainPasteBurst();
+      this.plainRecentChunks = [];
       this.insertText(this.pendingInsertBuffer);
     }
     this.pendingInsertBuffer = '';
@@ -2291,7 +2554,8 @@ export class UnifiedUIRenderer extends EventEmitter {
     this.clampCursor(); // Ensure cursor remains valid after modification
     this.updateSuggestions();
     // Suppress render during paste detection to prevent visual leak
-    if (!this.inPlainPaste && !this.inBracketedPaste) {
+    const inEmitPaste = this.emitPasteBuffer.length > 0 || this.emitPasteTimer !== null;
+    if (!this.inPlainPaste && !this.inBracketedPaste && !inEmitPaste) {
       this.renderPrompt();
     }
     this.emitInputChange();
@@ -4543,7 +4807,8 @@ export class UnifiedUIRenderer extends EventEmitter {
     // Only allow render if we have a collapsed paste to show
     const now = Date.now();
     const burstActive = this.pasteBurstWindowStart > 0 && now - this.pasteBurstWindowStart <= this.plainPasteWindowMs;
-    if ((burstActive || this.inPlainPaste || this.inBracketedPaste) && !this.collapsedPaste) {
+    const inEmitPaste = this.emitPasteBuffer.length > 0 || this.emitPasteTimer !== null;
+    if ((burstActive || this.inPlainPaste || this.inBracketedPaste || inEmitPaste) && !this.collapsedPaste) {
       return;
     }
 
@@ -5317,12 +5582,18 @@ export class UnifiedUIRenderer extends EventEmitter {
       return this.truncateLine(`${theme.primary('> ')}${summary}`, this.safeWidth());
     }
 
-    // While detecting paste, suppress buffer display to prevent leaking
-    if (this.inPlainPaste || this.inBracketedPaste) {
-      const chars = this.plainPasteBuffer.length || this.pasteBuffer.length || 0;
+    // While detecting paste (or in burst detection phase), suppress buffer display
+    const now = Date.now();
+    const burstActive = this.pasteBurstWindowStart > 0 && now - this.pasteBurstWindowStart <= this.plainPasteWindowMs;
+    if (this.inPlainPaste || this.inBracketedPaste || burstActive) {
+      const chars = this.plainPasteBuffer.length || this.pasteBuffer.length || this.pendingInsertBuffer.length || 0;
       if (chars > 0) {
         const indicator = theme.ui.muted(`[📋 pasting... ${chars} chars]`);
         return this.truncateLine(`${theme.primary('> ')}${indicator}`, this.safeWidth());
+      }
+      // Even if no chars yet, show empty prompt during burst to prevent flicker
+      if (burstActive) {
+        return this.truncateLine(`${theme.primary('> ')}`, this.safeWidth());
       }
     }
 

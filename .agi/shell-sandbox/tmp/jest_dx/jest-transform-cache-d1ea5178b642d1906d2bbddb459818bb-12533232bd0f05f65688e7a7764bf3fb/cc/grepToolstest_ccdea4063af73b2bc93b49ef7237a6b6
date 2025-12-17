@@ -1,0 +1,28 @@
+fe38f97c358eb00455f8a0eee33abc24
+"use strict";
+
+var _globals = require("@jest/globals");
+var _nodeFs = require("node:fs");
+var _nodePath = require("node:path");
+var _nodeOs = require("node:os");
+var _grepTools = require("../../src/tools/grepTools.js");
+(0, _globals.describe)('grepTools', () => {
+  (0, _globals.it)('accepts alias flags without dashes', async () => {
+    const workspace = (0, _nodeFs.mkdtempSync)((0, _nodePath.join)((0, _nodeOs.tmpdir)(), 'grep-alias-'));
+    const filePath = (0, _nodePath.join)(workspace, 'sample.txt');
+    (0, _nodeFs.writeFileSync)(filePath, 'Alpha\nbeta\n');
+    const tools = (0, _grepTools.createGrepTools)(workspace);
+    const grep = tools.find(tool => tool.name === 'Grep');
+    (0, _globals.expect)(grep).toBeDefined();
+    const result = await grep.handler({
+      pattern: 'alpha',
+      path: workspace,
+      output_mode: 'content',
+      // Use aliases without dashes
+      i: true,
+      n: true
+    });
+    (0, _globals.expect)(String(result)).toContain('sample.txt:1:Alpha');
+  });
+});
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJfZ2xvYmFscyIsInJlcXVpcmUiLCJfbm9kZUZzIiwiX25vZGVQYXRoIiwiX25vZGVPcyIsIl9ncmVwVG9vbHMiLCJkZXNjcmliZSIsIml0Iiwid29ya3NwYWNlIiwibWtkdGVtcFN5bmMiLCJqb2luIiwidG1wZGlyIiwiZmlsZVBhdGgiLCJ3cml0ZUZpbGVTeW5jIiwidG9vbHMiLCJjcmVhdGVHcmVwVG9vbHMiLCJncmVwIiwiZmluZCIsInRvb2wiLCJuYW1lIiwiZXhwZWN0IiwidG9CZURlZmluZWQiLCJyZXN1bHQiLCJoYW5kbGVyIiwicGF0dGVybiIsInBhdGgiLCJvdXRwdXRfbW9kZSIsImkiLCJuIiwiU3RyaW5nIiwidG9Db250YWluIl0sInNvdXJjZXMiOlsiZ3JlcFRvb2xzLnRlc3QudHMiXSwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IHsgZGVzY3JpYmUsIGV4cGVjdCwgaXQgfSBmcm9tICdAamVzdC9nbG9iYWxzJztcbmltcG9ydCB7IG1rZHRlbXBTeW5jLCB3cml0ZUZpbGVTeW5jIH0gZnJvbSAnbm9kZTpmcyc7XG5pbXBvcnQgeyBqb2luIH0gZnJvbSAnbm9kZTpwYXRoJztcbmltcG9ydCB7IHRtcGRpciB9IGZyb20gJ25vZGU6b3MnO1xuaW1wb3J0IHsgY3JlYXRlR3JlcFRvb2xzIH0gZnJvbSAnLi4vLi4vc3JjL3Rvb2xzL2dyZXBUb29scy5qcyc7XG5cbmRlc2NyaWJlKCdncmVwVG9vbHMnLCAoKSA9PiB7XG4gIGl0KCdhY2NlcHRzIGFsaWFzIGZsYWdzIHdpdGhvdXQgZGFzaGVzJywgYXN5bmMgKCkgPT4ge1xuICAgIGNvbnN0IHdvcmtzcGFjZSA9IG1rZHRlbXBTeW5jKGpvaW4odG1wZGlyKCksICdncmVwLWFsaWFzLScpKTtcbiAgICBjb25zdCBmaWxlUGF0aCA9IGpvaW4od29ya3NwYWNlLCAnc2FtcGxlLnR4dCcpO1xuICAgIHdyaXRlRmlsZVN5bmMoZmlsZVBhdGgsICdBbHBoYVxcbmJldGFcXG4nKTtcblxuICAgIGNvbnN0IHRvb2xzID0gY3JlYXRlR3JlcFRvb2xzKHdvcmtzcGFjZSk7XG4gICAgY29uc3QgZ3JlcCA9IHRvb2xzLmZpbmQodG9vbCA9PiB0b29sLm5hbWUgPT09ICdHcmVwJyk7XG4gICAgZXhwZWN0KGdyZXApLnRvQmVEZWZpbmVkKCk7XG5cbiAgICBjb25zdCByZXN1bHQgPSBhd2FpdCBncmVwIS5oYW5kbGVyKHtcbiAgICAgIHBhdHRlcm46ICdhbHBoYScsXG4gICAgICBwYXRoOiB3b3Jrc3BhY2UsXG4gICAgICBvdXRwdXRfbW9kZTogJ2NvbnRlbnQnLFxuICAgICAgLy8gVXNlIGFsaWFzZXMgd2l0aG91dCBkYXNoZXNcbiAgICAgIGk6IHRydWUsXG4gICAgICBuOiB0cnVlLFxuICAgIH0pO1xuXG4gICAgZXhwZWN0KFN0cmluZyhyZXN1bHQpKS50b0NvbnRhaW4oJ3NhbXBsZS50eHQ6MTpBbHBoYScpO1xuICB9KTtcbn0pO1xuIl0sIm1hcHBpbmdzIjoiOztBQUFBLElBQUFBLFFBQUEsR0FBQUMsT0FBQTtBQUNBLElBQUFDLE9BQUEsR0FBQUQsT0FBQTtBQUNBLElBQUFFLFNBQUEsR0FBQUYsT0FBQTtBQUNBLElBQUFHLE9BQUEsR0FBQUgsT0FBQTtBQUNBLElBQUFJLFVBQUEsR0FBQUosT0FBQTtBQUVBLElBQUFLLGlCQUFRLEVBQUMsV0FBVyxFQUFFLE1BQU07RUFDMUIsSUFBQUMsV0FBRSxFQUFDLG9DQUFvQyxFQUFFLFlBQVk7SUFDbkQsTUFBTUMsU0FBUyxHQUFHLElBQUFDLG1CQUFXLEVBQUMsSUFBQUMsY0FBSSxFQUFDLElBQUFDLGNBQU0sRUFBQyxDQUFDLEVBQUUsYUFBYSxDQUFDLENBQUM7SUFDNUQsTUFBTUMsUUFBUSxHQUFHLElBQUFGLGNBQUksRUFBQ0YsU0FBUyxFQUFFLFlBQVksQ0FBQztJQUM5QyxJQUFBSyxxQkFBYSxFQUFDRCxRQUFRLEVBQUUsZUFBZSxDQUFDO0lBRXhDLE1BQU1FLEtBQUssR0FBRyxJQUFBQywwQkFBZSxFQUFDUCxTQUFTLENBQUM7SUFDeEMsTUFBTVEsSUFBSSxHQUFHRixLQUFLLENBQUNHLElBQUksQ0FBQ0MsSUFBSSxJQUFJQSxJQUFJLENBQUNDLElBQUksS0FBSyxNQUFNLENBQUM7SUFDckQsSUFBQUMsZUFBTSxFQUFDSixJQUFJLENBQUMsQ0FBQ0ssV0FBVyxDQUFDLENBQUM7SUFFMUIsTUFBTUMsTUFBTSxHQUFHLE1BQU1OLElBQUksQ0FBRU8sT0FBTyxDQUFDO01BQ2pDQyxPQUFPLEVBQUUsT0FBTztNQUNoQkMsSUFBSSxFQUFFakIsU0FBUztNQUNma0IsV0FBVyxFQUFFLFNBQVM7TUFDdEI7TUFDQUMsQ0FBQyxFQUFFLElBQUk7TUFDUEMsQ0FBQyxFQUFFO0lBQ0wsQ0FBQyxDQUFDO0lBRUYsSUFBQVIsZUFBTSxFQUFDUyxNQUFNLENBQUNQLE1BQU0sQ0FBQyxDQUFDLENBQUNRLFNBQVMsQ0FBQyxvQkFBb0IsQ0FBQztFQUN4RCxDQUFDLENBQUM7QUFDSixDQUFDLENBQUMiLCJpZ25vcmVMaXN0IjpbXX0=

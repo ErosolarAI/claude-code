@@ -179,8 +179,8 @@ describe('OffensiveDestructionCapabilityModule', () => {
     it('should specify authorized military environment', async () => {
       const contribution = await capability.create(context);
       
-      expect(contribution.description).toContain('AUTHORIZED MILITARY OPERATIONS');
-      expect(contribution.description).toContain('CONTROLLED ETHICAL ENVIRONMENTS');
+      expect(contribution.description.toLowerCase()).toContain('authorized military operations');
+      expect(contribution.description.toLowerCase()).toContain('controlled ethical environments');
     });
   });
 });

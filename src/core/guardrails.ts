@@ -165,11 +165,12 @@ export class ApprovalManager {
 
     this.pendingApprovals.set(request.id, request);
 
-    // TODO: Send notification to approver (email, Slack, webhook, etc.)
+    // Send notification to approver (email, Slack, webhook, etc.)
     console.log(`⚠️  Approval required: ${actionDescription}`);
     console.log(`   Approver: ${requiredApprover}`);
     console.log(`   Risk Level: ${riskLevel}`);
     console.log(`   Approval ID: ${request.id}`);
+    // TODO: Implement actual notification system (email, Slack, webhook)
 
     return request;
   }

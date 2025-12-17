@@ -31,11 +31,12 @@ AGI Core is an advanced AI coding assistant that goes beyond simple chat. It's a
 - Syntax highlighting and code formatting
 
 ### ⚡ **Core Capabilities**
-- Multi-provider AI support (OpenAI, Anthropic, Google, DeepSeek, xAI)
+- Multi-provider AI support (OpenAI GPT-5.2, Anthropic Claude Sonnet 4.5, Google Gemini 3.0, DeepSeek, xAI, Ollama, Qwen)
 - Autonomous tool execution with safety validation
 - Parallel task execution and orchestration
 - True AlphaZero self-play: two agents with isolated worktrees compete, scored by build/test/security gates, with winner reinforcement
 - Episodic memory and context management
+- **Advanced paste handling** with multi-line support and visual leak prevention
 
 ### 🛠️ **Advanced Tooling**
 - **TAO Suite**: Offensive security tools for authorized red-teaming

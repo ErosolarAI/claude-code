@@ -1,6 +1,6 @@
 {
   "name": "agi-core-cli",
-  "version": "1.1.107",
+  "version": "1.1.114",
   "description": "AGI Core CLI - Unified AI agent framework for coding tasks with multi-provider support and autonomous execution",
   "agi": {
     "rulebookSchema": "src/contracts/schemas/agent-rules.schema.json"
@@ -28,6 +28,11 @@
     "clean": "node -e \"const { rmSync } = require('fs'); for (const target of ['dist', '.tsbuildinfo']) { try { rmSync(target, { recursive: true, force: true, maxRetries: 5 }); } catch (error) { if (error && error.code !== 'ENOENT') throw error; } }\"",
     "build": "tsc",
     "build:watch": "tsc --watch",
+    "build:prod": "NODE_ENV=production MINIFY=true npm run build",
+    "optimize": "node scripts/optimize-build.mjs",
+    "release": "chmod +x scripts/create-release.sh && scripts/create-release.sh patch",
+    "release:minor": "chmod +x scripts/create-release.sh && scripts/create-release.sh minor",
+    "release:major": "chmod +x scripts/create-release.sh && scripts/create-release.sh major",
     "prepublishOnly": "npm run build",
     "pretest": "npm run build",
     "postbuild": "node scripts/postbuild.mjs",
@@ -63,6 +68,7 @@
     "@babel/core": "^7.28.5",
     "@babel/preset-env": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
+    "@eslint/js": "^9.39.2",
     "@types/glob": "^8.1.0",
     "@types/gradient-string": "^1.1.6",
     "@types/jest": "30.0.0",
@@ -71,9 +77,11 @@
     "@typescript-eslint/parser": "8.49.0",
     "babel-jest": "^30.2.0",
     "eslint": "9.39.2",
+    "eslint-plugin-import": "^2.32.0",
     "jest": "30.2.0",
     "ts-jest": "29.4.6",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript-eslint": "^8.50.0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

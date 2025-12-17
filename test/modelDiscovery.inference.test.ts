@@ -16,10 +16,10 @@ describe('modelDiscovery provider inference', () => {
   it('falls back to safe defaults when no discovered models exist', () => {
     const spy = jest.spyOn(modelDiscovery, 'getCachedDiscoveredModels').mockReturnValue([]);
 
-    expect(getLatestModelForProvider('openai' as ProviderId)).toBe('gpt-4o');
-    expect(getLatestModelForProvider('anthropic' as ProviderId)).toBe('claude-3-5-sonnet-20241022');
-    expect(getLatestModelForProvider('google' as ProviderId)).toBe('gemini-2.5-flash');
-    expect(getLatestModelForProvider('ollama' as ProviderId)).toBe('llama3.2:3b');
+    expect(getLatestModelForProvider('openai' as ProviderId)).toBe('gpt-5.2-codex');
+    expect(getLatestModelForProvider('anthropic' as ProviderId)).toBe('claude-sonnet-4-5-20250514');
+    expect(getLatestModelForProvider('google' as ProviderId)).toBe('gemini-3.0-pro');
+    expect(getLatestModelForProvider('ollama' as ProviderId)).toBe('llama3.3:70b');
 
     spy.mockRestore();
   });

@@ -54,7 +54,7 @@ export interface CrossModuleOperation {
 
 export class UnifiedMilitaryCapabilityModule extends BaseCapabilityModule {
   readonly id = 'capability.unified-military';
-  declare protected readonly options: UnifiedMilitaryCapabilityOptions;
+  protected declare readonly options: UnifiedMilitaryCapabilityOptions;
   
   private eliteCryptoMilitary: EliteCryptoMilitaryCapabilityModule | null = null;
   private maxOffensiveUkraine: MaxOffensiveUkraineCapabilityModule | null = null;
