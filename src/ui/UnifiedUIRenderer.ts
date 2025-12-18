@@ -3044,7 +3044,7 @@ export class UnifiedUIRenderer extends EventEmitter {
       case 'tool': {
         // Premium tool display with enhanced visualization
         const content = event.content.replace(/^[⏺⚙○]\s*/, '');
-        return this.formatPremiumToolCall(content);
+        return this.formatToolCall(content);
       }
 
       case 'tool-result': {
@@ -4453,7 +4453,20 @@ export class UnifiedUIRenderer extends EventEmitter {
         this.clearPromptArea();
       }
 
-      if (!this.lastOutputEndedWithNewline) {
+      // Format accumulated streaming content as a premium assistant response
+      if (this.streamingContentBuffer && this.streamingContentBuffer.trim()) {
+        // Ensure we're on a fresh line
+        if (!this.lastOutputEndedWithNewline) {
+          this.write('\n');
+          this.lastOutputEndedWithNewline = true;
+        }
+        
+        // Format as premium assistant response
+        const formattedResponse = this.formatAssistantResponse(this.streamingContentBuffer);
+        if (formattedResponse.trim()) {
+          this.write(formattedResponse);
+        }
+      } else if (!this.lastOutputEndedWithNewline) {
         // Finish streaming on a fresh line so the next prompt/event doesn't collide
         this.write('\n');
         this.lastOutputEndedWithNewline = true;

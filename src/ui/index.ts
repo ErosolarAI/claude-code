@@ -61,6 +61,18 @@ export * from './toolDisplay.js';
 
 export * from './animatedStatus.js';
 
+// Premium UI Components (enhanced visual design system)
+export {
+  formatThought,
+  formatToolResult as formatToolResultPremium,
+  formatProgressIndicator,
+  formatSectionHeader,
+  type ThoughtDisplayOptions,
+  type ToolResultDisplayOptions,
+  type ProgressIndicatorOptions,
+  type VisualTone,
+} from './premiumComponents.js';
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Layer 4 - Controllers
 // ═══════════════════════════════════════════════════════════════════════════════
