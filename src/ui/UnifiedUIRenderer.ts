@@ -429,6 +429,12 @@ export class UnifiedUIRenderer extends EventEmitter {
     content: string;
     summary: string;
     timestamp: number;
+    metadata?: {
+      filePath?: string;
+      oldLength?: number;
+      newLength?: number;
+      diff?: { old: string; new: string };
+    };
   }> = [];
   private readonly maxCollapsedResults = 50;
   /** Track the last tool name for pairing with results */
