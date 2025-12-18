@@ -48,7 +48,8 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
     '--target', '--phases', '--aggressive', '--no-exploit',
     '--persist', '--lateral', '--exploit', '--quick',
     '--military', '--rsa-hijack', '--chip-takeover', '--weapons-control',
-    '--unified-military', '--cross-module'
+    '--unified-military', '--cross-module',
+    '--unified', '--integrated', '--framework', '--list-capabilities', '--framework-status'
   ]);
   const unknownFlags = rawArgs.filter((arg) => arg.startsWith('-') && !knownFlags.has(arg.split('=')[0]));
   if (unknownFlags.length) {
@@ -282,6 +283,55 @@ async function main(): Promise<void> {
       process.exit(0);
     } catch (error) {
       console.error('❌ Unified Military Operation Failed:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  }
+
+  // Check for unified framework mode
+  if (rawArgs.includes('--unified') || rawArgs.includes('--integrated') || rawArgs.includes('--framework')) {
+    console.log('\n🚀 INTEGRATED UNIFIED CAPABILITIES FRAMEWORK ACTIVATED\n');
+    console.log('🔗 All AGI capabilities unified into single framework for maximum code reuse\n');
+    console.log('📚 Universal Capability Framework provides:');
+    console.log('   • Single source of truth for all capabilities');
+    console.log('   • Dependency injection and resolution');
+    console.log('   • Event-driven cross-module communication');
+    console.log('   • Shared utilities for consistent operations');
+    console.log('   • Pluggable architecture for easy extensibility\n');
+    
+    try {
+      const { IntegratedUnifiedCapabilityModule } = await import('../capabilities/integratedUnifiedCapability.js');
+      
+      const unifiedCapability = new IntegratedUnifiedCapabilityModule({
+        workingDir: process.cwd(),
+        enableUniversalFramework: true,
+        enableReadmeCapabilities: true,
+        enableMilitaryIntegration: rawArgs.includes('--military'),
+        enableCrossModuleCommunication: true,
+        debug: rawArgs.includes('--debug')
+      });
+
+      // Execute based on additional arguments
+      if (rawArgs.includes('--list-capabilities')) {
+        const capabilities = unifiedCapability.listIntegratedCapabilities(true);
+        console.log('\n📋 INTEGRATED CAPABILITIES:\n');
+        console.log(capabilities);
+      } else if (rawArgs.includes('--framework-status')) {
+        const status = unifiedCapability.getFrameworkStatus();
+        console.log('\n📊 FRAMEWORK STATUS:\n');
+        console.log(JSON.stringify(JSON.parse(status), null, 2));
+      } else {
+        console.log('\n✅ Integrated Unified Capability Framework Initialized');
+        console.log(`📦 Framework ID: ${unifiedCapability.id}`);
+        console.log('\n💡 Available options:');
+        console.log('   --list-capabilities    Show all integrated capabilities');
+        console.log('   --framework-status     Show framework status and configuration');
+        console.log('   --debug                Enable debug logging');
+        console.log('   --military             Integrate military capabilities\n');
+      }
+      
+      process.exit(0);
+    } catch (error) {
+      console.error('❌ Unified Framework Operation Failed:', error instanceof Error ? error.message : error);
       process.exit(1);
     }
   }

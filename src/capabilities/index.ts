@@ -12,3 +12,8 @@ export { EliteCryptoMilitaryCapabilityModule, type EliteCryptoMilitaryOptions, t
 export { BaseCapabilityModule, type BaseCapabilityOptions, ToolSuiteBuilder, SharedUtilities } from './baseCapability.js';
 export { SharedMilitaryDatabases, SharedMilitaryUtilities, type MilitaryAuthorizationLevel, type InfrastructureType, type DestructionMethod, type ChipType, type WeaponsSystemType, type ControlLevel } from './sharedMilitaryInfrastructure.js';
 export { UnifiedMilitaryCapabilityModule, type UnifiedMilitaryCapabilityOptions, type UnifiedOperationResult, type CrossModuleOperation } from './unifiedMilitaryCapability.js';
+export { UniversalCapabilityFramework, type UniversalCapabilityConfig, type CapabilityMetadata, type CapabilityRegistration, type UniversalFrameworkEvent, type DependencyGraph } from './universalCapabilityFramework.js';
+export { SharedUniversalUtilities, ContextManager, ToolRegistry, UniversalCapabilityModule, UniversalCapabilityFactory } from './universalCapabilityFramework.js';
+export { UniversalFilesystemCapability, UniversalBashCapability, UniversalSearchCapability, UniversalEditCapability } from './universalCapabilityFramework.js';
+export { MultiProviderAICapability, AlphaZeroSelfPlayCapability, TaoSuiteCapability, KineticOpsCapability, EnhancedGitCapability, WebToolsCapability, MilitaryCapabilitiesIntegrator } from './readmeIntegration.js';
+export { IntegratedUnifiedCapabilityModule, SimplifiedUnifiedCapability, type IntegratedUnifiedCapabilityOptions } from './integratedUnifiedCapability.js';
