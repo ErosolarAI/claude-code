@@ -3849,13 +3849,19 @@ Any text response is a failure. Only tool calls are accepted.`;
             break;
 
           case 'reasoning':
-            // Accumulate reasoning but DO NOT display - it contains internal deliberation
+            // Accumulate reasoning for potential fallback synthesis
             reasoningBuffer += event.content ?? '';
             // Update status to show reasoning is actively streaming
             this.promptController?.setActivityMessage('Thinking');
             // Start the reasoning timer on first reasoning event
             if (!reasoningOnlyStartTime) {
               reasoningOnlyStartTime = Date.now();
+            }
+            // Display useful reasoning as 'thought' events BEFORE the response
+            // The renderer's curateReasoningContent and shouldRenderThought will filter
+            // to show only actionable/structured thoughts
+            if (renderer && event.content?.trim()) {
+              renderer.addEvent('thought', event.content);
             }
             break;
 
@@ -3871,12 +3877,13 @@ Any text response is a failure. Only tool calls are accepted.`;
 
               // If content came via message.complete but NOT via deltas, render it now as a proper response
               // This handles models that don't stream deltas (e.g., deepseek-reasoner)
+              // IMPORTANT: Do NOT re-emit content that was already streamed via 'message.delta' events
+              // to prevent duplicate display of the same response
               if (base && !this.currentResponseBuffer.trim()) {
                 renderer.addEvent('response', base);
-              } else if (this.currentResponseBuffer.trim()) {
-                // For models that stream via deltas, add the accumulated response as a proper response event
-                renderer.addEvent('response', this.currentResponseBuffer.trim());
               }
+              // Note: We intentionally DO NOT re-emit currentResponseBuffer as a 'response' event
+              // because it was already displayed via 'stream' events during message.delta handling
 
               // Fallback: If response is empty but we have reasoning, synthesize a response
               if (!sourceText.trim() && reasoningBuffer.trim()) {
