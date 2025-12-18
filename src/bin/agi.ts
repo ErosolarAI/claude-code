@@ -49,7 +49,8 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
     '--persist', '--lateral', '--exploit', '--quick',
     '--military', '--rsa-hijack', '--chip-takeover', '--weapons-control',
     '--unified-military', '--cross-module',
-    '--unified', '--integrated', '--framework', '--list-capabilities', '--framework-status'
+    '--unified', '--integrated', '--framework', '--list-capabilities', '--framework-status',
+    '--self-update', '--check-updates', '--update-now', '--update-status', '--configure-updates'
   ]);
   const unknownFlags = rawArgs.filter((arg) => arg.startsWith('-') && !knownFlags.has(arg.split('=')[0]));
   if (unknownFlags.length) {
