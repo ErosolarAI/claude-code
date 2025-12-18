@@ -239,7 +239,8 @@ describe('UnifiedUIRenderer event coalescing', () => {
       }
       const clean = stripAnsi(emitted).trimEnd().split('\n');
       // Thought events can show as "understood" or "thinking" depending on content
-      expect(clean[0]).toMatch(/^⏺ (understood|thinking) · /i);
+      // Note: label includes icon (e.g., "✅ understood" or "💭 thinking")
+      expect(clean[0]).toMatch(/^⏺ (✅ |💭 |🗺️ |🔍 |✓ )?(understood|thinking|planning|analyzing|completed) · /i);
       expect(clean.length).toBeGreaterThan(1);
       expect(clean[1].startsWith('  ')).toBe(true);
       const bulletCount = (clean.join('\n').match(/⏺/g) || []).length;

@@ -3339,14 +3339,62 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   private shouldRenderThought(content: string): boolean {
-    const normalized = content.replace(/\s+/g, ' ').trim().toLowerCase();
+    const normalized = content.replace(/\s+/g, ' ').trim();
     if (!normalized) {
       return false;
     }
 
     const now = Date.now();
-    if (this.lastCuratedThought && this.lastCuratedThought.text === normalized) {
+    const normalizedLower = normalized.toLowerCase();
+    
+    // Exact duplicate detection
+    if (this.lastCuratedThought && this.lastCuratedThought.text === normalizedLower) {
       if (now - this.lastCuratedThought.at < this.thoughtDedupWindowMs) {
+        return false;
+      }
+    }
+
+    // Semantic duplicate detection - check if new thought is a subset of previous thought
+    if (this.lastCuratedThought) {
+      const previous = this.lastCuratedThought.text;
+      const current = normalizedLower;
+      
+      // If current thought contains most of previous thought (or vice versa), it's likely a duplicate
+      const wordsPrevious = previous.split(/\s+/).filter(w => w.length > 3);
+      const wordsCurrent = current.split(/\s+/).filter(w => w.length > 3);
+      
+      if (wordsPrevious.length > 0 && wordsCurrent.length > 0) {
+        const sharedWords = wordsCurrent.filter(word => wordsPrevious.includes(word));
+        const similarity = sharedWords.length / Math.max(wordsPrevious.length, wordsCurrent.length);
+        
+        // If similarity > 70% and within time window, filter it out
+        if (similarity > 0.7 && now - this.lastCuratedThought.at < this.thoughtDedupWindowMs) {
+          return false;
+        }
+      }
+    }
+
+    // Filter out very short or trivial thoughts
+    const wordCount = normalizedLower.split(/\s+/).filter(w => w.length > 2).length;
+    if (wordCount < 3 && normalizedLower.length < 30) {
+      // Too short to be meaningful
+      return false;
+    }
+
+    // Filter out common meaningless patterns
+    const meaninglessPatterns = [
+      /^i(?:'?ll?)?\s+(?:will\s+)?(?:now\s+)?(?:proceed|continue|go|move|start)/i,
+      /^(?:let me|i will|i'll|i am|i'm)\s+(?:check|look|see|examine|review|analyze)/i,
+      /^proceeding\s+(?:with|to)/i,
+      /^continuing\s+(?:with|to)/i,
+      /^moving\s+(?:on|forward|to)/i,
+      /^starting\s+(?:with|to)/i,
+      /^now\s+(?:i|let me|we|let's)/i,
+      /^(?:ok|alright|well)\s*,?\s*(?:now|then|so|let)/i,
+    ];
+
+    for (const pattern of meaninglessPatterns) {
+      if (pattern.test(normalized)) {
         return false;
       }
     }
@@ -3766,65 +3814,91 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   /**
-   * Format edit result with inline diff preview
+   * Format edit result with enhanced inline diff preview
    * Shows: ⎿ ✓ Updated (filename) - removed X, added Y chars
+   *        ├─┐
    *        │ - old content...
    *        │ + new content...
+   *        └─
    */
   private formatEditResultWithDiff(content: string): string {
     const lines: string[] = [];
     const indent = '  ';
 
-    // Extract file path from content
-    const fileMatch = content.match(/(?:file[_\s]*path|updated|edited).*?([\/\w.\-]+\.\w+)/i);
-    const fileName = fileMatch ? fileMatch[1]!.split('/').pop() : 'file';
+    // Extract file path from content with better regex
+    const filePathMatch = content.match(/(?:file[_\s]*path|path):\s*"([^"]+)"/i) || 
+                         content.match(/updated.*?([\/\w.\-]+\.\w+)/i) ||
+                         content.match(/edited.*?([\/\w.\-]+\.\w+)/i);
+    const fileName = filePathMatch ? filePathMatch[1]!.split('/').pop() : 'file';
+    const fullPath = filePathMatch ? filePathMatch[1] : fileName;
 
-    // Try to extract old/new content from edit result
-    const oldMatch = content.match(/old[_\s]*string[:\s]*["']?([^"'\n]+)["']?/i);
-    const newMatch = content.match(/new[_\s]*string[:\s]*["']?([^"'\n]+)["']?/i);
+    // Try to extract old/new content from edit result with better parsing
+    const oldMatch = content.match(/old[_\s]*string[:\s]*(["'`])([^\x01]+?)\1/i) || 
+                    content.match(/old[_\s]*string[:\s]*["']?([^"'\n]+)["']?/i);
+    const newMatch = content.match(/new[_\s]*string[:\s]*(["'`])([^\x01]+?)\1/i) ||
+                    content.match(/new[_\s]*string[:\s]*["']?([^"'\n]+)["']?/i);
+
+    const oldContent = oldMatch?.[2] || oldMatch?.[1] || '';
+    const newContent = newMatch?.[2] || newMatch?.[1] || '';
 
     // Calculate diff stats
-    const oldLen = oldMatch?.[1]?.length || 0;
-    const newLen = newMatch?.[1]?.length || 0;
+    const oldLen = oldContent.length;
+    const newLen = newContent.length;
     const diffStat = oldLen || newLen
       ? theme.ui.muted(` (${theme.error(`-${oldLen}`)} ${theme.success(`+${newLen}`)} chars)`)
       : '';
 
-    // Main summary line
-    lines.push(`${indent}${theme.ui.muted('⎿')}  ${theme.success('✓')} ${theme.success(`Updated`)} ${theme.file?.path ? theme.file.path(`(${fileName})`) : theme.warning(`(${fileName})`)}${diffStat}`);
+    // Main summary line with enhanced styling
+    lines.push(`${indent}${theme.ui.muted('⎿')}  ${theme.success('✓')} ${theme.success(`Updated`)} ${theme.file?.path ? theme.file.path(`${fullPath}`) : theme.warning(`${fullPath}`)}${diffStat}`);
 
-    // Show mini diff if we have old/new content
-    if (oldMatch?.[1] || newMatch?.[1]) {
-      const maxDiffLen = 60;
+    // Show enhanced diff visualization
+    if (oldContent || newContent) {
+      const maxDiffLen = Math.min(this.safeWidth() - 20, 80);
+      
+      // Start diff box
+      lines.push(`${indent}${theme.ui.muted('├─┐')}`);
 
-      if (oldMatch?.[1]) {
-        const oldPreview = oldMatch[1].length > maxDiffLen
-          ? oldMatch[1].slice(0, maxDiffLen) + '…'
-          : oldMatch[1];
-        lines.push(`${indent}${theme.ui.muted('│')} ${theme.error('- ' + oldPreview)}`);
+      if (oldContent) {
+        const oldPreview = oldContent.length > maxDiffLen
+          ? oldContent.slice(0, maxDiffLen) + '…'
+          : oldContent;
+        // Clean up the preview (remove escaped quotes, etc.)
+        const cleanOld = oldPreview.replace(/\\"/g, '"').replace(/\\n/g, '↲');
+        lines.push(`${indent}${theme.ui.muted('│')} ${theme.error('─ ' + cleanOld)}`);
       }
 
-      if (newMatch?.[1]) {
-        const newPreview = newMatch[1].length > maxDiffLen
-          ? newMatch[1].slice(0, maxDiffLen) + '…'
-          : newMatch[1];
-        lines.push(`${indent}${theme.ui.muted('│')} ${theme.success('+ ' + newPreview)}`);
+      if (newContent) {
+        const newPreview = newContent.length > maxDiffLen
+          ? newContent.slice(0, maxDiffLen) + '…'
+          : newContent;
+        const cleanNew = newPreview.replace(/\\"/g, '"').replace(/\\n/g, '↲');
+        lines.push(`${indent}${theme.ui.muted('│')} ${theme.success('+ ' + cleanNew)}`);
       }
+
+      // End diff box
+      lines.push(`${indent}${theme.ui.muted('└─')}`);
     }
 
-    // Store for expansion
+    // Store for expansion with enhanced metadata
     this.collapsedToolResults.push({
       toolName: 'edit',
       content,
-      summary: `Updated ${fileName}`,
+      summary: `Updated ${fileName} (-${oldLen}, +${newLen})`,
       timestamp: Date.now(),
+      metadata: {
+        filePath: fullPath,
+        oldLength: oldLen,
+        newLength: newLen,
+        diff: { old: oldContent, new: newContent }
+      }
     });
 
     if (this.collapsedToolResults.length > this.maxCollapsedResults) {
       this.collapsedToolResults.shift();
     }
 
-    const expandHint = content.length > 100 ? ` ${theme.ui.muted('(ctrl+o to expand)')}` : '';
+    const expandHint = content.length > 100 || oldLen > 50 || newLen > 50 ? 
+      ` ${theme.ui.muted('(ctrl+o to expand)')}` : '';
     return lines.join('\n') + expandHint + '\n';
   }
 
@@ -3842,7 +3916,7 @@ export class UnifiedUIRenderer extends EventEmitter {
    */
   private wrapBulletText(
     content: string,
-    options: { maxWidth?: number; label?: string; labelColor?: (value: string) => string } = {}
+    options: { maxWidth?: number; label?: string; labelColor?: (value: string) => string; thoughtType?: string } = {}
   ): string {
     const bullet = '⏺';
     let cleaned = content.replace(/^[⏺•○]\s*/, '').trimEnd();
@@ -4058,8 +4132,9 @@ export class UnifiedUIRenderer extends EventEmitter {
   }
 
   /**
-   * Format thinking block with enhanced visual design.
+   * Format thinking block with premium visual design.
    * Uses a distinct visual style to clearly separate thinking from responses.
+   * Enhanced with gradient labels, better typography, and visual hierarchy.
    *
    * In plain output mode we keep it simple and inline with the rest of the
    * stream so transcripts remain easy to scan.
@@ -4067,36 +4142,68 @@ export class UnifiedUIRenderer extends EventEmitter {
   private formatThinkingBlock(content: string): string {
     if (!content.trim()) return '';
 
-    // Detect thought type for better labeling
+    // Detect thought type for better labeling and visual styling
     const lower = content.toLowerCase();
     let label = 'thinking';
-    let labelColor = theme.secondary ?? theme.ui.muted;
+    let labelColor = theme.neon.cyan;
+    let labelIcon = '💭';
+    let thoughtType = 'default';
 
     // Detect initial acknowledgement
     if (lower.includes('acknowledge') || lower.includes('understand') ||
         lower.includes("user wants") || lower.includes("user is asking") ||
         lower.includes("the request") || lower.includes("i'll help")) {
       label = 'understood';
-      labelColor = theme.success ?? theme.info;
+      labelColor = theme.success ?? theme.neon.green;
+      labelIcon = '✅';
+      thoughtType = 'acknowledgement';
     }
     // Detect planning thoughts
     else if (lower.includes('plan') || lower.includes('steps') ||
              lower.includes('first') || lower.includes('then') ||
              lower.includes('approach') || lower.includes('strategy')) {
       label = 'planning';
-      labelColor = theme.info ?? theme.primary;
+      labelColor = theme.info ?? theme.neon.blue;
+      labelIcon = '🗺️';
+      thoughtType = 'planning';
     }
     // Detect analysis/reasoning
     else if (lower.includes('analyzing') || lower.includes('examining') ||
              lower.includes('looking at') || lower.includes('reviewing')) {
       label = 'analyzing';
-      labelColor = theme.warning ?? theme.secondary;
+      labelColor = theme.warning ?? theme.neon.orange;
+      labelIcon = '🔍';
+      thoughtType = 'analysis';
+    }
+    // Detect tool selection/execution thoughts
+    else if (lower.includes('tool') || lower.includes('read') || 
+             lower.includes('edit') || lower.includes('search') ||
+             lower.includes('bash') || lower.includes('execute')) {
+      label = 'executing';
+      labelColor = theme.toolColors.default ?? theme.neon.purple;
+      labelIcon = '⚙️';
+      thoughtType = 'execution';
+    }
+    // Detect completion/result thoughts
+    else if (lower.includes('complete') || lower.includes('done') ||
+             lower.includes('finished') || lower.includes('result')) {
+      label = 'completed';
+      labelColor = theme.success ?? theme.neon.green;
+      labelIcon = '✓';
+      thoughtType = 'completion';
     }
 
     const normalized = content.replace(/\s+/g, ' ').trim();
+    
+    // Enhanced bullet design with icon and gradient styling
+    const bullet = '⏺';
+    const coloredLabel = labelColor(`${labelIcon} ${label}`);
+    
+    // Format with premium styling
     return this.wrapBulletText(normalized, {
-      label,
-      labelColor,
+      label: coloredLabel,
+      labelColor: (text) => text, // Already colored
+      thoughtType,
     });
   }
 
