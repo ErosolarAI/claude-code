@@ -25,7 +25,7 @@
   "scripts": {
     "postinstall": "node -e \"const fs=require('fs');['dist/bin/agi.js','dist/bin/erosolar.js'].forEach(f=>{try{fs.chmodSync(f,0o755)}catch{}})\"",
     "prebuild": "npm run clean",
-    "clean": "node -e \"const { rmSync } = require('fs'); for (const target of ['dist', '.tsbuildinfo']) { try { rmSync(target, { recursive: true, force: true, maxRetries: 5 }); } catch (error) { if (error && error.code !== 'ENOENT') throw error; } }\"",
+    "clean": "node -e \"const { rmSync } = require('fs'); for (const target of ['dist', '.tsbuildinfo']) { try { rmSync(target, { recursive: true, force: true, maxRetries: 10 }); } catch (error) { console.warn('Clean warning:', error.code, 'for', target); } }\"",
     "build": "tsc",
     "build:watch": "tsc --watch",
     "build:prod": "NODE_ENV=production MINIFY=true npm run build",

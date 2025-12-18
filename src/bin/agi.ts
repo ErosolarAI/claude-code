@@ -39,19 +39,20 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
   printHelpFast(invokedAs);
   process.exit(0);
 } else {
-  const knownFlags = new Set([
-    '--version', '-v', '--help', '-h', '--self-test',
-    '--quick', '-q', '--json', '--eval', '-e',
-    '--provider', '--model', '--profile', '--plan', '-p',
-    '--security', '--audit', '--fix',
-    '--zero-day', '--zeroday', '--attack', '--pentest',
-    '--target', '--phases', '--aggressive', '--no-exploit',
-    '--persist', '--lateral', '--exploit', '--quick',
-    '--military', '--rsa-hijack', '--chip-takeover', '--weapons-control',
-    '--unified-military', '--cross-module',
-    '--unified', '--integrated', '--framework', '--list-capabilities', '--framework-status',
-    '--self-update', '--check-updates', '--update-now', '--update-status', '--configure-updates'
-  ]);
+    const knownFlags = new Set([
+      '--version', '-v', '--help', '-h', '--self-test',
+      '--quick', '-q', '--json', '--eval', '-e',
+      '--provider', '--model', '--profile', '--plan', '-p',
+      '--security', '--audit', '--fix',
+      '--zero-day', '--zeroday', '--attack', '--pentest',
+      '--target', '--phases', '--aggressive', '--no-exploit',
+      '--persist', '--lateral', '--exploit', '--quick',
+      '--military', '--rsa-hijack', '--chip-takeover', '--weapons-control',
+      '--unified-military', '--cross-module',
+      '--unified', '--integrated', '--framework', '--list-capabilities', '--framework-status',
+      '--self-update', '--check-updates', '--update-now', '--update-status', '--configure-updates',
+      '--debug'
+    ]);
   const unknownFlags = rawArgs.filter((arg) => arg.startsWith('-') && !knownFlags.has(arg.split('=')[0]));
   if (unknownFlags.length) {
     console.error(`Unknown option(s): ${unknownFlags.join(', ')}`);
@@ -71,9 +72,13 @@ async function main(): Promise<void> {
   }
 
   // Light imports first
-  const { installGlobalWriteLock } = await import('../ui/globalWriteLock.js');
-
-  installGlobalWriteLock();
+  try {
+    const { installGlobalWriteLock } = await import('../ui/globalWriteLock.js');
+    installGlobalWriteLock();
+  } catch (error) {
+    // Silently continue if global write lock is not available
+    console.error('Note: globalWriteLock not available, continuing without it');
+  }
 
   // Check for self-test mode
   if (rawArgs.includes('--self-test')) {
