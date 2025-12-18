@@ -35,6 +35,9 @@ import { UniversalSecurityCapabilityModule } from './universalSecurityCapability
 import { MaxOffensiveUkraineCapabilityModule } from './maxOffensiveUkraineCapability.js';
 import { OffensiveDestructionCapabilityModule } from './offensiveDestructionCapability.js';
 
+// Import self-update capability
+import { SelfUpdateCapability } from './selfUpdateSystem.js';
+
 // ============================================================================
 // INTEGRATED UNIFIED CAPABILITY CONFIGURATION
 // ============================================================================
@@ -121,6 +124,7 @@ export class IntegratedUnifiedCapabilityModule extends BaseCapabilityModule {
     UniversalCapabilityFactory.registerCapability('universal-bash', UniversalBashCapability);
     UniversalCapabilityFactory.registerCapability('universal-search', UniversalSearchCapability);
     UniversalCapabilityFactory.registerCapability('universal-edit', UniversalEditCapability);
+    UniversalCapabilityFactory.registerCapability('self-update', SelfUpdateCapability);
     
     if (this.options.enableReadmeCapabilities) {
       UniversalCapabilityFactory.registerCapability('multi-provider-ai', MultiProviderAICapability);
@@ -143,7 +147,8 @@ export class IntegratedUnifiedCapabilityModule extends BaseCapabilityModule {
       { id: 'universal-filesystem', config: { workingDir: this.options.workingDir } },
       { id: 'universal-bash', config: { workingDir: this.options.workingDir } },
       { id: 'universal-search', config: { workingDir: this.options.workingDir } },
-      { id: 'universal-edit', config: { workingDir: this.options.workingDir } }
+      { id: 'universal-edit', config: { workingDir: this.options.workingDir } },
+      { id: 'self-update', config: { workingDir: this.options.workingDir } }
     ];
 
     if (this.options.enableReadmeCapabilities) {
@@ -422,6 +427,13 @@ export class IntegratedUnifiedCapabilityModule extends BaseCapabilityModule {
    */
   getCapabilities(): Map<string, any> {
     return new Map(this.capabilities);
+  }
+
+  /**
+   * Get specific capability by ID
+   */
+  getCapability(capabilityId: string): any | null {
+    return this.capabilities.get(capabilityId) || null;
   }
 }
 
