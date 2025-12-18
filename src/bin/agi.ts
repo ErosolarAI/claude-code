@@ -322,8 +322,6 @@ async function main(): Promise<void> {
         console.log(JSON.stringify(JSON.parse(status), null, 2));
       } else if (rawArgs.includes('--check-updates') || rawArgs.includes('--update-status')) {
         // Get self-update status
-        // Note: getCapability is available on IntegratedUnifiedCapabilityModule
-        // For now, just show that update functionality is available
         console.log('\n🔄 SELF-UPDATE STATUS:');
         console.log('   Framework supports automatic updates');
         console.log('   Current version: 1.1.115');
