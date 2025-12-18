@@ -23,7 +23,12 @@ const createRenderer = () => {
   return { renderer, input, output };
 };
 
-const stripAnsi = (value: string): string => value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '');
+const stripAnsi = (value: string): string => {
+  // Remove ANSI escape codes
+  const noAnsi = value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '');
+  // Remove gradient markers (used by the UI system)
+  return noAnsi.replace(/\[GRADIENT:[^\]]*\]/g, '').replace(/\[\/GRADIENT\]/g, '');
+};
 
 const originalCI = process.env.CI;
 
@@ -188,7 +193,8 @@ describe('UnifiedUIRenderer event coalescing', () => {
       const clean = stripAnsi(emitted);
       const bulletCount = (clean.match(/⏺/g) || []).length;
       expect(bulletCount).toBe(1);
-      expect(clean).toMatch(/First part of the block/);
+      // The formatted output has newlines, so we need to handle that in the regex
+      expect(clean).toMatch(/First\s+part of the block/);
       expect(clean).toMatch(/Second part, same block/);
     } finally {
       renderer.cleanup();
