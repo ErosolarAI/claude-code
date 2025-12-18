@@ -3042,9 +3042,9 @@ export class UnifiedUIRenderer extends EventEmitter {
       }
 
       case 'tool': {
-        // Compact tool display: ⚡ToolName → result
+        // Premium tool display with enhanced visualization
         const content = event.content.replace(/^[⏺⚙○]\s*/, '');
-        return this.formatCompactToolCall(content);
+        return this.formatPremiumToolCall(content);
       }
 
       case 'tool-result': {
@@ -3082,9 +3082,18 @@ export class UnifiedUIRenderer extends EventEmitter {
         if (this.isGarbageOutput(event.content)) {
           return '';
         }
-        // Clean response without excessive bullets, wrapped for readability
+        // Premium response formatting with assistant styling
         const isError = event.rawType === 'error';
-        return this.wrapBulletText(event.content, isError ? { label: 'error', labelColor: theme.error } : undefined);
+        if (isError) {
+          return this.wrapBulletText(event.content, { 
+            label: 'error', 
+            labelColor: theme.error,
+            thoughtType: 'danger'
+          });
+        } else {
+          // Assistant response with premium styling
+          return this.formatAssistantResponse(event.content);
+        }
       }
     }
   }
@@ -4210,6 +4219,33 @@ export class UnifiedUIRenderer extends EventEmitter {
       label: coloredLabel,
       labelColor: (text) => text, // Already colored
       thoughtType,
+    });
+  }
+
+  /**
+   * Format assistant response with premium styling
+   * Uses distinct visual style to clearly separate from thoughts
+   */
+  private formatAssistantResponse(content: string): string {
+    if (!content.trim()) return '';
+
+    // Clean content - remove any existing bullet prefixes
+    const cleaned = content.replace(/^[⏺•○]\s*/, '').trim();
+    if (!cleaned.trim()) return '';
+
+    // Assistant styling with gradient and icon
+    const bullet = '◆'; // Distinct from thought bullet (⏺)
+    const label = 'assistant';
+    const labelColor = theme.gradient.neon;
+    const labelIcon = '✨';
+    
+    const coloredLabel = labelColor(`${labelIcon} ${label}`);
+    
+    // Format with premium styling
+    return this.wrapBulletText(cleaned, {
+      label: coloredLabel,
+      labelColor: (text) => text, // Already colored
+      thoughtType: 'assistant',
     });
   }
 
