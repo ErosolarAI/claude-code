@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # AGI Core Production Deployment Script
-# Final step to deploy v1.1.114 to production
+# Final step to deploy v1.1.115 to production
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -38,16 +38,16 @@ verify_state() {
   
   # Check version
   local current_version=$(node -p "require('./package.json').version")
-  if [[ "$current_version" != "1.1.114" ]]; then
-    error "Expected version 1.1.114, found $current_version"
+  if [[ "$current_version" != "1.1.115" ]]; then
+    error "Expected version 1.1.115, found $current_version"
   fi
   success "Version verified: $current_version"
   
   # Check git tag
-  if ! git tag --list | grep -q "v1.1.114"; then
-    error "Git tag v1.1.114 not found"
+  if ! git tag --list | grep -q "v1.1.115"; then
+    error "Git tag v1.1.115 not found"
   fi
-  success "Git tag v1.1.114 exists"
+  success "Git tag v1.1.115 exists"
   
   # Check git status
   if [[ -n "$(git status --porcelain)" ]]; then
@@ -109,7 +109,7 @@ deploy_github() {
   # Create GitHub release
   log "Creating GitHub release..."
   echo "To create GitHub release, run:"
-  echo "  gh release create v1.1.114 --generate-notes"
+  echo "  gh release create v1.1.115 --generate-notes"
   echo ""
   echo "Or use the GitHub web interface at:"
   echo "  https://github.com/ErosolarAI/agi-core-CLI-coding/releases/new"
@@ -118,7 +118,7 @@ deploy_github() {
   echo
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     if command -v gh &> /dev/null; then
-      gh release create v1.1.114 --generate-notes
+      gh release create v1.1.115 --generate-notes
       success "GitHub release created"
     else
       warning "GitHub CLI not installed. Create release manually."
@@ -182,7 +182,7 @@ deploy_npm() {
   log "Verifying npm publication..."
   sleep 5  # Wait for npm propagation
   local published_version=$(npm view agi-core-cli version 2>/dev/null || echo "not published")
-  if [[ "$published_version" == "1.1.114" ]]; then
+  if [[ "$published_version" == "1.1.115" ]]; then
     success "Package published successfully: version $published_version"
   else
     warning "Package may not be published yet. Current version: $published_version"
@@ -206,13 +206,13 @@ post_deployment_verification() {
   # Test installation
   log "Testing installation..."
   echo "To test installation, run:"
-  echo "  npx agi-core-cli@1.1.114 --version"
+  echo "  npx agi-core-cli@1.1.115 --version"
   echo ""
   
   # Test functionality
   log "Testing functionality..."
   echo "To test functionality, run:"
-  echo "  npx agi-core-cli@1.1.114 --help"
+  echo "  npx agi-core-cli@1.1.115 --help"
   echo ""
   
   # Provide links
@@ -220,8 +220,8 @@ post_deployment_verification() {
   echo ""
   echo "📦 Deployment Summary:"
   echo "====================="
-  echo "✅ Version: 1.1.114"
-  echo "✅ Git tag: v1.1.114"
+  echo "✅ Version: 1.1.115"
+  echo "✅ Git tag: v1.1.115"
   echo "✅ Tests: 536/538 passing"
   echo "✅ Build: Optimized production build"
   echo ""
@@ -240,7 +240,7 @@ post_deployment_verification() {
 # Main deployment function
 main() {
   echo ""
-  echo "🚀 AGI Core v1.1.114 - Production Deployment"
+  echo "🚀 AGI Core v1.1.115 - Production Deployment"
   echo "============================================"
   echo ""
   
@@ -270,7 +270,7 @@ main() {
   post_deployment_verification
   
   echo ""
-  success "AGI Core v1.1.114 deployment completed successfully!"
+  success "AGI Core v1.1.115 deployment completed successfully!"
   echo ""
 }
 
@@ -285,7 +285,7 @@ case "${1:-}" in
     echo "  $0 github             # Deploy to GitHub only"
     echo "  $0 npm                # Deploy to npm only"
     echo ""
-    echo "This script deploys AGI Core v1.1.114 to production."
+    echo "This script deploys AGI Core v1.1.115 to production."
     echo "It requires git, npm, and appropriate credentials."
     exit 0
     ;;
